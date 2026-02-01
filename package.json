@@ -1,0 +1,36 @@
+{
+  "name": "fitness-admin-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "lint": "next lint",
+    "seed": "tsx scripts/seed.ts",
+    "migrate": "tsx scripts/add-password-field.ts",
+    "migrate:imageurl": "tsx scripts/add-imageurl-column.ts",
+    "migrate:programid-nullable": "tsx scripts/make-programid-nullable.ts",
+    "remove:cardio": "tsx scripts/remove-cardio-programs.ts",
+    "remove:cardio-exercises": "tsx scripts/remove-cardio-exercises.ts",
+    "remove:cardio-goals": "tsx scripts/remove-cardio-goals.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.93.3",
+    "next": "^15.1.6",
+    "pg": "^8.13.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.0.6",
+    "@types/react-dom": "^19.0.2",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
