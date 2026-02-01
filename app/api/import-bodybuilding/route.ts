@@ -1,4 +1,4 @@
-import getDatabase from '@/lib/db';
+import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
 function parseCSVData(csvData: string): string[][] {
@@ -67,8 +67,6 @@ function parseCSVData(csvData: string): string[][] {
 }
 
 export async function POST(request: Request) {
-  const db = getDatabase();
-
   try {
     const body = await request.json();
     const { csvData, programId } = body;
@@ -81,34 +79,12 @@ export async function POST(request: Request) {
     let imported = 0;
     let skipped = 0;
     const errors: string[] = [];
-    const debugInfo: any[] = [];
-
-    console.log('Total rows parsed:', rows.length);
-    if (rows.length > 0) {
-      console.log('First row (header):', rows[0].slice(0, 3));
-      console.log('Second row (first data):', rows[1]?.slice(0, 3));
-    }
 
     // Skip header row (index 0)
     for (let i = 1; i < rows.length; i++) {
       const fields = rows[i];
 
       try {
-        // Debug first few lines
-        if (i <= 3) {
-          console.log(`Row ${i}:`, {
-            fieldCount: fields.length,
-            name: fields[0],
-            image: fields[2]?.substring(0, 50)
-          });
-          debugInfo.push({
-            row: i,
-            fieldCount: fields.length,
-            name: fields[0],
-            hasImage: !!fields[2]
-          });
-        }
-
         if (fields.length < 10) {
           errors.push(`Row ${i}: Not enough fields (${fields.length})`);
           skipped++;
@@ -117,92 +93,72 @@ export async function POST(request: Request) {
 
         const [
           exerciseName,
-          descriptionUrl,
+          ,
           exerciseImage,
           exerciseImage1,
-          muscleGpDetails,
+          ,
           muscleGp,
-          equipmentDetails,
+          ,
           equipment,
           rating,
           description
         ] = fields;
 
-        const cleanName = exerciseName?.trim();
+        const cleanName = exerciseName?.trim().replace(/\s+/g, ' ');
         
         if (!cleanName || cleanName.length < 2) {
-          errors.push(`Row ${i}: Invalid exercise name: "${cleanName}"`);
+          errors.push(`Row ${i}: Invalid exercise name`);
           skipped++;
           continue;
         }
 
         // Check if exercise already exists
-        const existingCheck = await db.query(
-          'SELECT id FROM exercises WHERE LOWER(name) = LOWER($1)',
-          [cleanName]
-        );
+        const { data: existing } = await supabase
+          .from('exercises')
+          .select('id')
+          .ilike('name', cleanName)
+          .single();
 
-        if (existingCheck.rows.length > 0) {
-          if (i <= 5) {
-            console.log(`Row ${i}: Exercise "${cleanName}" already exists, skipping`);
-          }
+        if (existing) {
           skipped++;
           continue;
         }
 
-        // Use first image, fallback to second if first is empty
+        // Use first image, fallback to second
         const imageUrl = exerciseImage?.trim() || exerciseImage1?.trim() || null;
 
-        // Create description with muscle group and equipment info
+        // Create description
         let fullDescription = description?.trim() || '';
-        if (muscleGp?.trim()) {
-          fullDescription += `\nKas Grubu: ${muscleGp.trim()}`;
-        }
-        if (equipment?.trim()) {
-          fullDescription += `\nEkipman: ${equipment.trim()}`;
-        }
-        if (rating?.trim()) {
-          fullDescription += `\nPuan: ${rating.trim()}`;
-        }
+        if (muscleGp?.trim()) fullDescription += `\nKas Grubu: ${muscleGp.trim()}`;
+        if (equipment?.trim()) fullDescription += `\nEkipman: ${equipment.trim()}`;
+        if (rating?.trim()) fullDescription += `\nPuan: ${rating.trim()}`;
 
         // Insert exercise
-        await db.query(
-          `INSERT INTO exercises ("programId", name, sets, reps, description, "imageUrl", "orderIndex")
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [
-            programId || null,
-            cleanName,
-            3, // Default sets
-            10, // Default reps
-            fullDescription.trim() || null,
-            imageUrl,
-            i - 1 // order index
-          ]
-        );
+        const { error } = await supabase
+          .from('exercises')
+          .insert([{
+            programId: programId || null,
+            name: cleanName,
+            sets: 3,
+            reps: 10,
+            description: fullDescription.trim() || null,
+            imageUrl: imageUrl,
+            orderIndex: i - 1
+          }]);
 
-        if (i <= 5) {
-          console.log(`Row ${i}: ✓ Successfully imported "${cleanName}"`);
-        }
-
+        if (error) throw error;
         imported++;
       } catch (error) {
-        const errorMsg = `Row ${i}: ${error}`;
-        errors.push(errorMsg);
-        if (i <= 10) {
-          console.error(errorMsg);
-        }
+        errors.push(`Row ${i}: ${error}`);
         skipped++;
       }
     }
-
-    console.log('Import complete:', { imported, skipped, totalErrors: errors.length });
 
     return NextResponse.json({
       success: true,
       imported,
       skipped,
       errors: errors.length > 0 ? errors.slice(0, 20) : undefined,
-      debugInfo: debugInfo.length > 0 ? debugInfo : undefined,
       message: `${imported} hareket içe aktarıldı, ${skipped} atlandı`,
     });
   } catch (error) {
