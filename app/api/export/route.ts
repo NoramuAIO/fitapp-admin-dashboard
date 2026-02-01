@@ -1,4 +1,4 @@
-import getDatabase from '@/lib/db';
+import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
@@ -6,19 +6,28 @@ export async function GET(request: Request) {
   const format = searchParams.get('format') || 'json';
   const type = searchParams.get('type') || 'all'; // all, programs, exercises
 
-  const db = getDatabase();
-
   try {
     let data: any = {};
 
     if (type === 'all' || type === 'programs') {
-      const programsResult = await db.query('SELECT * FROM programs ORDER BY id');
-      data.programs = programsResult.rows;
+      const { data: programs, error } = await supabase
+        .from('programs')
+        .select('*')
+        .order('id');
+      
+      if (error) throw error;
+      data.programs = programs;
     }
 
     if (type === 'all' || type === 'exercises') {
-      const exercisesResult = await db.query('SELECT * FROM exercises ORDER BY program_id, order_index');
-      data.exercises = exercisesResult.rows;
+      const { data: exercises, error } = await supabase
+        .from('exercises')
+        .select('*')
+        .order('programId')
+        .order('orderIndex');
+      
+      if (error) throw error;
+      data.exercises = exercises;
     }
 
     if (format === 'csv') {
@@ -27,18 +36,21 @@ export async function GET(request: Request) {
       
       if (data.programs) {
         csv += 'PROGRAMS\n';
-        csv += 'id,name,is_primary,created_at\n';
+        csv += 'id,name,isPrimary,createdAt\n';
         data.programs.forEach((p: any) => {
-          csv += `${p.id},"${p.name}",${p.is_primary},${p.created_at}\n`;
+          csv += `${p.id},"${p.name}",${p.isPrimary},${p.createdAt}\n`;
         });
         csv += '\n';
       }
 
       if (data.exercises) {
         csv += 'EXERCISES\n';
-        csv += 'id,program_id,name,sets,reps,duration,description,order_index,image_url\n';
+        csv += 'id,programId,name,sets,reps,duration,description,orderIndex,imageUrl\n';
         data.exercises.forEach((e: any) => {
-          csv += `${e.id},${e.program_id},"${e.name}",${e.sets},${e.reps},"${e.duration || ''}","${e.description || ''}",${e.order_index},"${e.image_url || '"}"\n`;
+          const duration = e.duration || '';
+          const description = (e.description || '').replace(/"/g, '""');
+          const imageUrl = e.imageUrl || '';
+          csv += `${e.id},${e.programId},"${e.name}",${e.sets},${e.reps},"${duration}","${description}",${e.orderIndex},"${imageUrl}"\n`;
         });
       }
 
