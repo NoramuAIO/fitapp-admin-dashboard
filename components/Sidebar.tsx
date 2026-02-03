@@ -10,7 +10,6 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
     { id: 'home', icon: '🏠', label: 'Ana Sayfa', href: '/' },
     { id: 'users', icon: '👥', label: 'Kullanıcılar', href: '/users' },
     { id: 'programs', icon: '🏋️', label: 'Programlar', href: '/programs' },
-    { id: 'user-programs', icon: '📋', label: 'Kullanıcı Programları', href: '/user-programs' },
     { id: 'exercises', icon: '💪', label: 'Tüm Hareketler', href: '/exercises' },
     { id: 'goals', icon: '🎯', label: 'Hedefler', href: '/goals' },
     { id: 'analytics', icon: '📊', label: 'Analizler', href: '/analytics' },
