@@ -46,6 +46,8 @@ export default function ProgramList() {
     description: '',
     imageUrl: ''
   })
+  const [draggedExercise, setDraggedExercise] = useState<{ programId: number; exerciseId: number } | null>(null)
+  const [dragOverExercise, setDragOverExercise] = useState<{ programId: number; exerciseId: number } | null>(null)
 
   useEffect(() => {
     fetchPrograms()
@@ -410,6 +412,69 @@ export default function ProgramList() {
     } else {
       setSelectedExerciseIds(availableExercises.map(e => e.id));
     }
+  };
+
+  const handleDragStart = (programId: number, exerciseId: number) => {
+    setDraggedExercise({ programId, exerciseId });
+  };
+
+  const handleDragOver = (e: React.DragEvent, programId: number, exerciseId: number) => {
+    e.preventDefault();
+    setDragOverExercise({ programId, exerciseId });
+  };
+
+  const handleDragEnd = () => {
+    setDraggedExercise(null);
+    setDragOverExercise(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetProgramId: number, targetExerciseId: number) => {
+    e.preventDefault();
+    
+    if (!draggedExercise) return;
+    if (draggedExercise.programId !== targetProgramId) return; // Sadece aynı program içinde taşıma
+    if (draggedExercise.exerciseId === targetExerciseId) return; // Aynı yere bırakma
+
+    const program = programs.find(p => p.id === targetProgramId);
+    if (!program) return;
+
+    const exercises = [...program.exercises];
+    const draggedIndex = exercises.findIndex(e => e.id === draggedExercise.exerciseId);
+    const targetIndex = exercises.findIndex(e => e.id === targetExerciseId);
+
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    // Sıralamayı değiştir
+    const [removed] = exercises.splice(draggedIndex, 1);
+    exercises.splice(targetIndex, 0, removed);
+
+    // State'i güncelle
+    setPrograms(programs.map(p => 
+      p.id === targetProgramId 
+        ? { ...p, exercises }
+        : p
+    ));
+
+    // Backend'e kaydet
+    try {
+      for (let i = 0; i < exercises.length; i++) {
+        await fetch(`/api/exercises/${exercises[i].id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...exercises[i],
+            orderIndex: i,
+          }),
+        });
+      }
+    } catch (error) {
+      console.error('Error updating exercise order:', error);
+      // Hata durumunda geri yükle
+      await fetchPrograms();
+    }
+
+    setDraggedExercise(null);
+    setDragOverExercise(null);
   };
 
   if (loading) {
@@ -853,38 +918,67 @@ export default function ProgramList() {
                     </div>
                   ) : (
                     // View Mode
-                    <div className="bg-[#0F0F0F] rounded-xl p-4 hover:bg-[#1A1A1A] transition-colors">
+                    <div 
+                      draggable
+                      onDragStart={() => handleDragStart(program.id, exercise.id)}
+                      onDragOver={(e) => handleDragOver(e, program.id, exercise.id)}
+                      onDragEnd={handleDragEnd}
+                      onDrop={(e) => handleDrop(e, program.id, exercise.id)}
+                      className={`bg-[#0F0F0F] rounded-xl p-4 hover:bg-[#1A1A1A] transition-all cursor-move ${
+                        dragOverExercise?.programId === program.id && dragOverExercise?.exerciseId === exercise.id
+                          ? 'border-2 border-[#6366F1] border-dashed'
+                          : ''
+                      } ${
+                        draggedExercise?.exerciseId === exercise.id
+                          ? 'opacity-50'
+                          : ''
+                      }`}
+                    >
                       <div className="flex items-start justify-between gap-4">
-                        {exercise.imageUrl && (
-                          <div className="w-24 h-24 bg-[#1A1A1A] rounded-lg overflow-hidden flex-shrink-0">
-                            <img
-                              src={exercise.imageUrl}
-                              alt={exercise.name}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                              }}
-                            />
+                        <div className="flex items-center gap-3 flex-1">
+                          {/* Drag Handle */}
+                          <div className="text-gray-500 cursor-grab active:cursor-grabbing">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                              <circle cx="7" cy="5" r="1.5"/>
+                              <circle cx="13" cy="5" r="1.5"/>
+                              <circle cx="7" cy="10" r="1.5"/>
+                              <circle cx="13" cy="10" r="1.5"/>
+                              <circle cx="7" cy="15" r="1.5"/>
+                              <circle cx="13" cy="15" r="1.5"/>
+                            </svg>
                           </div>
-                        )}
-                        <div className="flex-1">
-                          <h4 className="text-white font-medium mb-2">{exercise.name}</h4>
-                          <div className="flex items-center flex-wrap gap-2 text-sm">
-                            <span className="bg-[#5DD97C]/20 text-[#5DD97C] px-3 py-1 rounded-lg">
-                              {exercise.sets} Set
-                            </span>
-                            <span className="bg-orange-500/20 text-orange-400 px-3 py-1 rounded-lg">
-                              {exercise.reps} Tekrar
-                            </span>
-                            {exercise.duration && (
-                              <span className="bg-purple-500/20 text-purple-400 px-3 py-1 rounded-lg">
-                                {exercise.duration}
+                          
+                          {exercise.imageUrl && (
+                            <div className="w-24 h-24 bg-[#1A1A1A] rounded-lg overflow-hidden flex-shrink-0">
+                              <img
+                                src={exercise.imageUrl}
+                                alt={exercise.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                }}
+                              />
+                            </div>
+                          )}
+                          <div className="flex-1">
+                            <h4 className="text-white font-medium mb-2">{exercise.name}</h4>
+                            <div className="flex items-center flex-wrap gap-2 text-sm">
+                              <span className="bg-[#5DD97C]/20 text-[#5DD97C] px-3 py-1 rounded-lg">
+                                {exercise.sets} Set
                               </span>
+                              <span className="bg-orange-500/20 text-orange-400 px-3 py-1 rounded-lg">
+                                {exercise.reps} Tekrar
+                              </span>
+                              {exercise.duration && (
+                                <span className="bg-purple-500/20 text-purple-400 px-3 py-1 rounded-lg">
+                                  {exercise.duration}
+                                </span>
+                              )}
+                            </div>
+                            {exercise.description && (
+                              <p className="text-gray-500 text-sm mt-2">{exercise.description}</p>
                             )}
                           </div>
-                          {exercise.description && (
-                            <p className="text-gray-500 text-sm mt-2">{exercise.description}</p>
-                          )}
                         </div>
                         <div className="flex items-center space-x-2">
                           <button 
