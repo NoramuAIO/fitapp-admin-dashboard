@@ -239,11 +239,25 @@ export default function ProgramList() {
     }
 
     try {
+      let parsedData;
+      
+      // JSON parse hatalarını yakala
+      if (importFormat === 'json') {
+        try {
+          parsedData = JSON.parse(importData);
+        } catch (parseError: any) {
+          alert('JSON formatı hatalı!\n\nHata: ' + parseError.message + '\n\nLütfen JSON formatını kontrol edin.');
+          return;
+        }
+      } else {
+        parsedData = importData;
+      }
+
       const response = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          data: importFormat === 'json' ? JSON.parse(importData) : importData,
+          data: parsedData,
           format: importFormat,
           type: importType,
         }),
@@ -251,17 +265,25 @@ export default function ProgramList() {
 
       const result = await response.json();
       
+      console.log('Import result:', result);
+      
       if (result.success) {
-        alert(result.message);
+        alert('✅ Başarılı!\n\n' + result.message);
         await fetchPrograms();
         setShowImportModal(false);
         setImportData('');
       } else {
-        alert('İçe aktarma başarısız: ' + (result.error || 'Bilinmeyen hata'));
+        // Detaylı hata mesajı göster
+        let errorMsg = '❌ İçe aktarma başarısız!\n\n';
+        errorMsg += 'Hata: ' + (result.error || 'Bilinmeyen hata') + '\n';
+        if (result.details) {
+          errorMsg += '\nDetay: ' + result.details;
+        }
+        alert(errorMsg);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Import error:', error);
-      alert('İçe aktarma başarısız oldu');
+      alert('❌ İçe aktarma başarısız!\n\nHata: ' + (error.message || 'Bilinmeyen hata') + '\n\nKonsolu kontrol edin.');
     }
   };
 
