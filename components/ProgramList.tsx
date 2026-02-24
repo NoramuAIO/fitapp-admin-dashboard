@@ -36,6 +36,7 @@ export default function ProgramList() {
   const [showExerciseSelector, setShowExerciseSelector] = useState(false)
   const [selectedProgramId, setSelectedProgramId] = useState<number | null>(null)
   const [selectedExerciseIds, setSelectedExerciseIds] = useState<number[]>([])
+  const [exerciseSearchQuery, setExerciseSearchQuery] = useState('')
   const [newProgram, setNewProgram] = useState({ name: '', isPrimary: false })
   const [newExercise, setNewExercise] = useState({
     name: '',
@@ -1079,19 +1080,54 @@ export default function ProgramList() {
                 !program?.exercises.some(e => e.name === exercise.name)
               );
               
+              // Arama filtresi uygula
+              const filteredExercises = availableExercises.filter(exercise => 
+                exercise.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()) ||
+                exercise.description?.toLowerCase().includes(exerciseSearchQuery.toLowerCase())
+              );
+              
               return (
                 <>
+                  {/* Search Bar */}
+                  <div className="mb-4">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={exerciseSearchQuery}
+                        onChange={(e) => setExerciseSearchQuery(e.target.value)}
+                        placeholder="Hareket ara... (isim veya açıklama)"
+                        className="w-full bg-[#0F0F0F] text-white rounded-xl px-4 py-3 pl-11 border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1] transition-colors"
+                      />
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                        🔍
+                      </span>
+                      {exerciseSearchQuery && (
+                        <button
+                          onClick={() => setExerciseSearchQuery('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                    {exerciseSearchQuery && (
+                      <p className="text-sm text-gray-400 mt-2">
+                        {filteredExercises.length} hareket bulundu
+                      </p>
+                    )}
+                  </div>
+
                   {/* Header with Select All */}
                   <div className="flex items-center justify-between mb-4 pb-4 border-b border-[#2A2A2A]">
                     <div className="flex items-center gap-3">
                       <input
                         type="checkbox"
-                        checked={selectedExerciseIds.length === availableExercises.length && availableExercises.length > 0}
-                        onChange={() => toggleSelectAll(availableExercises)}
+                        checked={selectedExerciseIds.length === filteredExercises.length && filteredExercises.length > 0}
+                        onChange={() => toggleSelectAll(filteredExercises)}
                         className="w-5 h-5 rounded border-[#2A2A2A] bg-[#0F0F0F] checked:bg-[#6366F1]"
                       />
                       <span className="text-white font-medium">
-                        Tümünü Seç ({selectedExerciseIds.length} / {availableExercises.length})
+                        Tümünü Seç ({selectedExerciseIds.length} / {filteredExercises.length})
                       </span>
                     </div>
                     <button
@@ -1105,13 +1141,16 @@ export default function ProgramList() {
 
                   {/* Exercises Grid */}
                   <div className="flex-1 overflow-y-auto">
-                    {availableExercises.length === 0 ? (
+                    {filteredExercises.length === 0 ? (
                       <div className="text-center py-8 text-gray-400">
-                        Tüm hareketler bu programda zaten mevcut
+                        {exerciseSearchQuery 
+                          ? `"${exerciseSearchQuery}" için sonuç bulunamadı`
+                          : 'Tüm hareketler bu programda zaten mevcut'
+                        }
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        {availableExercises.map((exercise) => (
+                        {filteredExercises.map((exercise) => (
                           <div
                             key={exercise.id}
                             className={`bg-[#0F0F0F] rounded-xl p-4 border transition-all cursor-pointer ${
@@ -1176,6 +1215,7 @@ export default function ProgramList() {
                         setShowExerciseSelector(false);
                         setSelectedProgramId(null);
                         setSelectedExerciseIds([]);
+                        setExerciseSearchQuery('');
                       }}
                       className="flex-1 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white py-3 rounded-xl font-semibold transition-all"
                     >
