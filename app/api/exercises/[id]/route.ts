@@ -8,18 +8,24 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json()
-    const { name, sets, reps, duration, description, imageUrl } = body
+    const { name, sets, reps, duration, description, imageUrl, orderIndex } = body
+
+    const updateData: any = {
+      name,
+      sets,
+      reps,
+      duration: duration || null,
+      description: description || null,
+      imageUrl: imageUrl || null
+    };
+
+    if (orderIndex !== undefined) {
+      updateData.orderIndex = orderIndex;
+    }
 
     const { data, error } = await supabase
       .from('exercises')
-      .update({
-        name,
-        sets,
-        reps,
-        duration: duration || null,
-        description: description || null,
-        imageUrl: imageUrl || null
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single()
@@ -39,7 +45,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    
+
     const { error } = await supabase
       .from('exercises')
       .delete()
