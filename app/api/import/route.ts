@@ -14,7 +14,8 @@ export async function POST(request: Request) {
     if (format === 'json') {
       // JSON Import
       if (data.programs && (type === 'all' || type === 'programs')) {
-        for (const program of data.programs) {
+        for (let i = 0; i < data.programs.length; i++) {
+          const program = data.programs[i];
           const { data: newProgram, error } = await supabase
             .from('programs')
             .insert({
@@ -26,31 +27,38 @@ export async function POST(request: Request) {
 
           if (error) throw error;
           
-          // Map old ID to new ID if exists
-          if (program.id && newProgram) {
-            programIdMap.set(program.id, newProgram.id);
-          }
+          // Map index-based ID (1, 2, 3...) to actual database ID
+          // This allows exercises to reference programs by their order in the array
+          programIdMap.set(i + 1, newProgram.id);
+          
+          console.log(`Program "${program.name}" created with ID ${newProgram.id}, mapped from ${i + 1}`);
           
           imported.programs++;
         }
       }
 
       if (data.exercises && (type === 'all' || type === 'exercises')) {
+        console.log('Processing exercises, programIdMap:', Array.from(programIdMap.entries()));
+        
         for (const exercise of data.exercises) {
           // Use mapped program ID if available, otherwise use original
           let programId = exercise.program_id;
+          
+          console.log(`Processing exercise "${exercise.name}" with program_id ${exercise.program_id}`);
+          
           if (programIdMap.has(exercise.program_id)) {
             programId = programIdMap.get(exercise.program_id);
+            console.log(`Mapped program_id ${exercise.program_id} to ${programId}`);
           }
 
           // Check if program exists
-          const { data: programExists } = await supabase
+          const { data: programExists, error: checkError } = await supabase
             .from('programs')
             .select('id')
             .eq('id', programId)
             .single();
 
-          if (!programExists) {
+          if (checkError || !programExists) {
             console.warn(`Program ID ${programId} not found, skipping exercise: ${exercise.name}`);
             continue;
           }
@@ -72,6 +80,8 @@ export async function POST(request: Request) {
             console.error(`Error inserting exercise ${exercise.name}:`, error);
             throw error;
           }
+          
+          console.log(`Exercise "${exercise.name}" added successfully to program ${programId}`);
           imported.exercises++;
         }
       }
