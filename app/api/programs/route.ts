@@ -1,12 +1,26 @@
 import { supabase } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
+import getDatabase from '@/lib/db'
+
+let isMigrated = false
 
 export async function GET() {
   try {
+    if (!isMigrated) {
+      try {
+        const pool = getDatabase()
+        await pool.query('ALTER TABLE IF EXISTS programs ADD COLUMN IF NOT EXISTS "orderIndex" INTEGER DEFAULT 0;')
+        isMigrated = true
+      } catch (e) {
+        console.error('Failed to migrate table programs:', e)
+      }
+    }
+
     // Get all programs
     const { data: programs, error: programsError } = await supabase
       .from('programs')
       .select('*')
+      .order('orderIndex', { ascending: true })
       .order('isPrimary', { ascending: false })
       .order('createdAt', { ascending: false })
 

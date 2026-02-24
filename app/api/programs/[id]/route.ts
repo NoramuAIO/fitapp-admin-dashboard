@@ -1,80 +1,66 @@
-import { supabase } from '@/lib/supabase'
-import { NextResponse } from 'next/server'
-import getDatabase from '@/lib/db'
+import { supabase } from '@/lib/supabase';
+import { NextResponse } from 'next/server';
 
-let isMigrated = false
-
-export async function GET() {
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
-    if (!isMigrated) {
-      try {
-        const pool = getDatabase()
-        await pool.query('ALTER TABLE IF EXISTS programs ADD COLUMN IF NOT EXISTS "orderIndex" INTEGER DEFAULT 0;')
-        isMigrated = true
-      } catch (e) {
-        console.error('Failed to migrate table programs:', e)
-      }
-    }
-
-    // Get all programs
-    const { data: programs, error: programsError } = await supabase
-      .from('programs')
-      .select('*')
-      .order('orderIndex', { ascending: true })
-      .order('isPrimary', { ascending: false })
-      .order('createdAt', { ascending: false })
-
-    if (programsError) throw programsError
-
-    // Get exercises for each program
-    const programsWithExercises = await Promise.all(
-      (programs || []).map(async (program: any) => {
-        const { data: exercises, error: exercisesError } = await supabase
-          .from('exercises')
-          .select('*')
-          .eq('programId', program.id)
-          .order('orderIndex', { ascending: true })
-
-        if (exercisesError) throw exercisesError
-
-        return {
-          ...program,
-          exercises: exercises || [],
-        }
-      })
-    )
-
-    return NextResponse.json(programsWithExercises)
-  } catch (error) {
-    console.error('Error fetching programs:', error)
-    return NextResponse.json({ error: 'Failed to fetch programs' }, { status: 500 })
-  }
-}
-
-export async function POST(request: Request) {
-  try {
+    const { id } = await params;
     const body = await request.json()
-    const { name, isPrimary } = body
+    const { name, isPrimary, orderIndex } = body
 
     // If this is primary, unset other primary programs
     if (isPrimary) {
       await supabase
         .from('programs')
         .update({ isPrimary: false })
-        .neq('id', 0)
+        .neq('id', id)
+    }
+
+    const updateData: any = {
+      name,
+      isPrimary,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (orderIndex !== undefined) {
+      updateData.orderIndex = orderIndex;
     }
 
     const { data, error } = await supabase
       .from('programs')
-      .insert([{ name, isPrimary }])
+      .update(updateData)
+      .eq('id', id)
       .select()
       .single()
 
     if (error) throw error
 
-    return NextResponse.json(data, { status: 201 })
+    return NextResponse.json(data)
   } catch (error) {
-    console.error('Error creating program:', error)
-    return NextResponse.json({ error: 'Failed to create program' }, { status: 500 })
+    console.error('Error updating program:', error)
+    return NextResponse.json({ error: 'Failed to update program' }, { status: 500 })
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+
+    const { error } = await supabase
+      .from('programs')
+      .delete()
+      .eq('id', id)
+
+    if (error) throw error
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting program:', error)
+    return NextResponse.json({ error: 'Failed to delete program' }, { status: 500 })
   }
 }
