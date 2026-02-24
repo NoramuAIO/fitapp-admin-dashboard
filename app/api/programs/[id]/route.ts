@@ -8,7 +8,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json()
-    const { name, isPrimary } = body
+    const { name, isPrimary, orderIndex } = body
 
     // If this is primary, unset other primary programs
     if (isPrimary) {
@@ -18,13 +18,19 @@ export async function PUT(
         .neq('id', id)
     }
 
+    const updateData: any = {
+      name,
+      isPrimary,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (orderIndex !== undefined) {
+      updateData.orderIndex = orderIndex;
+    }
+
     const { data, error } = await supabase
       .from('programs')
-      .update({
-        name,
-        isPrimary,
-        updatedAt: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single()
@@ -44,7 +50,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    
+
     const { error } = await supabase
       .from('programs')
       .delete()
