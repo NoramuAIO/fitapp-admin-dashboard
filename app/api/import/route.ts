@@ -8,6 +8,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { data, format, type } = body;
 
+    console.log('Import request:', { format, type, hasData: !!data });
+
     let imported = { programs: 0, exercises: 0 };
 
     if (format === 'json') {
@@ -98,8 +100,13 @@ export async function POST(request: Request) {
       imported,
       message: `${imported.programs} program ve ${imported.exercises} hareket içe aktarıldı`,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Import error:', error);
-    return NextResponse.json({ error: 'Import failed', details: String(error) }, { status: 500 });
+    return NextResponse.json({ 
+      success: false,
+      error: 'Import failed', 
+      details: error.message || String(error),
+      stack: error.stack 
+    }, { status: 500 });
   }
 }
