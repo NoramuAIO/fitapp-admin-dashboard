@@ -1,16 +1,5 @@
 import React, { useState } from 'react';
-
-interface Exercise {
-    id: number;
-    name: string;
-    sets: number;
-    reps: number;
-    duration?: string;
-    description?: string;
-    imageUrl?: string;
-    muscleGroup?: string;
-    orderIndex: number;
-}
+import { Exercise } from './ExerciseSelectorModal';
 
 interface ExerciseItemProps {
     workoutId?: number;

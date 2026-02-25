@@ -3,37 +3,9 @@
 import { useEffect, useState } from 'react'
 import ActivityCards from './programs/ActivityCards'
 import AddProgramModal from './programs/AddProgramModal'
-import ExerciseSelectorModal from './programs/ExerciseSelectorModal'
+import ExerciseSelectorModal, { Exercise, Program } from './programs/ExerciseSelectorModal'
 import ImportModal from './programs/ImportModal'
 import ProgramItem from './programs/ProgramItem'
-
-interface Exercise {
-  id: number
-  name: string
-  sets: number
-  reps: number
-  duration?: string
-  description?: string
-  imageUrl?: string
-  muscleGroup?: string
-  orderIndex: number
-}
-
-interface Workout {
-  id: number
-  programId: number
-  name: string
-  dayNumber?: number
-  orderIndex: number
-  exercises: Exercise[]
-}
-
-interface Program {
-  id: number
-  name: string
-  isPrimary: boolean
-  workouts?: Workout[]
-}
 
 export default function ProgramList() {
   const [programs, setPrograms] = useState<Program[]>([])

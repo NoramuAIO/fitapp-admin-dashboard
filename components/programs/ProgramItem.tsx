@@ -1,22 +1,7 @@
 import { useState } from 'react';
 import AddWorkoutModal from './AddWorkoutModal';
+import { Program, Workout } from './ExerciseSelectorModal';
 import WorkoutItem from './WorkoutItem';
-
-interface Workout {
-    id: number;
-    programId: number;
-    name: string;
-    dayNumber?: number;
-    orderIndex: number;
-    exercises: any[];
-}
-
-interface Program {
-    id: number;
-    name: string;
-    isPrimary: boolean;
-    workouts?: Workout[];
-}
 
 interface ProgramItemProps {
     program: Program;
@@ -51,7 +36,7 @@ export default function ProgramItem({
     };
 
     const workoutCount = program.workouts?.length || 0;
-    const exerciseCount = program.workouts?.reduce((acc, w) => acc + (w.exercises?.length || 0), 0) || 0;
+    const exerciseCount = program.workouts?.reduce((acc: number, w: Workout) => acc + (w.exercises?.length || 0), 0) || 0;
 
     return (
         <>
@@ -94,7 +79,7 @@ export default function ProgramItem({
 
                 {!isCollapsed && (
                     <div className="space-y-3">
-                        {program.workouts?.map((workout) => (
+                        {program.workouts?.map((workout: Workout) => (
                             <WorkoutItem
                                 key={workout.id}
                                 workout={workout}

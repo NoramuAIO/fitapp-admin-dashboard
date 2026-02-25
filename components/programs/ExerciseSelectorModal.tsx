@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-interface Exercise {
+export interface Exercise {
     id: number;
     name: string;
     sets: number;
@@ -9,9 +9,12 @@ interface Exercise {
     description?: string;
     imageUrl?: string;
     muscleGroup?: string;
+    orderIndex?: number;
+    programId?: number;
+    workoutId?: number;
 }
 
-interface Workout {
+export interface Workout {
     id: number;
     programId: number;
     name: string;
@@ -20,7 +23,7 @@ interface Workout {
     exercises: Exercise[];
 }
 
-interface Program {
+export interface Program {
     id: number;
     name: string;
     isPrimary: boolean;

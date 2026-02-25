@@ -37,6 +37,7 @@ export async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS programs (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
+        description TEXT,
         "isPrimary" BOOLEAN DEFAULT FALSE,
         "createdAt" TIMESTAMP DEFAULT NOW(),
         "updatedAt" TIMESTAMP DEFAULT NOW()
@@ -44,8 +45,20 @@ export async function initializeDatabase() {
     `);
 
     await db.query(`
+      CREATE TABLE IF NOT EXISTS program_days (
+        id SERIAL PRIMARY KEY,
+        "programId" INTEGER REFERENCES programs(id) ON DELETE CASCADE,
+        "dayNumber" INTEGER NOT NULL,
+        "dayName" VARCHAR(255) NOT NULL,
+        "orderIndex" INTEGER DEFAULT 0,
+        "createdAt" TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await db.query(`
       CREATE TABLE IF NOT EXISTS exercises (
         id SERIAL PRIMARY KEY,
+        "dayId" INTEGER REFERENCES program_days(id) ON DELETE CASCADE,
         "programId" INTEGER REFERENCES programs(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
         sets INTEGER NOT NULL,
@@ -53,6 +66,7 @@ export async function initializeDatabase() {
         duration VARCHAR(50),
         description TEXT,
         "imageUrl" TEXT,
+        "muscleGroup" VARCHAR(100),
         "orderIndex" INTEGER DEFAULT 0,
         "createdAt" TIMESTAMP DEFAULT NOW()
       )

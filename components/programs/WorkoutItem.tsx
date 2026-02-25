@@ -1,27 +1,7 @@
 import { useState } from 'react';
 import AddExerciseForm from './AddExerciseForm';
 import ExerciseItem from './ExerciseItem';
-
-interface Exercise {
-    id: number;
-    name: string;
-    sets: number;
-    reps: number;
-    duration?: string;
-    description?: string;
-    imageUrl?: string;
-    muscleGroup?: string;
-    orderIndex: number;
-}
-
-interface Workout {
-    id: number;
-    programId: number;
-    name: string;
-    dayNumber?: number;
-    orderIndex: number;
-    exercises: Exercise[];
-}
+import { Exercise, Workout } from './ExerciseSelectorModal';
 
 interface WorkoutItemProps {
     workout: Workout;
@@ -97,7 +77,7 @@ export default function WorkoutItem({
 
             {!isCollapsed && (
                 <div className="space-y-2 pl-8">
-                    {workout.exercises.map((exercise) => (
+                    {workout.exercises.map((exercise: Exercise) => (
                         <ExerciseItem
                             key={exercise.id}
                             workoutId={workout.id}
