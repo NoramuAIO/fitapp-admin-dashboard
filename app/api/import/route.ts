@@ -78,7 +78,7 @@ export async function POST(request: Request) {
           const { error } = await supabase
             .from('exercises')
             .insert({
-              workoutId: workoutId || null,
+              dayId: workoutId || null,  // Supabase'de dayId kullanılıyor
               programId: programId || null,
               name: exercise.name,
               sets: exercise.sets,
@@ -177,7 +177,7 @@ export async function POST(request: Request) {
             const { error } = await supabase
               .from('exercises')
               .insert({
-                workoutId,
+                dayId: workoutId,  // Supabase'de dayId kullanılıyor
                 programId,
                 name: parts[2].replace(/"/g, ''),
                 sets: parseInt(parts[3]),
