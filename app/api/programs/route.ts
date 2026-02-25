@@ -1,6 +1,6 @@
+import getDatabase from '@/lib/db'
 import { supabase } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
-import getDatabase from '@/lib/db'
 
 let isMigrated = false
 
@@ -16,7 +16,7 @@ export async function GET() {
       }
     }
 
-    // Get all programs
+    // Get all programs (without exercises, workouts will be fetched separately)
     const { data: programs, error: programsError } = await supabase
       .from('programs')
       .select('*')
@@ -26,25 +26,7 @@ export async function GET() {
 
     if (programsError) throw programsError
 
-    // Get exercises for each program
-    const programsWithExercises = await Promise.all(
-      (programs || []).map(async (program: any) => {
-        const { data: exercises, error: exercisesError } = await supabase
-          .from('exercises')
-          .select('*')
-          .eq('programId', program.id)
-          .order('orderIndex', { ascending: true })
-
-        if (exercisesError) throw exercisesError
-
-        return {
-          ...program,
-          exercises: exercises || [],
-        }
-      })
-    )
-
-    return NextResponse.json(programsWithExercises)
+    return NextResponse.json(programs || [])
   } catch (error) {
     console.error('Error fetching programs:', error)
     return NextResponse.json({ error: 'Failed to fetch programs' }, { status: 500 })
