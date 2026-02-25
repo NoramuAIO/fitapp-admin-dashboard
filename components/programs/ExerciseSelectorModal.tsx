@@ -8,19 +8,15 @@ interface Exercise {
     duration?: string;
     description?: string;
     imageUrl?: string;
-}
-
-interface Program {
-    id: number;
-    name: string;
-    isPrimary: boolean;
-    exercises: Exercise[];
+    muscleGroup?: string;
 }
 
 interface Workout {
     id: number;
     programId: number;
     name: string;
+    dayNumber?: number;
+    orderIndex: number;
     exercises: Exercise[];
 }
 
