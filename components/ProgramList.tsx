@@ -1,11 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import ImportModal from './programs/ImportModal'
+import ActivityCards from './programs/ActivityCards'
 import AddProgramModal from './programs/AddProgramModal'
 import ExerciseSelectorModal from './programs/ExerciseSelectorModal'
+import ImportModal from './programs/ImportModal'
 import ProgramItem from './programs/ProgramItem'
-import ActivityCards from './programs/ActivityCards'
 
 interface Exercise {
   id: number
@@ -15,13 +15,24 @@ interface Exercise {
   duration?: string
   description?: string
   imageUrl?: string
+  muscleGroup?: string
+  orderIndex: number
+}
+
+interface Workout {
+  id: number
+  programId: number
+  name: string
+  dayNumber?: number
+  orderIndex: number
+  exercises: Exercise[]
 }
 
 interface Program {
   id: number
   name: string
   isPrimary: boolean
-  exercises: Exercise[]
+  workouts?: Workout[]
 }
 
 export default function ProgramList() {
@@ -38,15 +49,11 @@ export default function ProgramList() {
 
   // Selection state
   const [selectedProgramId, setSelectedProgramId] = useState<number | null>(null)
-  const [showAddExercise, setShowAddExercise] = useState<number | null>(null)
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState<number | null>(null)
 
   // Drag state - Programs
   const [draggedProgram, setDraggedProgram] = useState<number | null>(null)
   const [dragOverProgram, setDragOverProgram] = useState<number | null>(null)
-
-  // Drag state - Exercises
-  const [draggedExercise, setDraggedExercise] = useState<{ programId: number; exerciseId: number } | null>(null)
-  const [dragOverExercise, setDragOverExercise] = useState<{ programId: number; exerciseId: number } | null>(null)
 
   useEffect(() => {
     fetchPrograms()
@@ -66,9 +73,25 @@ export default function ProgramList() {
 
   const fetchPrograms = async () => {
     try {
-      const response = await fetch('/api/programs')
-      const data = await response.json()
-      setPrograms(data)
+      // First fetch programs
+      const programsResponse = await fetch('/api/programs')
+      const programsData = await programsResponse.json()
+
+      // Then fetch workouts for each program
+      const programsWithWorkouts = await Promise.all(
+        programsData.map(async (program: Program) => {
+          try {
+            const workoutsResponse = await fetch(`/api/workouts?programId=${program.id}`)
+            const workouts = await workoutsResponse.json()
+            return { ...program, workouts: workouts || [] }
+          } catch (error) {
+            console.error('Error fetching workouts for program:', program.id, error)
+            return { ...program, workouts: [] }
+          }
+        })
+      )
+
+      setPrograms(programsWithWorkouts)
     } catch (error) {
       console.error('Error fetching programs:', error)
     } finally {
@@ -99,20 +122,33 @@ export default function ProgramList() {
     }
   }
 
-  const handleDeleteExercise = async (programId: number, exerciseId: number) => {
+  const handleDeleteWorkout = async (workoutId: number) => {
+    if (!confirm('Bu antremanı ve içindeki tüm hareketleri silmek istediğinizden emin misiniz?')) return
+
+    try {
+      const response = await fetch(`/api/workouts?id=${workoutId}`, { method: 'DELETE' })
+      if (response.ok) {
+        await fetchPrograms()
+      }
+    } catch (error) {
+      console.error('Error deleting workout:', error)
+    }
+  }
+
+  const handleDeleteExercise = async (workoutId: number, exerciseId: number) => {
     if (!confirm('Bu hareketi silmek istediğinizden emin misiniz?')) return
 
     try {
       const response = await fetch(`/api/exercises/${exerciseId}`, { method: 'DELETE' })
       if (response.ok) {
-        await fetchPrograms(); // Re-fetch to get correct ordering and state from backend
+        await fetchPrograms()
       }
     } catch (error) {
       console.error('Error deleting exercise:', error)
     }
   }
 
-  const handleExport = async (format: 'json' | 'csv', type: 'all' | 'programs' | 'exercises') => {
+  const handleExport = async (format: 'json' | 'csv', type: 'all' | 'programs' | 'exercises' | 'workouts') => {
     try {
       const response = await fetch(`/api/export?format=${format}&type=${type}`);
       const blob = await response.blob();
@@ -182,66 +218,6 @@ export default function ProgramList() {
     setDragOverProgram(null);
   }
 
-  // --- Exercise Drag & Drop ---
-  const handleDragStart = (programId: number, exerciseId: number) => {
-    setDraggedExercise({ programId, exerciseId });
-  }
-
-  const handleDragOver = (e: React.DragEvent, programId: number, exerciseId: number) => {
-    e.preventDefault();
-    setDragOverExercise({ programId, exerciseId });
-  }
-
-  const handleDragEnd = () => {
-    setDraggedExercise(null);
-    setDragOverExercise(null);
-  }
-
-  const handleDrop = async (e: React.DragEvent, targetProgramId: number, targetExerciseId: number) => {
-    e.preventDefault();
-
-    if (!draggedExercise) return;
-    if (draggedExercise.programId !== targetProgramId) return;
-    if (draggedExercise.exerciseId === targetExerciseId) return;
-
-    const program = programs.find(p => p.id === targetProgramId);
-    if (!program) return;
-
-    const exercises = [...program.exercises];
-    const draggedIndex = exercises.findIndex(e => e.id === draggedExercise.exerciseId);
-    const targetIndex = exercises.findIndex(e => e.id === targetExerciseId);
-
-    if (draggedIndex === -1 || targetIndex === -1) return;
-
-    const [removed] = exercises.splice(draggedIndex, 1);
-    exercises.splice(targetIndex, 0, removed);
-
-    setPrograms(programs.map(p =>
-      p.id === targetProgramId
-        ? { ...p, exercises }
-        : p
-    ));
-
-    try {
-      for (let i = 0; i < exercises.length; i++) {
-        await fetch(`/api/exercises/${exercises[i].id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...exercises[i],
-            orderIndex: i,
-          }),
-        });
-      }
-    } catch (error) {
-      console.error('Error updating exercise order:', error);
-      await fetchPrograms();
-    }
-
-    setDraggedExercise(null);
-    setDragOverExercise(null);
-  }
-
   const toggleProgramCollapse = (programId: number) => {
     setCollapsedPrograms(prev => {
       const newSet = new Set(prev);
@@ -278,11 +254,13 @@ export default function ProgramList() {
                 <div className="text-xs text-gray-400 px-3 py-2 font-semibold">JSON</div>
                 <button onClick={() => handleExport('json', 'all')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Tümü</button>
                 <button onClick={() => handleExport('json', 'programs')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Programlar</button>
+                <button onClick={() => handleExport('json', 'workouts')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Antremanlar</button>
                 <button onClick={() => handleExport('json', 'exercises')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Hareketler</button>
                 <div className="border-t border-[#2A2A2A] my-2"></div>
                 <div className="text-xs text-gray-400 px-3 py-2 font-semibold">CSV</div>
                 <button onClick={() => handleExport('csv', 'all')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Tümü</button>
                 <button onClick={() => handleExport('csv', 'programs')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Programlar</button>
+                <button onClick={() => handleExport('csv', 'workouts')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Antremanlar</button>
                 <button onClick={() => handleExport('csv', 'exercises')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Hareketler</button>
               </div>
             </div>
@@ -326,27 +304,9 @@ export default function ProgramList() {
             isCollapsed={collapsedPrograms.has(program.id)}
             onToggleCollapse={() => toggleProgramCollapse(program.id)}
             onDelete={() => handleDeleteProgram(program.id)}
-            onDragStart={handleProgramDragStart}
-            onDragOver={handleProgramDragOver}
-            onDragEnd={handleProgramDragEnd}
-            onDrop={handleProgramDrop}
-            isDragged={draggedProgram === program.id}
-            isDragOver={dragOverProgram === program.id}
             onUpdate={fetchPrograms}
+            onDeleteWorkout={handleDeleteWorkout}
             onDeleteExercise={handleDeleteExercise}
-            showAddExercise={showAddExercise === program.id}
-            onShowAddExercise={() => setShowAddExercise(program.id)}
-            onCloseAddExercise={() => setShowAddExercise(null)}
-            onOpenExerciseSelector={() => {
-              setSelectedProgramId(program.id);
-              setShowExerciseSelector(true);
-            }}
-            exerciseDragStart={handleDragStart}
-            exerciseDragOver={handleDragOver}
-            exerciseDragEnd={handleDragEnd}
-            exerciseDrop={handleDrop}
-            draggedExercise={draggedExercise}
-            dragOverExercise={dragOverExercise}
           />
         ))}
       </div>
@@ -358,8 +318,10 @@ export default function ProgramList() {
         onClose={() => {
           setShowExerciseSelector(false);
           setSelectedProgramId(null);
+          setSelectedWorkoutId(null);
         }}
         programId={selectedProgramId}
+        workoutId={selectedWorkoutId}
         programs={programs}
         allExercises={allExercises}
         onSuccess={fetchPrograms}

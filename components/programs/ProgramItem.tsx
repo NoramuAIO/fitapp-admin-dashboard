@@ -1,52 +1,31 @@
-import React from 'react';
-import ExerciseItem from './ExerciseItem';
-import AddExerciseForm from './AddExerciseForm';
+import { useState } from 'react';
+import AddWorkoutModal from './AddWorkoutModal';
+import WorkoutItem from './WorkoutItem';
 
-interface Exercise {
+interface Workout {
     id: number;
+    programId: number;
     name: string;
-    sets: number;
-    reps: number;
-    duration?: string;
-    description?: string;
-    imageUrl?: string;
+    dayNumber?: number;
+    orderIndex: number;
+    exercises: any[];
 }
 
 interface Program {
     id: number;
     name: string;
     isPrimary: boolean;
-    exercises: Exercise[];
+    workouts?: Workout[];
 }
 
 interface ProgramItemProps {
     program: Program;
     isCollapsed: boolean;
     onToggleCollapse: () => void;
-    onDelete: () => void;
-    onDragStart: (programId: number) => void;
-    onDragOver: (e: React.DragEvent, programId: number) => void;
-    onDragEnd: () => void;
-    onDrop: (e: React.DragEvent, programId: number) => void;
-    isDragged: boolean;
-    isDragOver: boolean;
-
-    // Exercise related
+    onDelete: () => Promise<void>;
     onUpdate: () => Promise<void>;
-    onDeleteExercise: (programId: number, exerciseId: number) => Promise<void>;
-
-    showAddExercise: boolean;
-    onShowAddExercise: () => void;
-    onCloseAddExercise: () => void;
-    onOpenExerciseSelector: () => void;
-
-    // Exercise drag and drop
-    exerciseDragStart: (programId: number, exerciseId: number) => void;
-    exerciseDragOver: (e: React.DragEvent, programId: number, exerciseId: number) => void;
-    exerciseDragEnd: () => void;
-    exerciseDrop: (e: React.DragEvent, targetProgramId: number, targetExerciseId: number) => void;
-    draggedExercise: { programId: number; exerciseId: number } | null;
-    dragOverExercise: { programId: number; exerciseId: number } | null;
+    onDeleteWorkout: (workoutId: number) => Promise<void>;
+    onDeleteExercise: (workoutId: number, exerciseId: number) => Promise<void>;
 }
 
 export default function ProgramItem({
@@ -54,130 +33,104 @@ export default function ProgramItem({
     isCollapsed,
     onToggleCollapse,
     onDelete,
-    onDragStart,
-    onDragOver,
-    onDragEnd,
-    onDrop,
-    isDragged,
-    isDragOver,
     onUpdate,
-    onDeleteExercise,
-    showAddExercise,
-    onShowAddExercise,
-    onCloseAddExercise,
-    onOpenExerciseSelector,
-    exerciseDragStart,
-    exerciseDragOver,
-    exerciseDragEnd,
-    exerciseDrop,
-    draggedExercise,
-    dragOverExercise
+    onDeleteWorkout,
+    onDeleteExercise
 }: ProgramItemProps) {
+    const [showAddWorkout, setShowAddWorkout] = useState(false);
+    const [expandedWorkouts, setExpandedWorkouts] = useState<Set<number>>(new Set());
+
+    const toggleWorkout = (workoutId: number) => {
+        const newExpanded = new Set(expandedWorkouts);
+        if (newExpanded.has(workoutId)) {
+            newExpanded.delete(workoutId);
+        } else {
+            newExpanded.add(workoutId);
+        }
+        setExpandedWorkouts(newExpanded);
+    };
+
+    const workoutCount = program.workouts?.length || 0;
+    const exerciseCount = program.workouts?.reduce((acc, w) => acc + (w.exercises?.length || 0), 0) || 0;
 
     return (
-        <div
-            draggable
-            onDragStart={() => onDragStart(program.id)}
-            onDragOver={(e) => onDragOver(e, program.id)}
-            onDragEnd={onDragEnd}
-            onDrop={(e) => onDrop(e, program.id)}
-            className={`bg-dark-card rounded-2xl p-6 shadow-lg transition-all ${isDragOver ? 'border-2 border-[#6366F1] border-dashed' : ''
-                } ${isDragged ? 'opacity-50' : ''
-                }`}
-        >
-            <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center space-x-4">
-                    <div className="text-gray-500 cursor-grab active:cursor-grabbing">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                            <circle cx="8" cy="6" r="2" />
-                            <circle cx="16" cy="6" r="2" />
-                            <circle cx="8" cy="12" r="2" />
-                            <circle cx="16" cy="12" r="2" />
-                            <circle cx="8" cy="18" r="2" />
-                            <circle cx="16" cy="18" r="2" />
-                        </svg>
-                    </div>
-
-                    <h3 className="text-xl font-bold text-white">{program.name}</h3>
-                    {program.isPrimary && (
-                        <span className="bg-primary-green/20 text-primary-green px-3 py-1 rounded-lg text-sm font-medium">
-                            ⭐ Birincil
+        <>
+            <div className="bg-dark-card rounded-2xl p-6 shadow-lg border border-[#2A2A2A]">
+                <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center space-x-4">
+                        <button
+                            onClick={onToggleCollapse}
+                            className="text-gray-500 hover:text-white transition-colors"
+                        >
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={isCollapsed ? '' : 'rotate-90'}>
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </button>
+                        <h3 className="text-xl font-bold text-white">{program.name}</h3>
+                        {program.isPrimary && (
+                            <span className="bg-primary-green/20 text-primary-green px-3 py-1 rounded-lg text-sm font-medium">
+                                ⭐ Birincil
+                            </span>
+                        )}
+                        <span className="bg-[#2A2A2A] text-gray-400 px-3 py-1 rounded-lg text-sm">
+                            {workoutCount} antreman • {exerciseCount} hareket
                         </span>
-                    )}
-
-                    <span className="bg-[#2A2A2A] text-gray-400 px-3 py-1 rounded-lg text-sm">
-                        {program.exercises.length} Hareket
-                    </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                        <button
+                            onClick={() => setShowAddWorkout(true)}
+                            className="bg-[#6366F1] hover:bg-[#5558E3] text-white px-4 py-2 rounded-lg transition-colors"
+                        >
+                            + Antreman
+                        </button>
+                        <button
+                            onClick={onDelete}
+                            className="bg-red-500/20 hover:bg-red-500/30 text-red-500 px-4 py-2 rounded-lg transition-colors"
+                        >
+                            🗑️ Sil
+                        </button>
+                    </div>
                 </div>
-                <div className="flex items-center space-x-2">
-                    <button
-                        onClick={onToggleCollapse}
-                        className="bg-dark-hover hover:bg-dark-border text-white px-4 py-2 rounded-lg transition-colors"
-                    >
-                        {isCollapsed ? '👁️ Göster' : '🙈 Gizle'}
-                    </button>
 
-                    <button className="bg-dark-hover hover:bg-dark-border text-white px-4 py-2 rounded-lg transition-colors">
-                        ✏️ Düzenle
-                    </button>
-                    <button
-                        onClick={onDelete}
-                        className="bg-red-500/20 hover:bg-red-500/30 text-red-500 px-4 py-2 rounded-lg transition-colors"
-                    >
-                        🗑️ Sil
-                    </button>
-                </div>
+                {!isCollapsed && (
+                    <div className="space-y-3">
+                        {program.workouts?.map((workout) => (
+                            <WorkoutItem
+                                key={workout.id}
+                                workout={workout}
+                                isCollapsed={!expandedWorkouts.has(workout.id)}
+                                onToggleCollapse={() => toggleWorkout(workout.id)}
+                                onDelete={() => onDeleteWorkout(workout.id)}
+                                onUpdate={onUpdate}
+                                onDeleteExercise={(exerciseId) => onDeleteExercise(workout.id, exerciseId)}
+                                showAddExercise={false}
+                                onShowAddExercise={() => {}}
+                                onCloseAddExercise={() => {}}
+                            />
+                        ))}
+
+                        {(!program.workouts || program.workouts.length === 0) && (
+                            <div className="text-center py-8 text-gray-500">
+                                <p>Bu programda henüz antreman yok.</p>
+                                <p className="text-sm mt-1">Yukarıdaki "Antreman Ekle" butonuna tıklayarak başlayabilirsiniz.</p>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
-            {!isCollapsed && (
-                <div className="space-y-3">
-                    {program.exercises.map((exercise) => (
-                        <ExerciseItem
-                            key={exercise.id}
-                            programId={program.id}
-                            exercise={exercise}
-                            onUpdate={onUpdate}
-                            onDelete={async () => onDeleteExercise(program.id, exercise.id)}
-                            onDragStart={exerciseDragStart}
-                            onDragOver={exerciseDragOver}
-                            onDragEnd={exerciseDragEnd}
-                            onDrop={exerciseDrop}
-                            isDragged={draggedExercise?.exerciseId === exercise.id && draggedExercise?.programId === program.id}
-                            isDragOver={dragOverExercise?.exerciseId === exercise.id && dragOverExercise?.programId === program.id}
-                        />
-                    ))}
-                </div>
+            {showAddWorkout && (
+                <AddWorkoutModal
+                    isOpen={showAddWorkout}
+                    onClose={() => setShowAddWorkout(false)}
+                    onSuccess={async () => {
+                        await onUpdate();
+                        setShowAddWorkout(false);
+                    }}
+                    programId={program.id}
+                    programName={program.name}
+                />
             )}
-
-            {!isCollapsed && (
-                <>
-                    {showAddExercise ? (
-                        <AddExerciseForm
-                            programId={program.id}
-                            onSuccess={async () => {
-                                await onUpdate();
-                                onCloseAddExercise();
-                            }}
-                            onCancel={onCloseAddExercise}
-                        />
-                    ) : (
-                        <div className="mt-4 flex gap-2">
-                            <button
-                                onClick={onShowAddExercise}
-                                className="flex-1 bg-[#1A1A1A] hover:bg-[#2A2A2A] text-gray-400 hover:text-white py-3 rounded-xl transition-colors border-2 border-dashed border-[#2A2A2A]"
-                            >
-                                + Yeni Hareket Ekle
-                            </button>
-                            <button
-                                onClick={onOpenExerciseSelector}
-                                className="flex-1 bg-[#1A1A1A] hover:bg-[#2A2A2A] text-gray-400 hover:text-white py-3 rounded-xl transition-colors border border-[#2A2A2A]"
-                            >
-                                📋 Mevcut Hareketlerden Seç
-                            </button>
-                        </div>
-                    )}
-                </>
-            )}
-        </div>
+        </>
     );
 }

@@ -8,23 +8,26 @@ interface Exercise {
     duration?: string;
     description?: string;
     imageUrl?: string;
+    muscleGroup?: string;
+    orderIndex: number;
 }
 
 interface ExerciseItemProps {
-    programId: number;
+    workoutId?: number;
+    programId?: number;
     exercise: Exercise;
     onUpdate: () => Promise<void>;
     onDelete: () => Promise<void>;
-    onDragStart: (programId: number, exerciseId: number) => void;
-    onDragOver: (e: React.DragEvent, programId: number, exerciseId: number) => void;
-    onDragEnd: () => void;
-    onDrop: (e: React.DragEvent, programId: number, exerciseId: number) => void;
-    isDragged: boolean;
-    isDragOver: boolean;
+    onDragStart?: (programId: number, exerciseId: number) => void;
+    onDragOver?: (e: React.DragEvent, programId: number, exerciseId: number) => void;
+    onDragEnd?: () => void;
+    onDrop?: (e: React.DragEvent, targetProgramId: number, targetExerciseId: number) => void;
+    isDragged?: boolean;
+    isDragOver?: boolean;
 }
 
 export default function ExerciseItem({
-    programId,
+    workoutId,
     exercise,
     onUpdate,
     onDelete,
@@ -36,21 +39,21 @@ export default function ExerciseItem({
     isDragOver
 }: ExerciseItemProps) {
     const [isEditing, setIsEditing] = useState(false);
-    const [editForm, setEditForm] = useState<Exercise>({ ...exercise });
+    const [editData, setEditData] = useState({
+        name: exercise.name,
+        sets: exercise.sets,
+        reps: exercise.reps,
+        duration: exercise.duration || '',
+        description: exercise.description || '',
+        muscleGroup: exercise.muscleGroup || ''
+    });
 
     const handleSave = async () => {
         try {
             const response = await fetch(`/api/exercises/${exercise.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: editForm.name,
-                    sets: editForm.sets,
-                    reps: editForm.reps,
-                    duration: editForm.duration,
-                    description: editForm.description,
-                    imageUrl: editForm.imageUrl,
-                }),
+                body: JSON.stringify(editData),
             });
 
             if (response.ok) {
@@ -62,84 +65,49 @@ export default function ExerciseItem({
         }
     };
 
+    const handleDelete = async () => {
+        if (!confirm(`"${exercise.name}" hareketini silmek istediğinizden emin misiniz?`)) {
+            return;
+        }
+        await onDelete();
+    };
+
     if (isEditing) {
         return (
-            <div className="bg-[#0F0F0F] rounded-xl p-4 border border-[#2A2A2A]">
-                <h4 className="text-white font-medium mb-3">Hareketi Düzenle</h4>
-                <div className="space-y-3">
+            <div className="bg-[#0F0F0F] rounded-lg p-3 border border-[#6366F1]">
+                <div className="grid grid-cols-2 gap-2 mb-2">
                     <input
                         type="text"
-                        value={editForm.name}
-                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                        className="w-full bg-[#1A1A1A] text-white rounded-lg px-3 py-2 border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
+                        value={editData.name}
+                        onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                        className="bg-[#1A1A1A] text-white rounded px-2 py-1 text-sm"
                         placeholder="Hareket adı"
                     />
-                    <div className="grid grid-cols-3 gap-3">
-                        <input
-                            type="number"
-                            value={editForm.sets}
-                            onChange={(e) => setEditForm({ ...editForm, sets: parseInt(e.target.value) || 0 })}
-                            className="bg-[#1A1A1A] text-white rounded-lg px-3 py-2 border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
-                            placeholder="Set"
-                        />
-                        <input
-                            type="number"
-                            value={editForm.reps}
-                            onChange={(e) => setEditForm({ ...editForm, reps: parseInt(e.target.value) || 0 })}
-                            className="bg-[#1A1A1A] text-white rounded-lg px-3 py-2 border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
-                            placeholder="Tekrar"
-                        />
-                        <input
-                            type="text"
-                            value={editForm.duration || ''}
-                            onChange={(e) => setEditForm({ ...editForm, duration: e.target.value })}
-                            className="bg-[#1A1A1A] text-white rounded-lg px-3 py-2 border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
-                            placeholder="Süre"
-                        />
-                    </div>
                     <input
                         type="text"
-                        value={editForm.imageUrl || ''}
-                        onChange={(e) => setEditForm({ ...editForm, imageUrl: e.target.value })}
-                        className="w-full bg-[#1A1A1A] text-white rounded-lg px-3 py-2 border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
-                        placeholder="Görsel URL (GIF veya resim linki)"
+                        value={editData.muscleGroup}
+                        onChange={(e) => setEditData({ ...editData, muscleGroup: e.target.value })}
+                        className="bg-[#1A1A1A] text-white rounded px-2 py-1 text-sm"
+                        placeholder="Kas grubu"
                     />
-                    {editForm.imageUrl && (
-                        <div className="relative w-full h-48 bg-[#1A1A1A] rounded-lg overflow-hidden">
-                            <img
-                                src={editForm.imageUrl}
-                                alt="Preview"
-                                className="w-full h-full object-contain"
-                                onError={(e) => {
-                                    e.currentTarget.src = 'https://via.placeholder.com/400x300?text=Görsel+Yüklenemedi';
-                                }}
-                            />
-                        </div>
-                    )}
-                    <textarea
-                        value={editForm.description || ''}
-                        onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                        className="w-full bg-[#1A1A1A] text-white rounded-lg px-3 py-2 border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
-                        placeholder="Açıklama (opsiyonel)"
-                        rows={2}
+                    <input
+                        type="number"
+                        value={editData.sets}
+                        onChange={(e) => setEditData({ ...editData, sets: parseInt(e.target.value) || 0 })}
+                        className="bg-[#1A1A1A] text-white rounded px-2 py-1 text-sm"
+                        placeholder="Set"
                     />
-                    <div className="flex space-x-2">
-                        <button
-                            onClick={handleSave}
-                            className="flex-1 bg-[#5DD97C] hover:bg-green-600 text-white py-2 rounded-lg font-medium transition-colors"
-                        >
-                            Kaydet
-                        </button>
-                        <button
-                            onClick={() => {
-                                setIsEditing(false);
-                                setEditForm({ ...exercise }); // reset back
-                            }}
-                            className="flex-1 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white py-2 rounded-lg font-medium transition-colors"
-                        >
-                            İptal
-                        </button>
-                    </div>
+                    <input
+                        type="number"
+                        value={editData.reps}
+                        onChange={(e) => setEditData({ ...editData, reps: parseInt(e.target.value) || 0 })}
+                        className="bg-[#1A1A1A] text-white rounded px-2 py-1 text-sm"
+                        placeholder="Tekrar"
+                    />
+                </div>
+                <div className="flex space-x-2">
+                    <button onClick={handleSave} className="flex-1 bg-[#6366F1] text-white py-1 rounded text-sm">Kaydet</button>
+                    <button onClick={() => setIsEditing(false)} className="px-3 bg-[#2A2A2A] text-white py-1 rounded text-sm">İptal</button>
                 </div>
             </div>
         );
@@ -147,74 +115,46 @@ export default function ExerciseItem({
 
     return (
         <div
-            draggable
-            onDragStart={() => onDragStart(programId, exercise.id)}
-            onDragOver={(e) => onDragOver(e, programId, exercise.id)}
+            draggable={!!onDragStart}
+            onDragStart={onDragStart ? () => onDragStart(workoutId || exercise.programId || 0, exercise.id) : undefined}
+            onDragOver={onDragOver ? (e) => onDragOver(e, workoutId || exercise.programId || 0, exercise.id) : undefined}
             onDragEnd={onDragEnd}
-            onDrop={(e) => onDrop(e, programId, exercise.id)}
-            className={`bg-[#0F0F0F] rounded-xl p-4 hover:bg-[#1A1A1A] transition-all cursor-move ${isDragOver ? 'border-2 border-[#6366F1] border-dashed' : ''
-                } ${isDragged ? 'opacity-50' : ''
-                }`}
+            onDrop={onDrop ? (e) => onDrop(e, workoutId || exercise.programId || 0, exercise.id) : undefined}
+            className={`bg-[#0F0F0F] rounded-lg p-3 flex items-center justify-between transition-all ${isDragOver ? 'border-2 border-[#6366F1] border-dashed' : ''} ${isDragged ? 'opacity-50' : ''}`}
         >
-            <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3 flex-1">
-                    <div className="text-gray-500 cursor-grab active:cursor-grabbing">
-                        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                            <circle cx="7" cy="5" r="1.5" />
-                            <circle cx="13" cy="5" r="1.5" />
-                            <circle cx="7" cy="10" r="1.5" />
-                            <circle cx="13" cy="10" r="1.5" />
-                            <circle cx="7" cy="15" r="1.5" />
-                            <circle cx="13" cy="15" r="1.5" />
-                        </svg>
-                    </div>
-
-                    {exercise.imageUrl && (
-                        <div className="w-24 h-24 bg-[#1A1A1A] rounded-lg overflow-hidden flex-shrink-0">
-                            <img
-                                src={exercise.imageUrl}
-                                alt={exercise.name}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                    e.currentTarget.style.display = 'none';
-                                }}
-                            />
-                        </div>
-                    )}
-                    <div className="flex-1">
-                        <h4 className="text-white font-medium mb-2">{exercise.name}</h4>
-                        <div className="flex items-center flex-wrap gap-2 text-sm">
-                            <span className="bg-[#5DD97C]/20 text-[#5DD97C] px-3 py-1 rounded-lg">
-                                {exercise.sets} Set
-                            </span>
-                            <span className="bg-orange-500/20 text-orange-400 px-3 py-1 rounded-lg">
-                                {exercise.reps} Tekrar
-                            </span>
-                            {exercise.duration && (
-                                <span className="bg-purple-500/20 text-purple-400 px-3 py-1 rounded-lg">
-                                    {exercise.duration}
-                                </span>
-                            )}
-                        </div>
-                        {exercise.description && (
-                            <p className="text-gray-500 text-sm mt-2">{exercise.description}</p>
-                        )}
+            <div className="flex items-center space-x-3">
+                <div className="text-gray-500 cursor-grab active:cursor-grabbing">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="8" cy="6" r="2" />
+                        <circle cx="16" cy="6" r="2" />
+                        <circle cx="8" cy="12" r="2" />
+                        <circle cx="16" cy="12" r="2" />
+                        <circle cx="8" cy="18" r="2" />
+                        <circle cx="16" cy="18" r="2" />
+                    </svg>
+                </div>
+                <div>
+                    <div className="text-white text-sm font-medium">{exercise.name}</div>
+                    <div className="text-gray-500 text-xs">
+                        {exercise.sets} set × {exercise.reps} tekrar
+                        {exercise.duration && ` • ${exercise.duration}`}
+                        {exercise.muscleGroup && ` • ${exercise.muscleGroup}`}
                     </div>
                 </div>
-                <div className="flex items-center space-x-2">
-                    <button
-                        onClick={() => setIsEditing(true)}
-                        className="text-gray-400 hover:text-white transition-colors p-2"
-                    >
-                        ✏️
-                    </button>
-                    <button
-                        onClick={onDelete}
-                        className="text-gray-400 hover:text-red-500 transition-colors p-2"
-                    >
-                        🗑️
-                    </button>
-                </div>
+            </div>
+            <div className="flex items-center space-x-2">
+                <button onClick={() => setIsEditing(true)} className="text-gray-400 hover:text-white p-1">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                </button>
+                <button onClick={handleDelete} className="text-gray-400 hover:text-red-500 p-1">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
+                </button>
             </div>
         </div>
     );

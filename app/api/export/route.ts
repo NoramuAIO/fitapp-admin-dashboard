@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const format = searchParams.get('format') || 'json';
-  const type = searchParams.get('type') || 'all'; // all, programs, exercises
+  const type = searchParams.get('type') || 'all'; // all, programs, workouts, exercises
 
   try {
     let data: any = {};
@@ -19,6 +19,17 @@ export async function GET(request: Request) {
       data.programs = programs;
     }
 
+    if (type === 'all' || type === 'workouts') {
+      const { data: workouts, error } = await supabase
+        .from('program_days')
+        .select('*')
+        .order('programId')
+        .order('orderIndex');
+      
+      if (error) throw error;
+      data.workouts = workouts;
+    }
+
     if (type === 'all' || type === 'exercises') {
       const { data: exercises, error } = await supabase
         .from('exercises')
@@ -31,7 +42,6 @@ export async function GET(request: Request) {
     }
 
     if (format === 'csv') {
-      // CSV Export
       let csv = '';
       
       if (data.programs) {
@@ -43,14 +53,24 @@ export async function GET(request: Request) {
         csv += '\n';
       }
 
+      if (data.workouts) {
+        csv += 'WORKOUTS\n';
+        csv += 'id,programId,name,dayNumber,orderIndex,createdAt\n';
+        data.workouts.forEach((w: any) => {
+          csv += `${w.id},${w.programId},"${w.name}",${w.dayNumber || ''},${w.orderIndex},${w.createdAt}\n`;
+        });
+        csv += '\n';
+      }
+
       if (data.exercises) {
         csv += 'EXERCISES\n';
-        csv += 'id,programId,name,sets,reps,duration,description,orderIndex,imageUrl\n';
+        csv += 'id,programId,workoutId,name,sets,reps,duration,description,orderIndex,imageUrl,muscleGroup\n';
         data.exercises.forEach((e: any) => {
           const duration = e.duration || '';
           const description = (e.description || '').replace(/"/g, '""');
           const imageUrl = e.imageUrl || '';
-          csv += `${e.id},${e.programId},"${e.name}",${e.sets},${e.reps},"${duration}","${description}",${e.orderIndex},"${imageUrl}"\n`;
+          const muscleGroup = e.muscleGroup || '';
+          csv += `${e.id},${e.programId || ''},${e.workoutId || ''},"${e.name}",${e.sets},${e.reps},"${duration}","${description}",${e.orderIndex},"${imageUrl}","${muscleGroup}"\n`;
         });
       }
 
@@ -61,7 +81,6 @@ export async function GET(request: Request) {
         },
       });
     } else {
-      // JSON Export
       return NextResponse.json(data, {
         headers: {
           'Content-Disposition': `attachment; filename="fitness-data-${Date.now()}.json"`,

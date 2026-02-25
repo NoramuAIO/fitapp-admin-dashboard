@@ -7,19 +7,23 @@ export async function GET() {
       .from('exercises')
       .select(`
         *,
-        programs (
-          name
+        program_days!inner (
+          id,
+          name,
+          programId
         )
       `)
       .order('id', { ascending: false })
 
     if (error) throw error
 
-    // Flatten the program name
-    const formattedExercises = (exercises || []).map(ex => ({
+    // Flatten the data
+    const formattedExercises = (exercises || []).map((ex: any) => ({
       ...ex,
-      program_name: ex.programs?.name || null,
-      programs: undefined
+      workout_id: ex.program_days?.id,
+      workout_name: ex.program_days?.name,
+      program_id: ex.program_days?.programId,
+      program_days: undefined
     }))
 
     return NextResponse.json(formattedExercises)
@@ -32,20 +36,58 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { programId, name, sets, reps, duration, description, imageUrl, orderIndex } = body
+    const { 
+      workoutId,  // Yeni: antreman ID (zorunlu)
+      programId,  // Artık opsiyonel, workoutId'den alınabilir
+      name, 
+      sets, 
+      reps, 
+      duration, 
+      description, 
+      imageUrl, 
+      orderIndex,
+      muscleGroup
+    } = body
+
+    if (!name) {
+      return NextResponse.json({ error: 'name is required' }, { status: 400 })
+    }
+
+    // workoutId varsa programId'yi otomatik al
+    let finalProgramId = programId
+    if (workoutId && !finalProgramId) {
+      const { data: workout } = await supabase
+        .from('program_days')
+        .select('programId')
+        .eq('id', workoutId)
+        .single()
+      
+      if (workout) {
+        finalProgramId = workout.programId
+      }
+    }
+
+    const insertData: any = {
+      name,
+      sets,
+      reps,
+      duration: duration || null,
+      description: description || null,
+      imageUrl: imageUrl || null,
+      orderIndex: orderIndex || 0,
+      muscleGroup: muscleGroup || null
+    }
+
+    if (workoutId) {
+      insertData.workoutId = workoutId
+    }
+    if (finalProgramId) {
+      insertData.programId = finalProgramId
+    }
 
     const { data, error } = await supabase
       .from('exercises')
-      .insert([{
-        programId,
-        name,
-        sets,
-        reps,
-        duration: duration || null,
-        description: description || null,
-        imageUrl: imageUrl || null,
-        orderIndex: orderIndex || 0
-      }])
+      .insert([insertData])
       .select()
       .single()
 

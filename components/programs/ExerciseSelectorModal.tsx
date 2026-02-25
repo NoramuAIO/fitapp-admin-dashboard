@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 interface Exercise {
     id: number;
@@ -17,10 +17,25 @@ interface Program {
     exercises: Exercise[];
 }
 
+interface Workout {
+    id: number;
+    programId: number;
+    name: string;
+    exercises: Exercise[];
+}
+
+interface Program {
+    id: number;
+    name: string;
+    isPrimary: boolean;
+    workouts?: Workout[];
+}
+
 interface ExerciseSelectorModalProps {
     isOpen: boolean;
     onClose: () => void;
     programId: number | null;
+    workoutId: number | null;
     programs: Program[];
     allExercises: Exercise[];
     onSuccess: () => Promise<void>;
@@ -30,6 +45,7 @@ export default function ExerciseSelectorModal({
     isOpen,
     onClose,
     programId,
+    workoutId,
     programs,
     allExercises,
     onSuccess
@@ -40,8 +56,17 @@ export default function ExerciseSelectorModal({
     if (!isOpen || !programId) return null;
 
     const program = programs.find(p => p.id === programId);
+    const workout = workoutId ? program?.workouts?.find(w => w.id === workoutId) : null;
+    
+    // Get existing exercise names from the workout or program
+    const existingExerciseNames = new Set(
+        workout 
+            ? workout.exercises.map(e => e.name)
+            : program?.workouts?.flatMap(w => w.exercises.map(e => e.name)) || []
+    );
+
     const availableExercises = allExercises.filter(exercise =>
-        !program?.exercises.some(e => e.name === exercise.name)
+        !existingExerciseNames.has(exercise.name)
     );
 
     const filteredExercises = availableExercises.filter(exercise =>
@@ -78,7 +103,7 @@ export default function ExerciseSelectorModal({
             const exercise = allExercises.find(e => e.id === exerciseId);
             if (!exercise) continue;
 
-            if (program?.exercises.some(e => e.name === exercise.name)) {
+            if (existingExerciseNames.has(exercise.name)) {
                 skipped++;
                 continue;
             }
@@ -88,6 +113,7 @@ export default function ExerciseSelectorModal({
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        workoutId,
                         programId,
                         name: exercise.name,
                         sets: exercise.sets,
