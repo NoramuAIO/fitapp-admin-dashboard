@@ -7,9 +7,10 @@ export async function GET() {
       .from('exercises')
       .select(`
         *,
-        program_days!inner (
+        program_days (
           id,
           name,
+          dayName,
           programId
         )
       `)
@@ -20,9 +21,9 @@ export async function GET() {
     // Flatten the data
     const formattedExercises = (exercises || []).map((ex: any) => ({
       ...ex,
-      workout_id: ex.program_days?.id,
-      workout_name: ex.program_days?.name,
-      program_id: ex.program_days?.programId,
+      workoutId: ex.dayId || ex.program_days?.id,
+      workout_name: ex.program_days?.name || ex.program_days?.dayName,
+      program_id: ex.programId || ex.program_days?.programId,
       program_days: undefined
     }))
 
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const { 
-      workoutId,  // Yeni: antreman ID (zorunlu)
+      workoutId,  // Yeni: antreman ID (opsiyonel)
       programId,  // Artık opsiyonel, workoutId'den alınabilir
       name, 
       sets, 
@@ -78,8 +79,9 @@ export async function POST(request: Request) {
       muscleGroup: muscleGroup || null
     }
 
+    // dayId olarak kaydet (Supabase'de workoutId yerine dayId kullanılıyor)
     if (workoutId) {
-      insertData.workoutId = workoutId
+      insertData.dayId = workoutId
     }
     if (finalProgramId) {
       insertData.programId = finalProgramId
