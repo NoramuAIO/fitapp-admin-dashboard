@@ -9,7 +9,7 @@ interface ImportModalProps {
 export default function ImportModal({ isOpen, onClose, onSuccess }: ImportModalProps) {
     const [importData, setImportData] = useState('');
     const [importFormat, setImportFormat] = useState<'json' | 'csv'>('json');
-    const [importType, setImportType] = useState<'all' | 'programs' | 'exercises'>('all');
+    const [importType, setImportType] = useState<'all' | 'programs' | 'workouts' | 'exercises'>('all');
 
     const handleImport = async () => {
         if (!importData.trim()) {
@@ -134,6 +134,15 @@ export default function ImportModal({ isOpen, onClose, onSuccess }: ImportModalP
                                     }`}
                             >
                                 Programlar
+                            </button>
+                            <button
+                                onClick={() => setImportType('workouts')}
+                                className={`flex-1 py-2 rounded-lg font-medium transition-colors ${importType === 'workouts'
+                                        ? 'bg-purple-500 text-white'
+                                        : 'bg-[#2A2A2A] text-gray-400 hover:bg-[#3A3A3A]'
+                                    }`}
+                            >
+                                Antremanlar
                             </button>
                             <button
                                 onClick={() => setImportType('exercises')}
