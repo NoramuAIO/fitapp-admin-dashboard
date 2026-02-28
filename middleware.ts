@@ -4,13 +4,8 @@ import { NextResponse } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Login sayfası ve admin API route'ları hariç
-  if (
-    pathname === '/login' || 
-    pathname.startsWith('/api/admin/login') ||
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/favicon')
-  ) {
+  // Login sayfası hariç
+  if (pathname === '/login') {
     return NextResponse.next();
   }
 
@@ -29,12 +24,9 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
+     * Sadece admin panel sayfalarını koru
+     * API route'ları ve static dosyalar hariç
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
