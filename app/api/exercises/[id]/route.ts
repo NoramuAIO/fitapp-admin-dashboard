@@ -23,7 +23,8 @@ export async function PUT(
 
     const updateData: any = {}
     
-    if (workoutId !== undefined) updateData.workoutId = workoutId
+    // dayId olarak kaydet (Supabase'de workoutId yerine dayId kullanılıyor)
+    if (workoutId !== undefined) updateData.dayId = workoutId
     if (programId !== undefined) updateData.programId = programId
     if (name !== undefined) updateData.name = name
     if (sets !== undefined) updateData.sets = sets

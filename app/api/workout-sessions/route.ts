@@ -29,15 +29,23 @@ export async function GET(request: Request) {
     if (error) throw error;
 
     // Format the response
-    const formattedSessions = (data || []).map(session => ({
-      ...session,
-      program_name: session.programs?.name || null,
-      user_name: session.users?.name || null,
-      completed_exercises: 0,
-      total_reps: 0,
-      programs: undefined,
-      users: undefined
-    }));
+    const formattedSessions = (data || []).map(session => {
+      const formatted: any = {
+        id: session.id,
+        userId: session.userId,
+        programId: session.programId,
+        startTime: session.startTime,
+        endTime: session.endTime,
+        duration: session.duration,
+        category: session.category,
+        createdAt: session.createdAt,
+        program_name: session.programs?.name || 'Antreman',
+        user_name: session.users?.name || null,
+        completed_exercises: 0,
+        total_reps: 0,
+      };
+      return formatted;
+    });
 
     return NextResponse.json(formattedSessions);
   } catch (error) {
@@ -79,13 +87,18 @@ export async function POST(request: Request) {
 
     // Format the response
     const formattedSession = {
-      ...data,
-      program_name: data.programs?.name || null,
+      id: data.id,
+      userId: data.userId,
+      programId: data.programId,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      duration: data.duration,
+      category: data.category,
+      createdAt: data.createdAt,
+      program_name: data.programs?.name || 'Antreman',
       user_name: data.users?.name || null,
       completed_exercises: 0,
       total_reps: 0,
-      programs: undefined,
-      users: undefined
     };
 
     return NextResponse.json(formattedSession, { status: 201 });

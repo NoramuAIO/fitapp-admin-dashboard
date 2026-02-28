@@ -7,7 +7,9 @@ export async function GET() {
     const { data: users, error } = await supabase
       .from('users')
       .select('*')
-      .order('createdAt', { ascending: false });
+      .order('id', { ascending: false });
+
+    console.log('Users query result:', { users, error });
 
     if (error) throw error;
 
@@ -20,14 +22,19 @@ export async function GET() {
           .eq('userId', user.id);
 
         return {
-          ...user,
-          created_at: user.createdAt,
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          password: user.password,
+          createdAt: user.createdAt || user.created_at,
+          created_at: user.createdAt || user.created_at,
           total_workouts: count || 0,
           total_programs: 0
         };
       })
     );
 
+    console.log('Users with stats:', usersWithStats.length);
     return NextResponse.json(usersWithStats);
   } catch (error) {
     console.error('Error fetching users:', error);

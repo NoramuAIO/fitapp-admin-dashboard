@@ -5,6 +5,8 @@ export async function POST(request: Request) {
   try {
     const { name, email, password } = await request.json();
 
+    console.log('Register attempt:', { name, email, password: '***' });
+
     if (!name || !email || !password) {
       return NextResponse.json(
         { error: 'Tüm alanlar gerekli' },
@@ -35,14 +37,18 @@ export async function POST(request: Request) {
         password,
         createdAt: new Date().toISOString()
       }])
-      .select('id, name, email, createdAt')
+      .select('*')
       .single();
+
+    console.log('Register result:', { data, error });
 
     if (error) throw error;
 
     return NextResponse.json({
-      ...data,
-      created_at: data.createdAt
+      id: data.id,
+      name: data.name,
+      email: data.email,
+      createdAt: data.createdAt || data.created_at
     });
   } catch (error) {
     console.error('Error registering user:', error);

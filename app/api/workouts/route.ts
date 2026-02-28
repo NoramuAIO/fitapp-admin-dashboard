@@ -20,9 +20,10 @@ export async function GET(request: Request) {
 
     if (error) throw error
 
-    // Her antremanın hareketlerini orderIndex'e göre sırala
+    // Her antremanın hareketlerini orderIndex'e göre sırala ve name field'ını ekle
     const workouts = (data || []).map(workout => ({
       ...workout,
+      name: workout.name || workout.dayName, // Fallback to dayName if name doesn't exist
       exercises: (workout.exercises || []).sort((a: any, b: any) => a.orderIndex - b.orderIndex)
     }))
 
