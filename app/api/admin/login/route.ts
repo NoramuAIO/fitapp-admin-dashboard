@@ -1,9 +1,9 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
-// Admin bilgileri (production'da environment variable kullanın)
-const ADMIN_EMAIL = 'soykamermustafa033@gmail.com';
-const ADMIN_PASSWORD = '4#$4&!j7xXU7$#';
+// Admin bilgileri environment variable'dan al
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'soykamermustafa033@gmail.com';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '4#$4&!j7xXU7$#';
 
 export async function POST(request: Request) {
   try {
@@ -18,6 +18,7 @@ export async function POST(request: Request) {
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         maxAge: 60 * 60 * 24 * 7, // 7 gün
+        path: '/', // Tüm path'lerde geçerli
       });
 
       return NextResponse.json({ success: true });
