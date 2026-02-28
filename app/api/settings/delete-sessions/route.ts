@@ -1,28 +1,32 @@
-import getDatabase from '@/lib/db';
+import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
 export async function DELETE() {
   try {
-    const db = getDatabase();
-
     // Önce kaç kayıt var kontrol et
-    const countResult = await db.query('SELECT COUNT(*) as count FROM workout_sessions');
-    const count = countResult.rows[0]?.count || 0;
+    const { count } = await supabase
+      .from('workout_sessions')
+      .select('*', { count: 'exact', head: true });
 
     // Tüm workout session'ları sil
-    await db.query('DELETE FROM workout_sessions');
+    const { error } = await supabase
+      .from('workout_sessions')
+      .delete()
+      .neq('id', 0); // Tüm kayıtları sil (id != 0 her zaman true)
+
+    if (error) throw error;
 
     // İlgili exercise_progress kayıtları da silinir (CASCADE)
     
     return NextResponse.json({ 
       success: true, 
-      deletedCount: count,
-      message: `${count} antreman kaydı silindi` 
+      deletedCount: count || 0,
+      message: `${count || 0} antreman kaydı silindi` 
     });
   } catch (error) {
     console.error('Error deleting workout sessions:', error);
     return NextResponse.json(
-      { error: 'Antreman kayıtları silinirken hata oluştu' },
+      { error: 'Antreman kayıtları silinirken hata oluştu: ' + (error as Error).message },
       { status: 500 }
     );
   }
