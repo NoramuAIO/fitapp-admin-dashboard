@@ -4,8 +4,13 @@ import { NextResponse } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Login sayfası ve API route'ları hariç
-  if (pathname === '/login' || pathname.startsWith('/api/admin/login')) {
+  // Login sayfası ve admin API route'ları hariç
+  if (
+    pathname === '/login' || 
+    pathname.startsWith('/api/admin/login') ||
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/favicon')
+  ) {
     return NextResponse.next();
   }
 
@@ -14,7 +19,8 @@ export function middleware(request: NextRequest) {
 
   if (!authCookie || authCookie.value !== 'authenticated') {
     // Giriş yapmamış, login'e yönlendir
-    return NextResponse.redirect(new URL('/login', request.url));
+    const loginUrl = new URL('/login', request.url);
+    return NextResponse.redirect(loginUrl);
   }
 
   return NextResponse.next();
@@ -27,7 +33,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * - public folder
      */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
