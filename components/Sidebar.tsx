@@ -13,7 +13,8 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
     { id: 'exercises', icon: '💪', label: 'Tüm Hareketler', href: '/exercises' },
     { id: 'goals', icon: '🎯', label: 'Hedefler', href: '/goals' },
     { id: 'analytics', icon: '📊', label: 'Analizler', href: '/analytics' },
-    { id: 'time', icon: '🕐', label: 'Zaman', href: '/time' }
+    { id: 'time', icon: '🕐', label: 'Zaman', href: '/time' },
+    { id: 'settings', icon: '⚙️', label: 'Ayarlar', href: '/settings' }
   ]
 
   return (
@@ -68,6 +69,25 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
         {/* Tooltip */}
         <div className="absolute left-full ml-4 px-3 py-2 bg-gray-900 text-white text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-xl">
           Yardım
+          <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-gray-900"></div>
+        </div>
+      </button>
+
+      {/* Logout Button */}
+      <button 
+        onClick={async () => {
+          if (confirm('Çıkış yapmak istediğinizden emin misiniz?')) {
+            await fetch('/api/admin/logout', { method: 'POST' });
+            window.location.href = '/login';
+          }
+        }}
+        className="w-14 h-14 rounded-2xl flex items-center justify-center hover:bg-red-500/20 transition-all duration-300 relative z-10 group mt-2"
+      >
+        <span className="text-2xl filter drop-shadow-lg">🚪</span>
+        
+        {/* Tooltip */}
+        <div className="absolute left-full ml-4 px-3 py-2 bg-gray-900 text-white text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-xl">
+          Çıkış Yap
           <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-gray-900"></div>
         </div>
       </button>
