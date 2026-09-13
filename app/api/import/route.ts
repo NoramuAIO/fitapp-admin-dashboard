@@ -109,7 +109,7 @@ export async function POST(request: Request) {
         if (!line || line.startsWith('id,')) continue;
 
         // Safely split CSV respecting quotes and keeping empty fields
-        const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(p => p.replace(/^"|"$/g, '').trim());
+        const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map((p: string) => p.replace(/^"|"$/g, '').trim());
 
         if (currentSection === 'programs' && (type === 'all' || type === 'programs')) {
           if (parts.length >= 2) {
