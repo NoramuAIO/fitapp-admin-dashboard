@@ -13,7 +13,6 @@ export async function POST(request: Request) {
     const workoutIdMap = new Map<number, number>();
 
     if (format === 'json') {
-      // Yeni format: workouts (antremanlar) ile
       if (data.programs && (type === 'all' || type === 'programs')) {
         for (let i = 0; i < data.programs.length; i++) {
           const program = data.programs[i];
@@ -21,25 +20,26 @@ export async function POST(request: Request) {
             .from('programs')
             .insert({
               name: program.name,
-              isPrimary: program.is_primary || false
+              isPrimary: program.is_primary ?? program.isPrimary ?? false
             })
             .select()
             .single();
 
           if (error) throw error;
-          programIdMap.set(i + 1, newProgram.id);
+          const oldId = program.id || (i + 1);
+          programIdMap.set(oldId, newProgram.id);
           imported.programs++;
         }
       }
 
-      // Workouts (antremanlar) import et
       if (data.workouts && (type === 'all' || type === 'workouts')) {
         for (let i = 0; i < data.workouts.length; i++) {
           const workout = data.workouts[i];
+          let origProgramId = workout.program_id ?? workout.programId;
           
-          let programId = workout.program_id;
-          if (programIdMap.has(workout.program_id)) {
-            programId = programIdMap.get(workout.program_id);
+          let programId = origProgramId;
+          if (programIdMap.has(origProgramId)) {
+            programId = programIdMap.get(origProgramId);
           }
 
           const { data: newWorkout, error } = await supabase
@@ -47,47 +47,48 @@ export async function POST(request: Request) {
             .insert({
               programId,
               name: workout.name,
-              dayNumber: workout.day_number || null,
-              orderIndex: workout.order_index || i
+              dayNumber: workout.day_number ?? workout.dayNumber ?? null,
+              orderIndex: workout.order_index ?? workout.orderIndex ?? i
             })
             .select()
             .single();
 
           if (error) throw error;
-          workoutIdMap.set(i + 1, newWorkout.id);
+          const oldId = workout.id || (i + 1);
+          workoutIdMap.set(oldId, newWorkout.id);
           imported.workouts++;
         }
       }
 
-      // Exercises (hareketler) import et
       if (data.exercises && (type === 'all' || type === 'exercises')) {
-        for (const exercise of data.exercises) {
-          let programId = exercise.program_id;
-          let workoutId = exercise.workout_id;
+        for (let i = 0; i < data.exercises.length; i++) {
+          const exercise = data.exercises[i];
+          let origProgramId = exercise.program_id ?? exercise.programId;
+          let origWorkoutId = exercise.workout_id ?? exercise.workoutId ?? exercise.day_id ?? exercise.dayId;
 
-          // Map workout_id if available
-          if (workoutId && workoutIdMap.has(workoutId)) {
-            workoutId = workoutIdMap.get(workoutId);
+          let programId = origProgramId;
+          let workoutId = origWorkoutId;
+
+          if (origWorkoutId && workoutIdMap.has(origWorkoutId)) {
+            workoutId = workoutIdMap.get(origWorkoutId);
           }
-
-          // Fallback to program_id mapping
-          if (programId && programIdMap.has(programId)) {
-            programId = programIdMap.get(programId);
+          if (origProgramId && programIdMap.has(origProgramId)) {
+            programId = programIdMap.get(origProgramId);
           }
 
           const { error } = await supabase
             .from('exercises')
             .insert({
-              dayId: workoutId || null,  // Supabase'de dayId kullanılıyor
+              dayId: workoutId || null,
               programId: programId || null,
               name: exercise.name,
               sets: exercise.sets,
               reps: exercise.reps,
               duration: exercise.duration || null,
               description: exercise.description || null,
-              orderIndex: exercise.order_index || 0,
-              imageUrl: exercise.image_url || null,
-              muscleGroup: exercise.muscle_group || null,
+              orderIndex: exercise.order_index ?? exercise.orderIndex ?? i,
+              imageUrl: exercise.image_url ?? exercise.imageUrl ?? null,
+              muscleGroup: exercise.muscle_group ?? exercise.muscleGroup ?? null,
             });
 
           if (error) throw error;
@@ -95,34 +96,25 @@ export async function POST(request: Request) {
         }
       }
     } else if (format === 'csv') {
-      // CSV Import
       const lines = data.split('\n');
       let currentSection = '';
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         
-        if (line === 'PROGRAMS') {
-          currentSection = 'programs';
-          i++;
-          continue;
-        } else if (line === 'WORKOUTS') {
-          currentSection = 'workouts';
-          i++;
-          continue;
-        } else if (line === 'EXERCISES') {
-          currentSection = 'exercises';
-          i++;
-          continue;
-        }
+        if (line === 'PROGRAMS') { currentSection = 'programs'; continue; }
+        if (line === 'WORKOUTS') { currentSection = 'workouts'; continue; }
+        if (line === 'EXERCISES') { currentSection = 'exercises'; continue; }
 
         if (!line || line.startsWith('id,')) continue;
 
+        // Safely split CSV respecting quotes and keeping empty fields
+        const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(p => p.replace(/^"|"$/g, '').trim());
+
         if (currentSection === 'programs' && (type === 'all' || type === 'programs')) {
-          const parts = line.split(',');
           if (parts.length >= 2) {
             const oldId = parseInt(parts[0]);
-            const name = parts[1].replace(/"/g, '');
+            const name = parts[1];
             const isPrimary = parts[2] === 'true';
             
             const { data: newProgram, error } = await supabase
@@ -132,24 +124,19 @@ export async function POST(request: Request) {
               .single();
 
             if (error) throw error;
-            if (newProgram && !isNaN(oldId)) {
-              programIdMap.set(oldId, newProgram.id);
-            }
+            if (newProgram && !isNaN(oldId)) programIdMap.set(oldId, newProgram.id);
             imported.programs++;
           }
         } else if (currentSection === 'workouts' && (type === 'all' || type === 'workouts')) {
-          const parts = line.match(/(?:[^,"]+|"[^"]*")+/g) || [];
           if (parts.length >= 3) {
             let programId = parseInt(parts[1]);
-            if (programIdMap.has(programId)) {
-              programId = programIdMap.get(programId)!;
-            }
+            if (programIdMap.has(programId)) programId = programIdMap.get(programId)!;
 
             const { data: newWorkout, error } = await supabase
               .from('program_days')
               .insert({
                 programId,
-                name: parts[2].replace(/"/g, ''),
+                name: parts[2],
                 dayNumber: parseInt(parts[3]) || null,
                 orderIndex: parseInt(parts[4]) || i
               })
@@ -157,36 +144,30 @@ export async function POST(request: Request) {
               .single();
 
             if (error) throw error;
-            if (newWorkout) {
-              workoutIdMap.set(parseInt(parts[0]), newWorkout.id);
-            }
+            if (newWorkout) workoutIdMap.set(parseInt(parts[0]), newWorkout.id);
             imported.workouts++;
           }
         } else if (currentSection === 'exercises' && (type === 'all' || type === 'exercises')) {
-          const parts = line.match(/(?:[^,"]+|"[^"]*")+/g) || [];
           if (parts.length >= 8) {
             let programId = parseInt(parts[1]);
             let workoutId = parseInt(parts[9]) || null;
 
-            if (workoutId && workoutIdMap.has(workoutId)) {
-              workoutId = workoutIdMap.get(workoutId)!;
-            } else if (programId && programIdMap.has(programId)) {
-              programId = programIdMap.get(programId)!;
-            }
+            if (workoutId && workoutIdMap.has(workoutId)) workoutId = workoutIdMap.get(workoutId)!;
+            else if (programId && programIdMap.has(programId)) programId = programIdMap.get(programId)!;
 
             const { error } = await supabase
               .from('exercises')
               .insert({
-                dayId: workoutId,  // Supabase'de dayId kullanılıyor
-                programId,
-                name: parts[2].replace(/"/g, ''),
+                dayId: workoutId || null,
+                programId: programId || null,
+                name: parts[2],
                 sets: parseInt(parts[3]),
                 reps: parseInt(parts[4]),
-                duration: parts[5].replace(/"/g, '') || null,
-                description: parts[6].replace(/"/g, '') || null,
-                orderIndex: parseInt(parts[7]),
-                imageUrl: parts[8]?.replace(/"/g, '') || null,
-                muscleGroup: parts[10]?.replace(/"/g, '') || null,
+                duration: parts[5] || null,
+                description: parts[6] || null,
+                orderIndex: parseInt(parts[7]) || i,
+                imageUrl: parts[8] || null,
+                muscleGroup: parts[10] || null,
               });
 
             if (error) throw error;
