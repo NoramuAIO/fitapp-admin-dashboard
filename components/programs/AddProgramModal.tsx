@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Globe, User } from 'lucide-react';
 
 interface AddProgramModalProps {
     isOpen: boolean;
@@ -24,27 +25,18 @@ export default function AddProgramModal({ isOpen, onClose, onSuccess, users }: A
         }
 
         try {
+            const payload = {
+                ...newProgram,
+                userId: programType === 'user-specific' ? selectedUserId : null
+            };
+
             const response = await fetch('/api/programs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newProgram),
+                body: JSON.stringify(payload),
             });
 
             if (response.ok) {
-                const createdProgram = await response.json();
-
-                if (programType === 'user-specific' && selectedUserId) {
-                    await fetch('/api/user-programs', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            userId: selectedUserId,
-                            programId: createdProgram.id,
-                            isActive: true,
-                        }),
-                    });
-                }
-
                 await onSuccess();
 
                 // Reset state
@@ -79,7 +71,7 @@ export default function AddProgramModal({ isOpen, onClose, onSuccess, users }: A
                         className="w-full bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5558E3] hover:to-[#7C3AED] text-white p-6 rounded-xl font-semibold transition-all text-left"
                     >
                         <div className="flex items-center gap-4">
-                            <span className="text-3xl">🌍</span>
+                            <div className="bg-white/20 p-3 rounded-xl"><Globe size={24} /></div>
                             <div>
                                 <div className="text-lg font-bold">Genel Program</div>
                                 <div className="text-sm text-white/80">Tüm kullanıcılar için görünür</div>
@@ -91,7 +83,7 @@ export default function AddProgramModal({ isOpen, onClose, onSuccess, users }: A
                         className="w-full bg-gradient-to-r from-[#10B981] to-[#059669] hover:from-[#0EA472] hover:to-[#047857] text-white p-6 rounded-xl font-semibold transition-all text-left"
                     >
                         <div className="flex items-center gap-4">
-                            <span className="text-3xl">👤</span>
+                            <div className="bg-white/20 p-3 rounded-xl"><User size={24} /></div>
                             <div>
                                 <div className="text-lg font-bold">Kullanıcıya Özel</div>
                                 <div className="text-sm text-white/80">Belirli bir kullanıcıya atanır</div>
@@ -141,19 +133,21 @@ export default function AddProgramModal({ isOpen, onClose, onSuccess, users }: A
                             type="checkbox"
                             checked={newProgram.isPrimary}
                             onChange={(e) => setNewProgram({ ...newProgram, isPrimary: e.target.checked })}
-                            className="w-5 h-5"
+                            className="w-5 h-5 accent-[#6366F1] bg-[#0F0F0F] border-[#2A2A2A]"
                         />
                         <label className="text-gray-400">Birincil program olarak ayarla</label>
                     </div>
 
                     <div className={`p-4 rounded-xl ${programType === 'general'
-                            ? 'bg-blue-500/10 border border-blue-500/30'
-                            : 'bg-green-500/10 border border-green-500/30'
+                            ? 'bg-[#6366F1]/10 border border-[#6366F1]/30'
+                            : 'bg-[#10B981]/10 border border-[#10B981]/30'
                         }`}>
                         <div className="flex items-start gap-3">
-                            <span className="text-2xl">{programType === 'general' ? '🌍' : '👤'}</span>
+                            <div className={`p-2 rounded-lg ${programType === 'general' ? 'bg-[#6366F1]/20 text-[#6366F1]' : 'bg-[#10B981]/20 text-[#10B981]'}`}>
+                                {programType === 'general' ? <Globe size={20} /> : <User size={20} />}
+                            </div>
                             <div>
-                                <div className={`font-semibold mb-1 ${programType === 'general' ? 'text-blue-400' : 'text-green-400'
+                                <div className={`font-semibold mb-1 ${programType === 'general' ? 'text-[#6366F1]' : 'text-[#10B981]'
                                     }`}>
                                     {programType === 'general' ? 'Genel Program' : 'Kullanıcıya Özel Program'}
                                 </div>

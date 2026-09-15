@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { Download, Upload, Plus } from 'lucide-react'
-import ActivityCards from './programs/ActivityCards'
 import AddProgramModal from './programs/AddProgramModal'
 import ExerciseSelectorModal, { Exercise, Program } from './programs/ExerciseSelectorModal'
 import ImportModal from './programs/ImportModal'
@@ -46,8 +45,12 @@ export default function ProgramList() {
 
   const fetchPrograms = async () => {
     try {
-      // First fetch programs
-      const programsResponse = await fetch('/api/programs')
+      // Get selected user ID from local storage
+      const selectedUserId = localStorage.getItem('selectedUserId')
+      const queryParams = selectedUserId ? `?userId=${selectedUserId}` : ''
+      
+      // First fetch programs for this user (or global if null)
+      const programsResponse = await fetch(`/api/programs${queryParams}`)
       const programsData = await programsResponse.json()
 
       // Then fetch workouts for each program
@@ -292,8 +295,6 @@ export default function ProgramList() {
           />
         ))}
       </div>
-
-      <ActivityCards />
 
       <ExerciseSelectorModal
         isOpen={showExerciseSelector}

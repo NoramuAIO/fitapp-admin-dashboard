@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight, Star, Plus, Trash2, GripVertical } from 'lucide-react';
+import { ChevronRight, Star, Plus, Trash2, GripVertical, User } from 'lucide-react';
 import AddWorkoutModal from './AddWorkoutModal';
 import { Program, Workout } from './ExerciseSelectorModal';
 import WorkoutItem from './WorkoutItem';
@@ -86,8 +86,13 @@ export default function ProgramItem({
                                         <Star size={12} className="fill-[#5DD97C]" /> Birincil
                                     </span>
                                 )}
+                                {program.userId && (
+                                    <span className="flex items-center gap-1 bg-[#6366F1]/10 text-[#6366F1] px-2.5 py-1 rounded-lg text-xs font-bold">
+                                        <User size={12} /> Kişiye Özel
+                                    </span>
+                                )}
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 text-sm text-gray-400 font-medium">
                                 <span className="bg-[#1A1A1A] border border-[#2A2A2A] text-gray-400 px-2.5 py-1 rounded-lg text-xs font-medium">
                                     {workoutCount} Antrenman
                                 </span>
