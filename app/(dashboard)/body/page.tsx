@@ -115,9 +115,15 @@ export default function BodyAdminPage() {
           className="bg-[#1A1A1A] border border-[#2A2A2A] text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#6366F1]"
           value={selectedUserId ?? ''}
           onChange={(e) => {
-            const id = parseInt(e.target.value);
-            setSelectedUserId(id);
-            localStorage.setItem('selectedUserId', id.toString());
+            const val = e.target.value;
+            if (val) {
+              const id = parseInt(val);
+              setSelectedUserId(id);
+              localStorage.setItem('selectedUserId', id.toString());
+            } else {
+              setSelectedUserId(null);
+              localStorage.removeItem('selectedUserId');
+            }
           }}
         >
           <option value="">Kullanıcı Seç</option>

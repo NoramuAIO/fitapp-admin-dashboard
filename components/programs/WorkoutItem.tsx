@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ChevronRight, Plus, Trash2 } from 'lucide-react';
 import AddExerciseForm from './AddExerciseForm';
 import ExerciseItem from './ExerciseItem';
 import { Exercise, Workout } from './ExerciseSelectorModal';
@@ -30,8 +31,7 @@ export default function WorkoutItem({
 
     return (
         <div
-            className={`bg-[#1A1A1A] rounded-xl p-4 border transition-all ${isDragOver ? 'border-[#6366F1] border-dashed' : 'border-[#2A2A2A]'
-                }`}
+            className={`bg-[#1A1A1A] rounded-2xl p-5 border transition-all ${isDragOver ? 'border-[#6366F1] border-dashed' : 'border-[#2A2A2A]'}`}
             onDragOver={(e) => {
                 e.preventDefault();
                 setIsDragOver(true);
@@ -39,38 +39,38 @@ export default function WorkoutItem({
             onDragLeave={() => setIsDragOver(false)}
             onDrop={() => setIsDragOver(false)}
         >
-            <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center space-x-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-3">
                     <button
                         onClick={onToggleCollapse}
-                        className="text-gray-400 hover:text-white transition-colors"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg bg-[#2A2A2A] text-gray-400 hover:text-white hover:bg-[#3A3A3A] transition-colors shrink-0"
                     >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={isCollapsed ? 'rotate-0' : 'rotate-90'}>
-                            <polyline points="9 18 15 12 9 6"></polyline>
-                        </svg>
+                        <ChevronRight size={16} className={`transition-transform duration-200 ${isCollapsed ? 'rotate-0' : 'rotate-90'}`} />
                     </button>
                     <div>
-                        <h4 className="text-white font-medium">{workout.name}</h4>
-                        {workout.dayNumber && (
-                            <span className="text-xs text-gray-500">Gün {workout.dayNumber}</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                            <h4 className="text-white font-bold">{workout.name}</h4>
+                            {workout.dayNumber && (
+                                <span className="text-xs font-semibold bg-white/5 text-gray-400 px-2 py-0.5 rounded-md border border-white/10">Gün {workout.dayNumber}</span>
+                            )}
+                        </div>
+                        <span className="text-xs text-gray-500 mt-0.5 block">
+                            {workout.exercises.length} hareket
+                        </span>
                     </div>
-                    <span className="bg-[#2A2A2A] text-gray-400 px-2 py-1 rounded-lg text-xs">
-                        {workout.exercises.length} hareket
-                    </span>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2">
                     <button
                         onClick={onShowAddExercise}
-                        className="text-[#6366F1] hover:text-[#818CF8] text-sm px-2 py-1"
+                        className="flex items-center gap-1.5 text-[#6366F1] hover:text-[#818CF8] hover:bg-[#6366F1]/10 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
                     >
-                        + Hareket
+                        <Plus size={14} /> Hareket
                     </button>
                     <button
                         onClick={onDelete}
-                        className="text-red-500 hover:text-red-400 text-sm px-2 py-1"
+                        className="flex items-center gap-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
                     >
-                        Sil
+                        <Trash2 size={14} /> Sil
                     </button>
                 </div>
             </div>

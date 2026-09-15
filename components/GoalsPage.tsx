@@ -155,10 +155,15 @@ export default function GoalsPage() {
               className="bg-[#141414] border border-[#2A2A2A] text-white rounded-xl py-2.5 pl-10 pr-10 text-sm focus:outline-none focus:border-[#6366F1] appearance-none cursor-pointer"
               value={selectedUserId ?? ''}
               onChange={(e) => {
-                const id = e.target.value ? parseInt(e.target.value) : null;
-                setSelectedUserId(id);
-                if (id) localStorage.setItem('selectedUserId', id.toString());
-                else localStorage.removeItem('selectedUserId');
+                const val = e.target.value;
+                if (val) {
+                  const id = parseInt(val);
+                  setSelectedUserId(id);
+                  localStorage.setItem('selectedUserId', id.toString());
+                } else {
+                  setSelectedUserId(null);
+                  localStorage.removeItem('selectedUserId');
+                }
               }}
             >
               <option value="">Tüm Kullanıcılar</option>

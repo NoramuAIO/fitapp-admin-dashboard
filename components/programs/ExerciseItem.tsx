@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { GripVertical, Edit2, Trash2 } from 'lucide-react';
 import { Exercise } from './ExerciseSelectorModal';
 
 interface ExerciseItemProps {
@@ -63,40 +64,52 @@ export default function ExerciseItem({
 
     if (isEditing) {
         return (
-            <div className="bg-[#0F0F0F] rounded-lg p-3 border border-[#6366F1]">
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                    <input
-                        type="text"
-                        value={editData.name}
-                        onChange={(e) => setEditData({ ...editData, name: e.target.value })}
-                        className="bg-[#1A1A1A] text-white rounded px-2 py-1 text-sm"
-                        placeholder="Hareket adı"
-                    />
-                    <input
-                        type="text"
-                        value={editData.muscleGroup}
-                        onChange={(e) => setEditData({ ...editData, muscleGroup: e.target.value })}
-                        className="bg-[#1A1A1A] text-white rounded px-2 py-1 text-sm"
-                        placeholder="Kas grubu"
-                    />
-                    <input
-                        type="number"
-                        value={editData.sets}
-                        onChange={(e) => setEditData({ ...editData, sets: parseInt(e.target.value) || 0 })}
-                        className="bg-[#1A1A1A] text-white rounded px-2 py-1 text-sm"
-                        placeholder="Set"
-                    />
-                    <input
-                        type="number"
-                        value={editData.reps}
-                        onChange={(e) => setEditData({ ...editData, reps: parseInt(e.target.value) || 0 })}
-                        className="bg-[#1A1A1A] text-white rounded px-2 py-1 text-sm"
-                        placeholder="Tekrar"
-                    />
+            <div className="bg-[#1A1A1A] rounded-xl p-4 border border-[#6366F1] shadow-lg mb-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                    <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Hareket Adı</label>
+                        <input
+                            type="text"
+                            value={editData.name}
+                            onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                            className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
+                            placeholder="Hareket adı"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Kas Grubu</label>
+                        <input
+                            type="text"
+                            value={editData.muscleGroup}
+                            onChange={(e) => setEditData({ ...editData, muscleGroup: e.target.value })}
+                            className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
+                            placeholder="Örn: Göğüs, Sırt"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Set</label>
+                        <input
+                            type="number"
+                            value={editData.sets}
+                            onChange={(e) => setEditData({ ...editData, sets: parseInt(e.target.value) || 0 })}
+                            className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
+                            placeholder="3"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Tekrar</label>
+                        <input
+                            type="number"
+                            value={editData.reps}
+                            onChange={(e) => setEditData({ ...editData, reps: parseInt(e.target.value) || 0 })}
+                            className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
+                            placeholder="12"
+                        />
+                    </div>
                 </div>
                 <div className="flex space-x-2">
-                    <button onClick={handleSave} className="flex-1 bg-[#6366F1] text-white py-1 rounded text-sm">Kaydet</button>
-                    <button onClick={() => setIsEditing(false)} className="px-3 bg-[#2A2A2A] text-white py-1 rounded text-sm">İptal</button>
+                    <button onClick={handleSave} className="flex-1 bg-[#6366F1] hover:bg-[#5558DD] text-white py-2 rounded-lg text-sm font-medium transition-colors">Kaydet</button>
+                    <button onClick={() => setIsEditing(false)} className="flex-1 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white py-2 rounded-lg text-sm font-medium transition-colors">İptal</button>
                 </div>
             </div>
         );
@@ -109,40 +122,27 @@ export default function ExerciseItem({
             onDragOver={onDragOver ? (e) => onDragOver(e, workoutId || exercise.programId || 0, exercise.id) : undefined}
             onDragEnd={onDragEnd}
             onDrop={onDrop ? (e) => onDrop(e, workoutId || exercise.programId || 0, exercise.id) : undefined}
-            className={`bg-[#0F0F0F] rounded-lg p-3 flex items-center justify-between transition-all ${isDragOver ? 'border-2 border-[#6366F1] border-dashed' : ''} ${isDragged ? 'opacity-50' : ''}`}
+            className={`bg-[#0F0F0F] rounded-xl p-3 mb-2 flex items-center justify-between transition-all hover:bg-white/[0.02] ${isDragOver ? 'border-2 border-[#6366F1] border-dashed' : 'border border-[#2A2A2A]'} ${isDragged ? 'opacity-50' : ''}`}
         >
             <div className="flex items-center space-x-3">
-                <div className="text-gray-500 cursor-grab active:cursor-grabbing">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="8" cy="6" r="2" />
-                        <circle cx="16" cy="6" r="2" />
-                        <circle cx="8" cy="12" r="2" />
-                        <circle cx="16" cy="12" r="2" />
-                        <circle cx="8" cy="18" r="2" />
-                        <circle cx="16" cy="18" r="2" />
-                    </svg>
+                <div className="text-gray-500 cursor-grab active:cursor-grabbing hover:text-white transition-colors">
+                    <GripVertical size={18} />
                 </div>
                 <div>
-                    <div className="text-white text-sm font-medium">{exercise.name}</div>
-                    <div className="text-gray-500 text-xs">
-                        {exercise.sets} set × {exercise.reps} tekrar
-                        {exercise.duration && ` • ${exercise.duration}`}
-                        {exercise.muscleGroup && ` • ${exercise.muscleGroup}`}
+                    <div className="text-white text-sm font-bold mb-0.5">{exercise.name}</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold bg-[#6366F1]/10 text-[#6366F1] px-2 py-0.5 rounded-md">{exercise.sets} set × {exercise.reps} tekrar</span>
+                        {exercise.duration && <span className="text-xs text-gray-500">{exercise.duration}</span>}
+                        {exercise.muscleGroup && <span className="text-xs font-medium text-gray-400 bg-[#2A2A2A] px-2 py-0.5 rounded-md">{exercise.muscleGroup}</span>}
                     </div>
                 </div>
             </div>
-            <div className="flex items-center space-x-2">
-                <button onClick={() => setIsEditing(true)} className="text-gray-400 hover:text-white p-1">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
+            <div className="flex items-center space-x-1">
+                <button onClick={() => setIsEditing(true)} className="text-gray-500 hover:text-white hover:bg-[#2A2A2A] p-2 rounded-lg transition-colors">
+                    <Edit2 size={16} />
                 </button>
-                <button onClick={handleDelete} className="text-gray-400 hover:text-red-500 p-1">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                    </svg>
+                <button onClick={handleDelete} className="text-gray-500 hover:text-red-500 hover:bg-red-500/10 p-2 rounded-lg transition-colors">
+                    <Trash2 size={16} />
                 </button>
             </div>
         </div>

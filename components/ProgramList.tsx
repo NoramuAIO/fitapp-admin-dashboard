@@ -274,16 +274,25 @@ export default function ProgramList() {
       {/* Programs Grid */}
       <div className="grid grid-cols-1 gap-6">
         {programs.map((program) => (
-          <ProgramItem
+          <div
             key={program.id}
-            program={program}
-            isCollapsed={collapsedPrograms.has(program.id)}
-            onToggleCollapse={() => toggleProgramCollapse(program.id)}
-            onDelete={() => handleDeleteProgram(program.id)}
-            onUpdate={fetchPrograms}
-            onDeleteWorkout={handleDeleteWorkout}
-            onDeleteExercise={handleDeleteExercise}
-          />
+            draggable
+            onDragStart={() => handleProgramDragStart(program.id)}
+            onDragOver={(e) => handleProgramDragOver(e, program.id)}
+            onDragEnd={handleProgramDragEnd}
+            onDrop={(e) => handleProgramDrop(e, program.id)}
+            className={`transition-all duration-300 ${draggedProgram === program.id ? 'opacity-50' : ''} ${dragOverProgram === program.id ? 'border-t-2 border-[#6366F1] pt-2 mt-[-2px]' : ''}`}
+          >
+            <ProgramItem
+              program={program}
+              isCollapsed={collapsedPrograms.has(program.id)}
+              onToggleCollapse={() => toggleProgramCollapse(program.id)}
+              onDelete={() => handleDeleteProgram(program.id)}
+              onUpdate={fetchPrograms}
+              onDeleteWorkout={handleDeleteWorkout}
+              onDeleteExercise={handleDeleteExercise}
+            />
+          </div>
         ))}
       </div>
 
