@@ -6,17 +6,11 @@
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
-    "lint": "next lint",
-    "seed": "tsx scripts/seed.ts",
-    "migrate": "tsx scripts/add-password-field.ts",
-    "migrate:imageurl": "tsx scripts/add-imageurl-column.ts",
-    "migrate:programid-nullable": "tsx scripts/make-programid-nullable.ts",
-    "remove:cardio": "tsx scripts/remove-cardio-programs.ts",
-    "remove:cardio-exercises": "tsx scripts/remove-cardio-exercises.ts",
-    "remove:cardio-goals": "tsx scripts/remove-cardio-goals.ts"
+    "lint": "next lint"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.93.3",
+    "lucide-react": "^1.46.0",
     "next": "^15.1.6",
     "pg": "^8.13.1",
     "react": "^19.0.0",
