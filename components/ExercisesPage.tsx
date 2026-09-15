@@ -298,7 +298,6 @@ export default function ExercisesPage() {
   }
 
   return (
-  return (
     <div className="p-8 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
