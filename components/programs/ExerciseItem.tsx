@@ -29,6 +29,7 @@ export default function ExerciseItem({
     isDragOver
 }: ExerciseItemProps) {
     const [isEditing, setIsEditing] = useState(false);
+    const [isDraggable, setIsDraggable] = useState(false);
     const [editData, setEditData] = useState({
         name: exercise.name,
         sets: exercise.sets,
@@ -117,7 +118,7 @@ export default function ExerciseItem({
 
     return (
         <div
-            draggable={!!onDragStart}
+            draggable={isDraggable && !!onDragStart}
             onDragStart={onDragStart ? () => onDragStart(workoutId || exercise.programId || 0, exercise.id) : undefined}
             onDragOver={onDragOver ? (e) => onDragOver(e, workoutId || exercise.programId || 0, exercise.id) : undefined}
             onDragEnd={onDragEnd}
@@ -125,7 +126,12 @@ export default function ExerciseItem({
             className={`bg-[#0F0F0F] rounded-xl p-3 mb-2 flex items-center justify-between transition-all hover:bg-white/[0.02] ${isDragOver ? 'border-2 border-[#6366F1] border-dashed' : 'border border-[#2A2A2A]'} ${isDragged ? 'opacity-50' : ''}`}
         >
             <div className="flex items-center space-x-3">
-                <div className="text-gray-500 cursor-grab active:cursor-grabbing hover:text-white transition-colors">
+                <div 
+                    className="text-gray-500 cursor-grab active:cursor-grabbing hover:text-white transition-colors p-1"
+                    onMouseEnter={() => setIsDraggable(true)}
+                    onMouseLeave={() => setIsDraggable(false)}
+                    onMouseUp={() => setIsDraggable(false)}
+                >
                     <GripVertical size={18} />
                 </div>
                 <div>

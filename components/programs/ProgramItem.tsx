@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight, Star, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, Star, Plus, Trash2, GripVertical } from 'lucide-react';
 import AddWorkoutModal from './AddWorkoutModal';
 import { Program, Workout } from './ExerciseSelectorModal';
 import WorkoutItem from './WorkoutItem';
@@ -12,6 +12,12 @@ interface ProgramItemProps {
     onUpdate: () => Promise<void>;
     onDeleteWorkout: (workoutId: number) => Promise<void>;
     onDeleteExercise: (workoutId: number, exerciseId: number) => Promise<void>;
+    onDragStart?: () => void;
+    onDragOver?: (e: React.DragEvent) => void;
+    onDragEnd?: () => void;
+    onDrop?: (e: React.DragEvent) => void;
+    isDragged?: boolean;
+    isDragOverTarget?: boolean;
 }
 
 export default function ProgramItem({
@@ -21,10 +27,17 @@ export default function ProgramItem({
     onDelete,
     onUpdate,
     onDeleteWorkout,
-    onDeleteExercise
+    onDeleteExercise,
+    onDragStart,
+    onDragOver,
+    onDragEnd,
+    onDrop,
+    isDragged,
+    isDragOverTarget
 }: ProgramItemProps) {
     const [showAddWorkout, setShowAddWorkout] = useState(false);
     const [expandedWorkouts, setExpandedWorkouts] = useState<Set<number>>(new Set());
+    const [isDraggable, setIsDraggable] = useState(false);
 
     const toggleWorkout = (workoutId: number) => {
         const newExpanded = new Set(expandedWorkouts);
@@ -41,9 +54,24 @@ export default function ProgramItem({
 
     return (
         <>
-            <div className="bg-[#141414] rounded-2xl p-6 shadow-lg border border-[#2A2A2A] hover:border-[#3A3A3A] transition-colors cursor-move">
+            <div 
+                draggable={isDraggable}
+                onDragStart={onDragStart}
+                onDragOver={onDragOver}
+                onDragEnd={onDragEnd}
+                onDrop={onDrop}
+                className={`bg-[#141414] rounded-2xl p-6 shadow-lg border transition-all duration-300 ${isDragOverTarget ? 'border-t-2 border-t-[#6366F1] border-x-[#2A2A2A] border-b-[#2A2A2A] mt-[-2px] pt-[26px]' : 'border-[#2A2A2A]'} hover:border-[#3A3A3A] ${isDragged ? 'opacity-50' : ''}`}
+            >
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
                     <div className="flex items-center gap-4">
+                        <div 
+                            className="text-gray-500 cursor-grab active:cursor-grabbing hover:text-white transition-colors p-1"
+                            onMouseEnter={() => setIsDraggable(true)}
+                            onMouseLeave={() => setIsDraggable(false)}
+                            onMouseUp={() => setIsDraggable(false)}
+                        >
+                            <GripVertical size={20} />
+                        </div>
                         <button
                             onClick={onToggleCollapse}
                             className="w-8 h-8 flex items-center justify-center rounded-lg bg-[#1A1A1A] text-gray-400 hover:text-white hover:bg-[#2A2A2A] transition-colors shrink-0"
