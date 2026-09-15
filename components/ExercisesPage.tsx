@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Search, Filter, Trash2, Plus, Upload, Activity, Dumbbell } from 'lucide-react';
+import { Search, Filter, Trash2, Plus, Upload, Activity, Dumbbell, Edit2 } from 'lucide-react';
 
 interface Exercise {
   id: number;
@@ -499,15 +499,15 @@ export default function ExercisesPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleEdit(exercise)}
-                      className="flex-1 bg-blue-500/20 text-blue-400 py-2 rounded-lg hover:bg-blue-500/30 transition-colors text-sm font-medium"
+                      className="flex-1 flex items-center justify-center gap-2 bg-[#6366F1]/10 text-[#6366F1] py-2.5 rounded-xl hover:bg-[#6366F1]/20 transition-colors text-sm font-semibold"
                     >
-                      ✏️ Düzenle
+                      <Edit2 size={16} /> Düzenle
                     </button>
                     <button
                       onClick={() => handleDelete(exercise.id)}
-                      className="flex-1 bg-red-500/20 text-red-400 py-2 rounded-lg hover:bg-red-500/30 transition-colors text-sm font-medium"
+                      className="flex-1 flex items-center justify-center gap-2 bg-[#FF6B4A]/10 text-[#FF6B4A] py-2.5 rounded-xl hover:bg-[#FF6B4A]/20 transition-colors text-sm font-semibold"
                     >
-                      🗑️ Sil
+                      <Trash2 size={16} /> Sil
                     </button>
                   </div>
                 </div>
@@ -530,9 +530,9 @@ export default function ExercisesPage() {
                 <div className="flex gap-3">
                   <button
                     onClick={() => setImportFormat('bodybuilding')}
-                    className={`flex-1 py-3 px-4 rounded-lg font-medium transition-colors ${
+                    className={`flex-1 py-3 px-4 rounded-xl font-medium transition-colors ${
                       importFormat === 'bodybuilding' 
-                        ? 'bg-blue-500 text-white' 
+                        ? 'bg-[#6366F1] text-white' 
                         : 'bg-[#2A2A2A] text-gray-400 hover:bg-[#3A3A3A]'
                     }`}
                   >
@@ -540,9 +540,9 @@ export default function ExercisesPage() {
                   </button>
                   <button
                     onClick={() => setImportFormat('fitnessprogramer')}
-                    className={`flex-1 py-3 px-4 rounded-lg font-medium transition-colors ${
+                    className={`flex-1 py-3 px-4 rounded-xl font-medium transition-colors ${
                       importFormat === 'fitnessprogramer' 
-                        ? 'bg-blue-500 text-white' 
+                        ? 'bg-[#6366F1] text-white' 
                         : 'bg-[#2A2A2A] text-gray-400 hover:bg-[#3A3A3A]'
                     }`}
                   >
@@ -551,8 +551,10 @@ export default function ExercisesPage() {
                 </div>
               </div>
 
-              <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
-                <h4 className="text-blue-400 font-semibold mb-2">📋 Format Bilgisi</h4>
+              <div className="bg-[#6366F1]/10 border border-[#6366F1]/30 rounded-xl p-4">
+                <h4 className="flex items-center gap-2 text-[#6366F1] font-semibold mb-2">
+                  <Activity size={16} /> Format Bilgisi
+                </h4>
                 {importFormat === 'bodybuilding' ? (
                   <>
                     <p className="text-sm text-gray-400 mb-2">Bodybuilding.com formatı:</p>
@@ -622,7 +624,7 @@ export default function ExercisesPage() {
                 <button
                   onClick={handleImportBodybuilding}
                   disabled={loading}
-                  className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-600 text-white px-6 py-3 rounded-xl font-semibold transition-all"
+                  className="flex-1 bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5558E3] hover:to-[#7C3AED] disabled:opacity-50 text-white px-6 py-3 rounded-xl font-semibold transition-all"
                 >
                   {loading ? 'İçe Aktarılıyor...' : 'İçe Aktar'}
                 </button>
