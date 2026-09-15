@@ -1,8 +1,10 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import FloatingSidebar from '@/components/FloatingSidebar'
+import Header from '@/components/Header'
 
 export const metadata: Metadata = {
-  title: 'Fitness Admin Dashboard',
+  title: 'FitApp Admin Dashboard',
   description: 'Admin panel for fitness app management',
 }
 
@@ -13,7 +15,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="tr">
-      <body className="bg-dark-bg text-white antialiased">
+      <body className="bg-[#0A0A0A] text-white antialiased">
         {children}
       </body>
     </html>

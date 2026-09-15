@@ -1,6 +1,3 @@
 'use client';
 import UsersPage from '@/components/UsersPage';
-
-export default function Users() {
-  return <UsersPage />;
-}
+export default function Page() { return <UsersPage />; }

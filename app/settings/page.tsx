@@ -1,128 +1,100 @@
 'use client';
 
 import { useState } from 'react';
+import { AlertTriangle, Trash2, CheckCircle2, Info } from 'lucide-react';
 
 export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
-  const handleDeleteAllSessions = async () => {
-    if (!confirm('Tüm antreman kayıtlarını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')) {
-      return;
-    }
-
+  const danger = async (url: string, label: string) => {
+    if (!confirm(`${label} işlemini gerçekleştirmek istiyor musunuz? Bu işlem geri alınamaz!`)) return;
     setLoading(true);
-    setMessage('');
-
+    setMessage(null);
     try {
-      const response = await fetch('/api/settings/delete-sessions', {
-        method: 'DELETE',
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setMessage(`✅ Başarılı! ${data.deletedCount} antreman kaydı silindi.`);
+      const res = await fetch(url, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        setMessage({ text: `Başarılı! ${data.deletedCount ?? ''} kayıt silindi.`, ok: true });
       } else {
-        setMessage(`❌ Hata: ${data.error}`);
+        setMessage({ text: `Hata: ${data.error}`, ok: false });
       }
-    } catch (error) {
-      setMessage('❌ Bir hata oluştu: ' + (error as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteAllProgress = async () => {
-    if (!confirm('Tüm egzersiz ilerlemelerini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')) {
-      return;
-    }
-
-    setLoading(true);
-    setMessage('');
-
-    try {
-      const response = await fetch('/api/settings/delete-progress', {
-        method: 'DELETE',
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setMessage(`✅ Başarılı! ${data.deletedCount} ilerleme kaydı silindi.`);
-      } else {
-        setMessage(`❌ Hata: ${data.error}`);
-      }
-    } catch (error) {
-      setMessage('❌ Bir hata oluştu: ' + (error as Error).message);
+    } catch (e) {
+      setMessage({ text: 'Bağlantı hatası: ' + (e as Error).message, ok: false });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Ayarlar</h1>
+    <div className="p-8 max-w-3xl mx-auto">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-white">Ayarlar</h1>
+        <p className="text-gray-400 mt-1">Sistem yönetimi ve tehlikeli işlemler</p>
+      </div>
 
-        {/* Tehlikeli İşlemler */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-xl font-semibold text-red-600 mb-4">⚠️ Tehlikeli İşlemler</h2>
-          <p className="text-gray-600 mb-6">
-            Bu işlemler geri alınamaz. Lütfen dikkatli olun!
-          </p>
+      {/* Feedback */}
+      {message && (
+        <div className={`flex items-center gap-3 rounded-2xl px-5 py-4 mb-6 border ${
+          message.ok
+            ? 'bg-[#5DD97C]/10 border-[#5DD97C]/30 text-[#5DD97C]'
+            : 'bg-[#FF6B4A]/10 border-[#FF6B4A]/30 text-[#FF6B4A]'
+        }`}>
+          <CheckCircle2 size={20} className={message.ok ? 'text-[#5DD97C]' : 'hidden'} />
+          <AlertTriangle size={20} className={!message.ok ? 'text-[#FF6B4A]' : 'hidden'} />
+          <span className="text-sm font-medium">{message.text}</span>
+        </div>
+      )}
 
-          <div className="space-y-4">
-            {/* Tüm Antreman Kayıtlarını Sil */}
-            <div className="border border-red-200 rounded-lg p-4 bg-red-50">
-              <h3 className="font-semibold text-gray-900 mb-2">Tüm Antreman Kayıtlarını Sil</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Tüm kullanıcıların antreman geçmişini siler (workout_sessions tablosu).
-              </p>
-              <button
-                onClick={handleDeleteAllSessions}
-                disabled={loading}
-                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Siliniyor...' : 'Tüm Antreman Kayıtlarını Sil'}
-              </button>
-            </div>
-
-            {/* Tüm Egzersiz İlerlemelerini Sil */}
-            <div className="border border-red-200 rounded-lg p-4 bg-red-50">
-              <h3 className="font-semibold text-gray-900 mb-2">Tüm Egzersiz İlerlemelerini Sil</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Tüm egzersiz set/tekrar kayıtlarını siler (exercise_progress tablosu).
-              </p>
-              <button
-                onClick={handleDeleteAllProgress}
-                disabled={loading}
-                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Siliniyor...' : 'Tüm İlerleme Kayıtlarını Sil'}
-              </button>
-            </div>
-          </div>
-
-          {/* Mesaj */}
-          {message && (
-            <div className={`mt-4 p-4 rounded-lg ${
-              message.includes('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
-            }`}>
-              {message}
-            </div>
-          )}
+      {/* Danger Zone */}
+      <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] overflow-hidden mb-6">
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-[#2A2A2A]">
+          <AlertTriangle size={20} className="text-[#FF6B4A]" />
+          <h2 className="text-lg font-bold text-white">Tehlikeli İşlemler</h2>
         </div>
 
-        {/* Bilgi */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h3 className="font-semibold text-blue-900 mb-2">ℹ️ Bilgi</h3>
-          <ul className="text-sm text-blue-800 space-y-1">
-            <li>• Antreman kayıtları: Kullanıcıların tamamladığı antremanların geçmişi</li>
-            <li>• İlerleme kayıtları: Her egzersizin set ve tekrar detayları</li>
-            <li>• Bu işlemler programları, egzersizleri veya kullanıcıları silmez</li>
-          </ul>
+        <div className="p-6 space-y-4">
+          {[
+            {
+              title: 'Tüm Antreman Kayıtlarını Sil',
+              desc: 'Tüm kullanıcıların antreman geçmişini siler (workout_sessions tablosu).',
+              url: '/api/settings/delete-sessions',
+              label: 'Antreman Kayıtlarını Sil',
+            },
+            {
+              title: 'Tüm Egzersiz İlerlemelerini Sil',
+              desc: 'Tüm egzersiz set/tekrar kayıtlarını siler (exercise_progress tablosu).',
+              url: '/api/settings/delete-progress',
+              label: 'Egzersiz İlerlemelerini Sil',
+            },
+          ].map((item) => (
+            <div key={item.url} className="bg-[#FF6B4A]/5 border border-[#FF6B4A]/20 rounded-xl p-5">
+              <h3 className="font-semibold text-white mb-1">{item.title}</h3>
+              <p className="text-sm text-gray-400 mb-4">{item.desc}</p>
+              <button
+                onClick={() => danger(item.url, item.label)}
+                disabled={loading}
+                className="flex items-center gap-2 bg-[#FF6B4A]/20 hover:bg-[#FF6B4A]/30 border border-[#FF6B4A]/40 text-[#FF6B4A] rounded-xl px-4 py-2.5 text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 size={16} />
+                {loading ? 'Siliniyor...' : item.label}
+              </button>
+            </div>
+          ))}
         </div>
+      </div>
+
+      {/* Info */}
+      <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Info size={20} className="text-[#6366F1]" />
+          <h2 className="text-lg font-bold text-white">Bilgi</h2>
+        </div>
+        <ul className="space-y-2 text-sm text-gray-400">
+          <li>• <span className="text-gray-300">Antreman kayıtları:</span> Kullanıcıların tamamladığı antremanların geçmişi</li>
+          <li>• <span className="text-gray-300">İlerleme kayıtları:</span> Her egzersizin set ve tekrar detayları</li>
+          <li>• <span className="text-gray-300">Bu işlemler</span> programları, egzersizleri veya kullanıcıları silmez</li>
+        </ul>
       </div>
     </div>
   );

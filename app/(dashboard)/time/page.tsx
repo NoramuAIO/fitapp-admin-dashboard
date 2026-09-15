@@ -1,6 +1,3 @@
 'use client';
 import TimePage from '@/components/TimePage';
-
-export default function Time() {
-  return <TimePage />;
-}
+export default function Page() { return <TimePage />; }
