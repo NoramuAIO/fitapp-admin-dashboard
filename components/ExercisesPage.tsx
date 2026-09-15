@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Search, Filter, Trash2, Plus, Upload, Activity, Dumbbell } from 'lucide-react';
 
 interface Exercise {
   id: number;
@@ -297,105 +298,132 @@ export default function ExercisesPage() {
   }
 
   return (
-    <div className="p-8">
+  return (
+    <div className="p-8 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-white mb-2">Tüm Hareketler</h1>
-          <p className="text-gray-400">Sistemdeki tüm hareketleri görüntüleyin ve yönetin</p>
+          <p className="text-gray-400">Sistemdeki tüm hareketleri görüntüleyin, ekleyin ve düzenleyin</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {selectedExerciseIds.length > 0 && (
             <>
               <button
                 onClick={() => setSelectedExerciseIds([])}
-                className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-xl font-semibold transition-all shadow-lg"
+                className="bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
               >
-                Seçimi Temizle ({selectedExerciseIds.length})
+                Seçimi Temizle
               </button>
               <button
                 onClick={handleDeleteSelected}
-                className="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-xl font-semibold transition-all shadow-lg"
+                className="flex items-center gap-2 bg-[#FF6B4A]/10 hover:bg-[#FF6B4A]/20 text-[#FF6B4A] border border-[#FF6B4A]/20 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
               >
-                🗑️ Seçilenleri Sil ({selectedExerciseIds.length})
+                <Trash2 size={18} /> Seçilenleri Sil ({selectedExerciseIds.length})
               </button>
             </>
           )}
-          {filteredExercises.length > 0 && (
+          {filteredExercises.length > 0 && selectedExerciseIds.length === 0 && (
             <button
               onClick={handleDeleteAll}
               disabled={loading}
-              className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white px-6 py-3 rounded-xl font-semibold transition-all shadow-lg"
+              className="flex items-center gap-2 bg-[#FF6B4A]/10 hover:bg-[#FF6B4A]/20 text-[#FF6B4A] border border-[#FF6B4A]/20 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
             >
-              🗑️ Tümünü Sil ({filteredExercises.length})
+              <Trash2 size={18} /> Tümünü Sil ({filteredExercises.length})
             </button>
           )}
+          
           <button
             onClick={() => setShowImportModal(true)}
-            className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold transition-all shadow-lg"
+            className="flex items-center gap-2 bg-[#141414] hover:bg-[#1A1A1A] border border-[#2A2A2A] text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
           >
-            📥 CSV İçe Aktar
+            <Upload size={18} /> İçe Aktar
           </button>
+          
           <button
             onClick={() => {
-              setShowAddModal(true);
               setEditingExercise(null);
-              resetForm();
+              setFormData({
+                name: '', sets: 3, reps: 10, duration: '', description: '', imageUrl: '',
+              });
+              setShowAddModal(true);
             }}
-            className="bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5558E3] hover:to-[#7C3AED] text-white px-6 py-3 rounded-xl font-semibold transition-all shadow-lg"
+            className="flex items-center gap-2 bg-[#6366F1] hover:bg-[#5558DD] text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
           >
-            + Yeni Hareket Ekle
+            <Plus size={18} /> Yeni Hareket
           </button>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 flex gap-4">
-        <div className="flex items-center gap-3">
+      {/* Filters and Search */}
+      <div className="flex flex-col md:flex-row gap-4 mb-8 items-center">
+        <div className="flex items-center gap-3 bg-[#141414] border border-[#2A2A2A] px-4 py-2.5 rounded-xl shrink-0">
           <input
             type="checkbox"
             checked={selectedExerciseIds.length === filteredExercises.length && filteredExercises.length > 0}
             onChange={toggleSelectAll}
-            className="w-5 h-5 rounded border-[#2A2A2A] bg-[#0F0F0F] checked:bg-[#6366F1]"
+            className="w-4 h-4 rounded border-[#2A2A2A] bg-[#0F0F0F] checked:bg-[#6366F1]"
           />
-          <span className="text-white font-medium">
-            Tümünü Seç ({selectedExerciseIds.length} / {filteredExercises.length})
+          <span className="text-gray-400 text-sm font-medium">
+            Tümünü Seç
           </span>
         </div>
-        <div className="flex-1">
+        <div className="flex-1 w-full relative">
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
           <input
             type="text"
             placeholder="Hareket ara..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-[#1A1A1A] text-white rounded-xl px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+            className="w-full bg-[#141414] border border-[#2A2A2A] text-white rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-[#6366F1]"
           />
         </div>
-        <select
-          value={filterProgram}
-          onChange={(e) => setFilterProgram(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-          className="bg-[#1A1A1A] text-white rounded-xl px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
-        >
-          <option value="all">Tüm Programlar</option>
-          {programs.map(program => (
-            <option key={program.id} value={program.id}>{program.name}</option>
-          ))}
-        </select>
+        
+        <div className="relative w-full md:w-64">
+          <Filter size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+          <select
+            className="w-full bg-[#141414] border border-[#2A2A2A] text-white rounded-xl py-2.5 pl-10 pr-10 text-sm focus:outline-none focus:border-[#6366F1] appearance-none"
+            value={filterProgram}
+            onChange={(e) => setFilterProgram(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+          >
+            <option value="all">Tüm Programlar</option>
+            {programs.map(program => (
+              <option key={program.id} value={program.id}>{program.name}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-gradient-to-br from-purple-500/20 to-indigo-600/20 rounded-2xl p-6 border border-purple-500/30">
-          <div className="text-3xl font-bold text-white mb-1">{exercises.length}</div>
-          <div className="text-sm text-gray-400">Toplam Hareket</div>
+        <div className="bg-[#141414] rounded-2xl p-6 border border-[#2A2A2A] flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-[#6366F1]/10 flex items-center justify-center shrink-0">
+            <Activity size={24} className="text-[#6366F1]" />
+          </div>
+          <div>
+            <p className="text-gray-400 text-sm">Toplam Hareket</p>
+            <h3 className="text-2xl font-bold text-white">{exercises.length}</h3>
+          </div>
         </div>
-        <div className="bg-gradient-to-br from-green-500/20 to-emerald-600/20 rounded-2xl p-6 border border-green-500/30">
-          <div className="text-3xl font-bold text-white mb-1">{programs.length}</div>
-          <div className="text-sm text-gray-400">Program Sayısı</div>
+        
+        <div className="bg-[#141414] rounded-2xl p-6 border border-[#2A2A2A] flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-[#5DD97C]/10 flex items-center justify-center shrink-0">
+            <Dumbbell size={24} className="text-[#5DD97C]" />
+          </div>
+          <div>
+            <p className="text-gray-400 text-sm">Program Sayısı</p>
+            <h3 className="text-2xl font-bold text-white">{programs.length}</h3>
+          </div>
         </div>
-        <div className="bg-gradient-to-br from-blue-500/20 to-cyan-600/20 rounded-2xl p-6 border border-blue-500/30">
-          <div className="text-3xl font-bold text-white mb-1">{filteredExercises.length}</div>
-          <div className="text-sm text-gray-400">Filtrelenmiş Sonuç</div>
+        
+        <div className="bg-[#141414] rounded-2xl p-6 border border-[#2A2A2A] flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-[#FF6B4A]/10 flex items-center justify-center shrink-0">
+            <Filter size={24} className="text-[#FF6B4A]" />
+          </div>
+          <div>
+            <p className="text-gray-400 text-sm">Filtrelenmiş Sonuç</p>
+            <h3 className="text-2xl font-bold text-white">{filteredExercises.length}</h3>
+          </div>
         </div>
       </div>
 

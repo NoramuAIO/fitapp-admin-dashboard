@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { Download, Upload, Plus } from 'lucide-react'
 import ActivityCards from './programs/ActivityCards'
 import AddProgramModal from './programs/AddProgramModal'
 import ExerciseSelectorModal, { Exercise, Program } from './programs/ExerciseSelectorModal'
@@ -213,26 +214,29 @@ export default function ProgramList() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white">Antreman Programları</h2>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-white mb-1">Antrenman Programları</h2>
+          <p className="text-gray-400">Tüm antrenman programlarını, günleri ve hareketleri yönetin</p>
+        </div>
         <div className="flex gap-3">
           {/* Export Dropdown */}
           <div className="relative group">
-            <button className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-medium transition-colors">
-              📥 Dışa Aktar
+            <button className="flex items-center gap-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white px-5 py-2.5 rounded-xl font-medium transition-colors text-sm">
+              <Download size={18} /> Dışa Aktar
             </button>
             <div className="absolute right-0 mt-2 w-56 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
               <div className="p-2">
                 <div className="text-xs text-gray-400 px-3 py-2 font-semibold">JSON</div>
                 <button onClick={() => handleExport('json', 'all')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Tümü</button>
                 <button onClick={() => handleExport('json', 'programs')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Programlar</button>
-                <button onClick={() => handleExport('json', 'workouts')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Antremanlar</button>
+                <button onClick={() => handleExport('json', 'workouts')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Antrenmanlar</button>
                 <button onClick={() => handleExport('json', 'exercises')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Hareketler</button>
                 <div className="border-t border-[#2A2A2A] my-2"></div>
                 <div className="text-xs text-gray-400 px-3 py-2 font-semibold">CSV</div>
                 <button onClick={() => handleExport('csv', 'all')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Tümü</button>
                 <button onClick={() => handleExport('csv', 'programs')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Programlar</button>
-                <button onClick={() => handleExport('csv', 'workouts')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Antremanlar</button>
+                <button onClick={() => handleExport('csv', 'workouts')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Antrenmanlar</button>
                 <button onClick={() => handleExport('csv', 'exercises')} className="w-full text-left px-3 py-2 text-white hover:bg-[#2A2A2A] rounded-lg transition-colors">Sadece Hareketler</button>
               </div>
             </div>
@@ -240,16 +244,16 @@ export default function ProgramList() {
 
           <button
             onClick={() => setShowImportModal(true)}
-            className="bg-purple-500 hover:bg-purple-600 text-white px-6 py-3 rounded-xl font-medium transition-colors"
+            className="flex items-center gap-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white px-5 py-2.5 rounded-xl font-medium transition-colors text-sm"
           >
-            📤 İçe Aktar
+            <Upload size={18} /> İçe Aktar
           </button>
 
           <button
             onClick={() => setShowAddProgram(true)}
-            className="bg-[#5DD97C] hover:bg-green-600 text-white px-6 py-3 rounded-xl font-medium transition-colors"
+            className="flex items-center gap-2 bg-[#6366F1] hover:bg-[#5558DD] text-white px-5 py-2.5 rounded-xl font-medium transition-colors text-sm"
           >
-            + Yeni Program Ekle
+            <Plus size={18} /> Yeni Program
           </button>
         </div>
       </div>
