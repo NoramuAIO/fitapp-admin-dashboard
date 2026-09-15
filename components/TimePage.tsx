@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Clock, Dumbbell, Calendar, Search, User, Play, CheckSquare } from 'lucide-react';
+import { Clock, Dumbbell, Calendar, Search, User, Play, CheckSquare, Activity } from 'lucide-react';
 
 interface WorkoutSession {
   id: number;
