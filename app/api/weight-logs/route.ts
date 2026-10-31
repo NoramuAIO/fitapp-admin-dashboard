@@ -40,7 +40,7 @@ export async function POST(request: Request) {
       .select('id')
       .eq('userId', userId)
       .eq('date', date)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       // Update existing
@@ -98,3 +98,4 @@ export async function DELETE(request: Request) {
     );
   }
 }
+

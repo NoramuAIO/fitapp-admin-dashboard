@@ -40,7 +40,7 @@ export async function POST(request: Request) {
       .select('id')
       .eq('userId', userId)
       .eq('date', date)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       const { data, error } = await supabase
@@ -90,3 +90,4 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'Failed to delete body fat log' }, { status: 500 });
   }
 }
+
