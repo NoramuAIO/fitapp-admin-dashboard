@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       try {
         await supabase
           .from('goals')
-          .update({ currentValue: weight })
+          .update({ currentValue: Math.round(Number(weight)) })
           .eq('userId', userId)
           .eq('unit', 'kg')
           .eq('status', 'active');
