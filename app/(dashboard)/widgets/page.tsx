@@ -54,8 +54,11 @@ const WIDGET_TYPES = [
 export default function WidgetsAdminPage() {
   const [widgets, setWidgets] = useState<CustomWidget[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingWidget, setEditingWidget] = useState<CustomWidget | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Form State
   const [title, setTitle] = useState('');
@@ -109,7 +112,7 @@ export default function WidgetsAdminPage() {
   const loadWidgets = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/widgets');
+      const res = await fetch(`/api/widgets?t=${Date.now()}`, { cache: 'no-store' });
       const data = await res.json();
       setWidgets(Array.isArray(data) ? data : []);
     } catch {
@@ -120,6 +123,7 @@ export default function WidgetsAdminPage() {
   };
 
   const handleOpenModal = (widget?: CustomWidget) => {
+    setErrorMsg(null);
     if (widget) {
       setEditingWidget(widget);
       setTitle(widget.title);
@@ -142,35 +146,69 @@ export default function WidgetsAdminPage() {
 
   const handleSaveWidget = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !widgetType) return;
+    if (!title.trim() || !widgetType) {
+      setErrorMsg('Lütfen widget başlığını eksiksiz girin.');
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMsg(null);
+
+    const formattedTargetTime = widgetType === 'countdown'
+      ? (targetTime ? (targetTime.length === 5 ? targetTime + ':00' : targetTime) : '18:00:00')
+      : null;
 
     const payload = {
-      title,
+      title: title.trim(),
       widget_type: widgetType,
-      target_time: widgetType === 'countdown' ? targetTime : null,
-      custom_content: customContent || null,
+      target_time: formattedTargetTime,
+      custom_content: customContent ? customContent.trim() : null,
       display_order: displayOrder,
       is_active: isActive,
     };
 
     try {
+      let res;
       if (editingWidget) {
-        await fetch('/api/widgets', {
+        res = await fetch('/api/widgets', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: editingWidget.id, ...payload }),
         });
       } else {
-        await fetch('/api/widgets', {
+        res = await fetch('/api/widgets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
       }
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Widget kaydedilemedi.');
+      }
+
+      const savedData = await res.json();
+
+      // Instantly update local state so UI updates without waiting for network
+      if (editingWidget) {
+        setWidgets((prev) =>
+          prev.map((w) => (w.id === savedData.id ? { ...w, ...savedData } : w))
+        );
+      } else {
+        setWidgets((prev) => [...prev, savedData]);
+      }
+
       setShowModal(false);
+      setSuccessMsg(editingWidget ? 'Widget başarıyla güncellendi!' : 'Yeni widget eklendi!');
+      setTimeout(() => setSuccessMsg(null), 3000);
+
+      // Background reload
       loadWidgets();
-    } catch {
-      alert('Widget kaydedilemedi!');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Widget kaydedilirken bir hata oluştu.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -199,6 +237,14 @@ export default function WidgetsAdminPage() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
+      {/* Top Floating Success Toast */}
+      {successMsg && (
+        <div className="fixed top-6 right-6 z-50 flex items-center gap-2 bg-[#4ECDC4] text-gray-950 font-bold px-5 py-3 rounded-2xl shadow-2xl transition-all animate-bounce">
+          <CheckCircle2 size={18} />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
       {/* Top Header */}
       <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -430,7 +476,13 @@ export default function WidgetsAdminPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveWidget} className="space-y-4">
+            {errorMsg && (
+              <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400 font-medium">
+                {errorMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveWidget} noValidate className="space-y-4">
               {/* Widget Type Selection */}
               <div>
                 <label className="block text-xs font-semibold text-gray-400 mb-1.5">Widget Tipi *</label>
@@ -474,14 +526,16 @@ export default function WidgetsAdminPage() {
               {widgetType === 'countdown' && (
                 <div>
                   <label className="block text-xs font-semibold text-gray-400 mb-1.5">
-                    Geri Sayım Hedef Saati (HH:mm:ss) *
+                    Geri Sayım Hedef Saati (HH:mm) *
                   </label>
                   <input
                     type="time"
-                    step="1"
                     required
-                    value={targetTime}
-                    onChange={(e) => setTargetTime(e.target.value)}
+                    value={targetTime ? targetTime.slice(0, 5) : '18:00'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTargetTime(val ? (val.length === 5 ? val + ':00' : val) : '18:00:00');
+                    }}
                     className="w-full bg-[#222] border border-[#333] rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-[#4ECDC4]"
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
@@ -537,16 +591,24 @@ export default function WidgetsAdminPage() {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
+                  disabled={isSaving}
                   className="px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors"
                 >
                   İptal
                 </button>
                 <button
                   type="submit"
-                  disabled={!title}
-                  className="bg-[#4ECDC4] hover:bg-[#45B8B0] disabled:opacity-40 text-gray-950 font-bold px-6 py-2.5 rounded-xl text-sm transition-all"
+                  disabled={isSaving || !title.trim()}
+                  className="flex items-center gap-2 bg-[#4ECDC4] hover:bg-[#45B8B0] disabled:opacity-40 text-gray-950 font-bold px-6 py-2.5 rounded-xl text-sm transition-all shadow-md shadow-[#4ECDC4]/20"
                 >
-                  {editingWidget ? 'Güncelle' : 'Kaydet'}
+                  {isSaving ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-gray-950 border-t-transparent rounded-full animate-spin" />
+                      <span>{editingWidget ? 'Güncelleniyor...' : 'Kaydediliyor...'}</span>
+                    </>
+                  ) : (
+                    <span>{editingWidget ? 'Güncelle' : 'Kaydet'}</span>
+                  )}
                 </button>
               </div>
             </form>

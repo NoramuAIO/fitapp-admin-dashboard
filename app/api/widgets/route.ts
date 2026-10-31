@@ -1,6 +1,9 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export interface CustomWidget {
   id: number;
   title: string;
@@ -62,14 +65,27 @@ export async function GET(request: Request) {
 
     const { data, error } = await query;
 
-    if (error || !data) {
-      const filtered = onlyActive ? fallbackWidgets.filter((w) => w.is_active) : fallbackWidgets;
-      return NextResponse.json(filtered);
+    if (!error && data && data.length > 0) {
+      return NextResponse.json(data, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      });
     }
 
-    return NextResponse.json(data);
-  } catch {
-    return NextResponse.json(fallbackWidgets);
+    const filtered = onlyActive ? fallbackWidgets.filter((w) => w.is_active) : fallbackWidgets;
+    return NextResponse.json(filtered, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+      },
+    });
+  } catch (e) {
+    console.error('GET widgets error:', e);
+    return NextResponse.json(fallbackWidgets, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+      },
+    });
   }
 }
 
@@ -82,29 +98,38 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Title and widget_type are required' }, { status: 400 });
     }
 
-    const newWidget: CustomWidget = {
-      id: Date.now(),
+    const insertPayload = {
       title,
       widget_type,
       target_time: target_time || null,
       custom_content: custom_content || null,
       is_active: is_active !== undefined ? Boolean(is_active) : true,
       display_order: display_order !== undefined ? Number(display_order) : fallbackWidgets.length + 1,
-      createdAt: new Date().toISOString(),
     };
 
     try {
       const { data, error } = await supabase
         .from('custom_widgets')
-        .insert([newWidget])
+        .insert([insertPayload])
         .select()
         .single();
 
       if (!error && data) {
+        fallbackWidgets.push(data);
         return NextResponse.json(data, { status: 201 });
       }
-    } catch {}
+      if (error) {
+        console.error('Supabase POST widget error:', error);
+      }
+    } catch (err) {
+      console.error('Supabase POST widget exception:', err);
+    }
 
+    const newWidget: CustomWidget = {
+      id: Date.now(),
+      ...insertPayload,
+      createdAt: new Date().toISOString(),
+    };
     fallbackWidgets.push(newWidget);
     fallbackWidgets.sort((a, b) => a.display_order - b.display_order);
     return NextResponse.json(newWidget, { status: 201 });
@@ -122,29 +147,47 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Widget ID is required' }, { status: 400 });
     }
 
+    const numericId = Number(id);
+
+    const updateData: Record<string, any> = {};
+    if (updates.title !== undefined) updateData.title = updates.title;
+    if (updates.widget_type !== undefined) updateData.widget_type = updates.widget_type;
+    if (updates.target_time !== undefined) updateData.target_time = updates.target_time;
+    if (updates.custom_content !== undefined) updateData.custom_content = updates.custom_content;
+    if (updates.is_active !== undefined) updateData.is_active = Boolean(updates.is_active);
+    if (updates.display_order !== undefined) updateData.display_order = Number(updates.display_order);
+
     try {
       const { data, error } = await supabase
         .from('custom_widgets')
-        .update(updates)
-        .eq('id', id)
+        .update(updateData)
+        .eq('id', numericId)
         .select()
         .maybeSingle();
 
-      if (!error && data) {
+      if (error) {
+        console.error('Supabase PUT widget error:', error);
+      } else if (data) {
+        const idx = fallbackWidgets.findIndex((w) => w.id === numericId);
+        if (idx !== -1) {
+          fallbackWidgets[idx] = { ...fallbackWidgets[idx], ...data };
+        }
         return NextResponse.json(data);
       }
-    } catch {}
+    } catch (err) {
+      console.error('Supabase PUT widget exception:', err);
+    }
 
-    const idx = fallbackWidgets.findIndex((w) => w.id === Number(id));
+    const idx = fallbackWidgets.findIndex((w) => w.id === numericId);
     if (idx !== -1) {
-      fallbackWidgets[idx] = { ...fallbackWidgets[idx], ...updates };
+      fallbackWidgets[idx] = { ...fallbackWidgets[idx], ...updateData };
       fallbackWidgets.sort((a, b) => a.display_order - b.display_order);
       return NextResponse.json(fallbackWidgets[idx]);
     }
 
     return NextResponse.json({ error: 'Widget not found' }, { status: 404 });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to update widget' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update widget: ' + (error as Error).message }, { status: 500 });
   }
 }
 
@@ -157,11 +200,15 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });
     }
 
-    try {
-      await supabase.from('custom_widgets').delete().eq('id', id);
-    } catch {}
+    const numericId = Number(id);
 
-    fallbackWidgets = fallbackWidgets.filter((w) => w.id !== Number(id));
+    try {
+      await supabase.from('custom_widgets').delete().eq('id', numericId);
+    } catch (err) {
+      console.error('Supabase DELETE widget error:', err);
+    }
+
+    fallbackWidgets = fallbackWidgets.filter((w) => w.id !== numericId);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete widget' }, { status: 500 });
