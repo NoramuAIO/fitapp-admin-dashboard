@@ -1,19 +1,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BarChart2, Activity, Clock, Dumbbell, User, Calendar, PieChart, TrendingUp } from 'lucide-react';
+import { BarChart2, Activity, Clock, Dumbbell, User, Calendar, PieChart, TrendingUp, Sparkles } from 'lucide-react';
 
 interface WorkoutSession {
   id: number;
   userId: number;
-  programId: number;
+  programId?: number | null;
   startTime: string;
   duration?: string;
   category: string;
   program_name: string;
   user_name: string;
   completed_exercises: number;
-  total_reps: number;
+  total_sets?: number;
+  total_reps?: number;
+  is_manual_timer?: boolean;
 }
 
 interface Program {
@@ -83,15 +85,27 @@ export default function AnalyticsPage() {
     return mins;
   };
 
-  // Stats
-  const totalWorkouts = sessions.length;
-  const totalExercises = sessions.reduce((sum, s) => sum + (s.completed_exercises || 0), 0);
+  // Separate real workout sessions from manual timer logs
+  const workoutSessions = sessions.filter(
+    s => !s.is_manual_timer && s.programId != null
+  );
+  const durationSessions = sessions.filter(
+    s => s.is_manual_timer || s.programId == null
+  );
+
+  // Key Stats
+  const totalWorkouts = workoutSessions.length;
+  const totalExercises = workoutSessions.reduce((sum, s) => sum + (s.completed_exercises || 0), 0);
   
   let totalSets = 0;
-  sessions.forEach(session => {
-    const program = programs.find(p => p.id === session.programId);
-    if (program?.exercises?.length) {
-      const avgSets = program.exercises.reduce((sum: number, ex: any) => sum + (ex.sets || 0), 0) / program.exercises.length;
+  workoutSessions.forEach(session => {
+    if (session.total_sets && session.total_sets > 0) {
+      totalSets += session.total_sets;
+    } else {
+      const program = programs.find(p => p.id === session.programId);
+      const avgSets = (program?.exercises?.length)
+        ? program.exercises.reduce((sum: number, ex: any) => sum + (ex.sets || 0), 0) / program.exercises.length
+        : 3;
       totalSets += (session.completed_exercises || 0) * avgSets;
     }
   });
@@ -101,9 +115,11 @@ export default function AnalyticsPage() {
   const totalHours = Math.floor(totalMinutes / 60);
   const remainingMinutes = totalMinutes % 60;
 
-  // Program Distribution
-  const programCounts = sessions.reduce((acc: any, session) => {
-    const name = session.program_name || 'Diğer';
+  // Program Distribution (Only actual workouts!)
+  const programCounts = workoutSessions.reduce((acc: any, session) => {
+    const name = session.program_name && session.program_name !== 'Salonda Geçirilen Vakit'
+      ? session.program_name 
+      : 'Genel Program';
     acc[name] = (acc[name] || 0) + 1;
     return acc;
   }, {});
@@ -116,7 +132,7 @@ export default function AnalyticsPage() {
     return date.toISOString().split('T')[0];
   });
   const dailyWorkouts = last7Days.map(date => {
-    const count = sessions.filter(s => s.startTime.split('T')[0] === date).length;
+    const count = workoutSessions.filter(s => s.startTime && s.startTime.split('T')[0] === date).length;
     return { date, count };
   });
   const maxDailyCount = Math.max(...dailyWorkouts.map(d => d.count), 1);
@@ -126,7 +142,7 @@ export default function AnalyticsPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-white mb-2">Analizler</h1>
-          <p className="text-gray-400">Genel sistem veya kullanıcı bazlı istatistikler</p>
+          <p className="text-gray-400">Genel sistem ve kullanıcı bazlı performans analizleri</p>
         </div>
         
         <div className="relative">
@@ -162,12 +178,12 @@ export default function AnalyticsPage() {
             <BarChart2 size={32} className="text-gray-500" />
           </div>
           <h3 className="text-lg font-bold text-white mb-2">Veri Bulunamadı</h3>
-          <p className="text-gray-400">Seçilen kriterlere uygun antrenman kaydı yok.</p>
+          <p className="text-gray-400">Seçilen kriterlere uygun oturum veya antrenman kaydı yok.</p>
         </div>
       ) : (
         <>
           {/* Top Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A]">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#6366F1]/10">
@@ -211,17 +227,31 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
+          {/* Info banner if there are manual timer sessions */}
+          {durationSessions.length > 0 && (
+            <div className="mb-8 p-4 bg-[#1A1A1A] rounded-2xl border border-purple-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
+                  <Clock size={16} />
+                </div>
+                <p className="text-sm text-gray-300">
+                  <span className="font-semibold text-white">{durationSessions.length} adet</span> serbest süre / salonda geçirilen vakit kaydı mevcut (toplam süreye dahil edildi, antrenman grafiğini kirletmemesi için ayrıştırıldı).
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Activity Chart (Last 7 Days) */}
             <div className="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-6">
               <div className="flex items-center justify-between mb-8">
                 <h3 className="font-bold text-white flex items-center gap-2">
-                  <Calendar size={18} className="text-[#6366F1]" /> Son 7 Gün Aktivitesi
+                  <Calendar size={18} className="text-[#6366F1]" /> Son 7 Gün Antrenman Aktivitesi
                 </h3>
               </div>
               
               <div className="flex items-end justify-between h-48 gap-2">
-                {dailyWorkouts.map((day, idx) => {
+                {dailyWorkouts.map((day) => {
                   const heightPercent = (day.count / maxDailyCount) * 100;
                   return (
                     <div key={day.date} className="flex-1 flex flex-col items-center gap-3 group relative">
@@ -233,7 +263,7 @@ export default function AnalyticsPage() {
                       <div className="w-full bg-[#1A1A1A] rounded-t-lg mt-auto overflow-hidden h-full flex items-end">
                         <div 
                           className="w-full bg-gradient-to-t from-[#6366F1] to-[#8B5CF6] transition-all duration-500 rounded-t-lg"
-                          style={{ height: `${Math.max(heightPercent, 5)}%` }} // min 5% for visibility
+                          style={{ height: `${Math.max(heightPercent, 5)}%` }}
                         />
                       </div>
                       <span className="text-xs text-gray-500 font-medium">
@@ -253,28 +283,34 @@ export default function AnalyticsPage() {
                 </h3>
               </div>
               
-              <div className="space-y-4">
-                {Object.entries(programCounts).sort((a: any, b: any) => b[1] - a[1]).slice(0, 5).map(([name, count]: any, idx) => {
-                  const percent = Math.round((count / totalWorkouts) * 100);
-                  const colors = ['#6366F1', '#5DD97C', '#FF6B4A', '#4ECDC4', '#FF6B9D'];
-                  const color = colors[idx % colors.length];
-                  
-                  return (
-                    <div key={name}>
-                      <div className="flex justify-between text-sm mb-1.5">
-                        <span className="font-medium text-white">{name}</span>
-                        <span className="text-gray-400">{count} ({percent}%)</span>
+              {Object.keys(programCounts).length === 0 ? (
+                <div className="text-center py-12 text-gray-500 text-sm">
+                  Henüz tamamlanan bir program antrenmanı bulunmuyor.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {Object.entries(programCounts).sort((a: any, b: any) => b[1] - a[1]).slice(0, 5).map(([name, count]: any, idx) => {
+                    const percent = Math.round((count / (totalWorkouts || 1)) * 100);
+                    const colors = ['#6366F1', '#5DD97C', '#FF6B4A', '#4ECDC4', '#FF6B9D'];
+                    const color = colors[idx % colors.length];
+                    
+                    return (
+                      <div key={name}>
+                        <div className="flex justify-between text-sm mb-1.5">
+                          <span className="font-medium text-white">{name}</span>
+                          <span className="text-gray-400">{count} ({percent}%)</span>
+                        </div>
+                        <div className="h-2 bg-[#1A1A1A] rounded-full overflow-hidden">
+                          <div 
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{ width: `${percent}%`, backgroundColor: color }}
+                          />
+                        </div>
                       </div>
-                      <div className="h-2 bg-[#1A1A1A] rounded-full overflow-hidden">
-                        <div 
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{ width: `${percent}%`, backgroundColor: color }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
               
               {mostUsedProgram && (
                 <div className="mt-6 p-4 bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] flex items-center gap-4">
@@ -282,7 +318,7 @@ export default function AnalyticsPage() {
                     <span className="text-xl">🏆</span>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500 mb-0.5">En Çok Kullanılan</p>
+                    <p className="text-xs text-gray-500 mb-0.5">En Çok Kullanılan Program</p>
                     <p className="text-white font-bold text-sm">{mostUsedProgram[0]}</p>
                   </div>
                 </div>

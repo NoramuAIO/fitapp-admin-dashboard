@@ -1,13 +1,18 @@
-'use client';
+'use client'
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react'
 
 interface User {
   id: number;
   name: string;
   email: string;
-  created_at: string;
-  total_workouts: number;
+}
+
+interface Stats {
+  date: string;
+  steps: number;
+  calories: number;
+  distance: number;
 }
 
 interface UserDashboardProps {
@@ -17,7 +22,7 @@ interface UserDashboardProps {
 
 export default function UserDashboard({ userId, onChangeUser }: UserDashboardProps) {
   const [user, setUser] = useState<User | null>(null);
-  const [stats, setStats] = useState<any[]>([]);
+  const [stats, setStats] = useState<Stats[]>([]);
   const [workoutStats, setWorkoutStats] = useState({
     totalSets: 0,
     totalExercises: 0,
@@ -45,27 +50,28 @@ export default function UserDashboard({ userId, onChangeUser }: UserDashboardPro
       const programsResponse = await fetch('/api/programs');
       const programs = await programsResponse.json();
       
-      // Calculate workout stats
-      // Her session'daki completed_exercises aslında tamamlanan hareket sayısı
-      const totalExercises = sessions.reduce((sum: number, s: any) => sum + (s.completed_exercises || 0), 0);
+      // Calculate workout stats only from actual workouts
+      const sessionList = Array.isArray(sessions) ? sessions : [];
+      const workoutSessions = sessionList.filter((s: any) => !s.is_manual_timer && s.programId != null);
+      const totalExercises = workoutSessions.reduce((sum: number, s: any) => sum + (s.completed_exercises || 0), 0);
       
-      // Set sayısını hesaplamak için her session'daki programın exercise'larını kontrol etmeliyiz
-      // Şimdilik basit bir hesaplama yapalım: her exercise için ortalama 3 set varsayalım
-      // Daha doğru hesaplama için exercise_progress tablosunu kullanmalıyız
       let totalSets = 0;
-      for (const session of sessions) {
-        // Her tamamlanan hareket için ortalama set sayısı
-        const programExercises = programs.find((p: any) => p.id === session.programId)?.exercises || [];
-        const avgSetsPerExercise = programExercises.length > 0 
-          ? programExercises.reduce((sum: number, ex: any) => sum + ex.sets, 0) / programExercises.length 
-          : 3;
-        totalSets += (session.completed_exercises || 0) * avgSetsPerExercise;
+      for (const session of workoutSessions) {
+        if (session.total_sets) {
+          totalSets += session.total_sets;
+        } else {
+          const programExercises = (programs || []).find((p: any) => p.id === session.programId)?.exercises || [];
+          const avgSetsPerExercise = programExercises.length > 0 
+            ? programExercises.reduce((sum: number, ex: any) => sum + ex.sets, 0) / programExercises.length 
+            : 3;
+          totalSets += (session.completed_exercises || 0) * avgSetsPerExercise;
+        }
       }
       
       setWorkoutStats({
         totalSets: Math.round(totalSets),
         totalExercises,
-        totalPrograms: programs.length,
+        totalPrograms: Array.isArray(programs) ? programs.length : 0,
       });
     } catch (error) {
       console.error('Error fetching user data:', error);

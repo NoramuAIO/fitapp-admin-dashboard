@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Clock, Dumbbell, Calendar, Search, User, Play, CheckSquare, Activity } from 'lucide-react';
+import { Clock, Dumbbell, Calendar, Search, User, CheckSquare, Activity, Sparkles, Filter } from 'lucide-react';
 
 interface WorkoutSession {
   id: number;
   userId: number;
-  programId: number;
+  programId?: number | null;
   startTime: string;
   endTime?: string;
   duration?: string;
@@ -14,7 +14,9 @@ interface WorkoutSession {
   program_name: string;
   user_name?: string;
   completed_exercises: number;
-  total_reps: number;
+  total_sets?: number;
+  total_reps?: number;
+  is_manual_timer?: boolean;
 }
 
 interface UserModel {
@@ -28,6 +30,7 @@ export default function TimePage() {
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'workout' | 'duration'>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -65,13 +68,29 @@ export default function TimePage() {
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('tr-TR', {
       day: '2-digit', month: 'long', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
     });
+  };
+
+  const parseDuration = (dur?: string) => {
+    if (!dur) return 0;
+    let mins = 0;
+    const hoursMatch = dur.match(/(\d+)s/);
+    const minsMatch = dur.match(/(\d+)dk/);
+    if (hoursMatch) mins += parseInt(hoursMatch[1]) * 60;
+    if (minsMatch) mins += parseInt(minsMatch[1]);
+    return mins;
   };
 
   const getFilteredSessions = () => {
     let filtered = [...sessions];
     
+    // Category filter
+    if (categoryFilter === 'workout') {
+      filtered = filtered.filter(s => !s.is_manual_timer && s.programId != null);
+    } else if (categoryFilter === 'duration') {
+      filtered = filtered.filter(s => s.is_manual_timer || s.programId == null);
+    }
+
     // Time filter
     const now = new Date();
     if (filter === 'today') {
@@ -96,26 +115,17 @@ export default function TimePage() {
     return filtered;
   };
 
-  const parseDuration = (dur?: string) => {
-    if (!dur) return 0;
-    let mins = 0;
-    const hoursMatch = dur.match(/(\d+)s/);
-    const minsMatch = dur.match(/(\d+)dk/);
-    if (hoursMatch) mins += parseInt(hoursMatch[1]) * 60;
-    if (minsMatch) mins += parseInt(minsMatch[1]);
-    return mins;
-  };
-
   const filteredSessions = getFilteredSessions();
   const totalDurationMins = filteredSessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
-  const totalReps = filteredSessions.reduce((sum, s) => sum + (s.total_reps || 0), 0);
+  const workoutCount = filteredSessions.filter(s => !s.is_manual_timer && s.programId != null).length;
+  const totalExercises = filteredSessions.reduce((sum, s) => sum + (s.completed_exercises || 0), 0);
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Antrenman Geçmişi</h1>
-          <p className="text-gray-400">Kullanıcıların tamamladığı antrenmanlar ve süreleri</p>
+          <h1 className="text-3xl font-bold text-white mb-2">Zaman Yönetimi ve Geçmiş</h1>
+          <p className="text-gray-400">Tamamlanan antrenmanlar ve salonda geçirilen süre takipleri</p>
         </div>
         
         <div className="flex flex-wrap items-center gap-4">
@@ -156,26 +166,50 @@ export default function TimePage() {
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex gap-2 bg-[#1A1A1A] rounded-2xl p-1.5 w-fit mb-8 border border-[#2A2A2A]">
-        {[
-          { id: 'all', label: 'Tümü' },
-          { id: 'today', label: 'Bugün' },
-          { id: 'week', label: 'Son 7 Gün' },
-          { id: 'month', label: 'Son 30 Gün' }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setFilter(tab.id as any)}
-            className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-              filter === tab.id 
-                ? 'bg-[#6366F1] text-white shadow-md' 
-                : 'text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      {/* Filter Tabs Row */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+        {/* Category Tabs */}
+        <div className="flex gap-2 bg-[#1A1A1A] rounded-2xl p-1.5 border border-[#2A2A2A]">
+          {[
+            { id: 'all', label: 'Tüm Kayıtlar' },
+            { id: 'workout', label: '🏋️ Antrenmanlar' },
+            { id: 'duration', label: '⏱️ Salonda Geçen Vakit' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setCategoryFilter(tab.id as any)}
+              className={`px-4 py-2 rounded-xl text-xs md:text-sm font-semibold transition-all ${
+                categoryFilter === tab.id 
+                  ? 'bg-[#6366F1] text-white shadow-md' 
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Time Tabs */}
+        <div className="flex gap-2 bg-[#1A1A1A] rounded-2xl p-1.5 border border-[#2A2A2A]">
+          {[
+            { id: 'all', label: 'Tümü' },
+            { id: 'today', label: 'Bugün' },
+            { id: 'week', label: 'Son 7 Gün' },
+            { id: 'month', label: 'Son 30 Gün' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setFilter(tab.id as any)}
+              className={`px-3 py-1.5 md:px-4 md:py-2 rounded-xl text-xs md:text-sm font-semibold transition-all ${
+                filter === tab.id 
+                  ? 'bg-[#2A2A2A] text-white border border-white/10' 
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -186,7 +220,7 @@ export default function TimePage() {
           </div>
           <div>
             <p className="text-gray-400 text-sm">Toplam Antrenman</p>
-            <h3 className="text-2xl font-bold text-white">{filteredSessions.length}</h3>
+            <h3 className="text-2xl font-bold text-white">{workoutCount}</h3>
           </div>
         </div>
 
@@ -204,11 +238,11 @@ export default function TimePage() {
 
         <div className="bg-[#141414] rounded-2xl p-6 border border-[#2A2A2A] flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-[#FF6B4A]/10 flex items-center justify-center shrink-0">
-            <Activity size={24} className="text-[#FF6B4A]" />
+            <CheckSquare size={24} className="text-[#FF6B4A]" />
           </div>
           <div>
-            <p className="text-gray-400 text-sm">Toplam Tekrar</p>
-            <h3 className="text-2xl font-bold text-white">{totalReps}</h3>
+            <p className="text-gray-400 text-sm">Tamamlanan Hareket</p>
+            <h3 className="text-2xl font-bold text-white">{totalExercises}</h3>
           </div>
         </div>
       </div>
@@ -222,48 +256,69 @@ export default function TimePage() {
             <div className="w-16 h-16 rounded-2xl bg-[#1A1A1A] flex items-center justify-center mb-4">
               <Calendar size={32} className="text-gray-500" />
             </div>
-            <p className="text-gray-400">Bu filtrelere uygun antrenman bulunamadı.</p>
+            <p className="text-gray-400">Bu filtrelere uygun oturum kaydı bulunamadı.</p>
           </div>
         ) : (
           <div className="divide-y divide-[#2A2A2A]">
-            {filteredSessions.map((session) => (
-              <div key={session.id} className="p-5 flex items-center justify-between hover:bg-white/[0.02] transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] flex items-center justify-center shadow-lg">
-                    <Dumbbell size={20} className="text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-white font-bold text-lg leading-tight">{session.program_name || 'Bilinmeyen Program'}</h3>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 font-medium">
-                      {!selectedUserId && (
-                        <span className="flex items-center gap-1"><User size={12} /> {session.user_name || 'Kullanıcı'}</span>
-                      )}
-                      <span className="flex items-center gap-1"><Calendar size={12} /> {formatDate(session.startTime)}</span>
-                      {session.category && (
-                        <span className="px-2 py-0.5 rounded-full bg-white/5 text-gray-400 border border-white/10">
-                          {session.category}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+            {filteredSessions.map((session) => {
+              const isDurationLog = session.is_manual_timer || !session.programId;
 
-                <div className="flex items-center gap-6">
-                  {session.duration && (
-                    <div className="flex flex-col items-end">
-                      <span className="text-xs text-gray-500 mb-0.5 flex items-center gap-1"><Clock size={12} /> Süre</span>
-                      <span className="text-sm font-bold text-white bg-[#1A1A1A] px-3 py-1 rounded-lg border border-[#2A2A2A]">{session.duration}</span>
+              return (
+                <div key={session.id} className="p-5 flex items-center justify-between hover:bg-white/[0.02] transition-colors">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
+                      isDurationLog 
+                        ? 'bg-gradient-to-br from-[#8B5CF6] to-[#EC4899]' 
+                        : 'bg-gradient-to-br from-[#6366F1] to-[#8B5CF6]'
+                    }`}>
+                      {isDurationLog ? <Clock size={20} className="text-white" /> : <Dumbbell size={20} className="text-white" />}
                     </div>
-                  )}
-                  <div className="flex flex-col items-end">
-                    <span className="text-xs text-gray-500 mb-0.5 flex items-center gap-1"><CheckSquare size={12} /> Hareket</span>
-                    <span className="text-sm font-bold text-white bg-[#5DD97C]/10 text-[#5DD97C] px-3 py-1 rounded-lg">
-                      {session.completed_exercises}
-                    </span>
+                    <div>
+                      <h3 className="text-white font-bold text-lg leading-tight">
+                        {isDurationLog ? 'Salonda Geçirilen Vakit' : (session.program_name || 'Antrenman')}
+                      </h3>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 font-medium">
+                        {!selectedUserId && (
+                          <span className="flex items-center gap-1"><User size={12} /> {session.user_name || 'Kullanıcı'}</span>
+                        )}
+                        <span className="flex items-center gap-1"><Calendar size={12} /> {formatDate(session.startTime)}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                          isDurationLog 
+                            ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' 
+                            : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                        }`}>
+                          {isDurationLog ? 'Süre Takibi' : 'Antrenman'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-6">
+                    {session.duration && (
+                      <div className="flex flex-col items-end">
+                        <span className="text-xs text-gray-500 mb-0.5 flex items-center gap-1"><Clock size={12} /> Süre</span>
+                        <span className="text-sm font-bold text-white bg-[#1A1A1A] px-3 py-1 rounded-lg border border-[#2A2A2A]">{session.duration}</span>
+                      </div>
+                    )}
+                    {isDurationLog ? (
+                      <div className="flex flex-col items-end">
+                        <span className="text-xs text-gray-500 mb-0.5 flex items-center gap-1"><Activity size={12} /> Tür</span>
+                        <span className="text-xs font-bold bg-[#8B5CF6]/10 text-[#A78BFA] px-3 py-1.5 rounded-lg border border-[#8B5CF6]/20">
+                          Serbest Süre
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-end">
+                        <span className="text-xs text-gray-500 mb-0.5 flex items-center gap-1"><CheckSquare size={12} /> Hareket</span>
+                        <span className="text-sm font-bold text-white bg-[#5DD97C]/10 text-[#5DD97C] px-3 py-1.5 rounded-lg border border-[#5DD97C]/20">
+                          {session.completed_exercises} Hareket
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

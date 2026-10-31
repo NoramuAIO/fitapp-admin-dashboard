@@ -11,7 +11,18 @@ export async function GET(request: Request) {
       .select(`
         *,
         programs (
-          name
+          id,
+          name,
+          program_days (
+            id,
+            name,
+            exercises (
+              id,
+              name,
+              sets,
+              reps
+            )
+          )
         ),
         users (
           name
@@ -28,8 +39,65 @@ export async function GET(request: Request) {
 
     if (error) throw error;
 
+    const rawSessions = data || [];
+    const sessionIds = rawSessions.map(s => s.id);
+
+    // Fetch exercise completions if any exist for these sessions
+    let completionsBySession: Record<number, any[]> = {};
+    if (sessionIds.length > 0) {
+      try {
+        const { data: completions } = await supabase
+          .from('exercise_completions')
+          .select('id, sessionId, exerciseId, sets, reps')
+          .in('sessionId', sessionIds);
+        if (completions && completions.length > 0) {
+          completions.forEach((c: any) => {
+            if (!completionsBySession[c.sessionId]) completionsBySession[c.sessionId] = [];
+            completionsBySession[c.sessionId].push(c);
+          });
+        }
+      } catch (compErr) {
+        console.error('Error fetching completions for sessions:', compErr);
+      }
+    }
+
     // Format the response
-    const formattedSessions = (data || []).map(session => {
+    const formattedSessions = rawSessions.map(session => {
+      const isManualTimer = !session.programId || ['duration', 'set', 'timer'].includes(session.category);
+      
+      let completedExercises = 0;
+      let totalReps = 0;
+      let totalSets = 0;
+
+      if (!isManualTimer && session.programs) {
+        const completions = completionsBySession[session.id];
+        if (completions && completions.length > 0) {
+          completedExercises = completions.length;
+          totalSets = completions.reduce((sum: number, c: any) => sum + (c.sets || 3), 0);
+          totalReps = completions.reduce((sum: number, c: any) => sum + ((c.sets || 3) * (c.reps || 10)), 0);
+        } else {
+          // Calculate from program structure
+          const programDays = session.programs.program_days || [];
+          const allExercises = programDays.flatMap((day: any) => day.exercises || []);
+          
+          if (allExercises.length > 0) {
+            // If multiple days, a single workout session corresponds to 1 day's exercises
+            completedExercises = programDays.length > 1
+              ? Math.max(1, Math.round(allExercises.length / programDays.length))
+              : allExercises.length;
+            
+            const avgSets = allExercises.reduce((sum: number, ex: any) => sum + (ex.sets || 3), 0) / allExercises.length;
+            const avgReps = allExercises.reduce((sum: number, ex: any) => sum + (ex.reps || 10), 0) / allExercises.length;
+            totalSets = Math.round(completedExercises * avgSets);
+            totalReps = Math.round(completedExercises * avgSets * avgReps);
+          } else {
+            completedExercises = 5;
+            totalSets = 15;
+            totalReps = 150;
+          }
+        }
+      }
+
       const formatted: any = {
         id: session.id,
         userId: session.userId,
@@ -37,12 +105,16 @@ export async function GET(request: Request) {
         startTime: session.startTime,
         endTime: session.endTime,
         duration: session.duration,
-        category: session.category,
+        category: isManualTimer ? 'duration' : (session.category || 'workout'),
         createdAt: session.createdAt,
-        program_name: session.programs?.name || 'Antreman',
+        program_name: isManualTimer 
+          ? 'Salonda Geçirilen Vakit' 
+          : (session.programs?.name || 'Antrenman'),
         user_name: session.users?.name || null,
-        completed_exercises: 0,
-        total_reps: 0,
+        completed_exercises: completedExercises,
+        total_sets: totalSets,
+        total_reps: totalReps,
+        is_manual_timer: isManualTimer
       };
       return formatted;
     });
@@ -60,7 +132,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { userId, programId, startTime, duration, category } = body;
+    const { userId, programId, startTime, duration, category, completed_exercises, total_reps, total_sets } = body;
 
     // Supabase column startTime is VARCHAR(10)
     // Safe slicing: extract date YYYY-MM-DD (10 chars)
@@ -78,7 +150,7 @@ export async function POST(request: Request) {
     if (programId) {
       const { data: prog } = await supabase
         .from('programs')
-        .select('id')
+        .select('id, name')
         .eq('id', programId)
         .maybeSingle();
       if (prog) {
@@ -86,12 +158,14 @@ export async function POST(request: Request) {
       }
     }
 
+    const isManual = !validProgramId || ['duration', 'set', 'timer'].includes(category);
+
     const insertPayload: any = {
       userId: userId ? parseInt(userId) : null,
       programId: validProgramId,
       startTime: safeStartTime,
       duration: duration || null,
-      category: category || 'workout',
+      category: isManual ? 'duration' : (category || 'workout'),
       createdAt: new Date().toISOString()
     };
 
@@ -101,7 +175,16 @@ export async function POST(request: Request) {
       .select(`
         *,
         programs (
-          name
+          id,
+          name,
+          program_days (
+            id,
+            exercises (
+              id,
+              sets,
+              reps
+            )
+          )
         ),
         users (
           name
@@ -110,6 +193,18 @@ export async function POST(request: Request) {
       .single();
 
     if (error) throw error;
+
+    // Calculate completed exercises if not provided
+    let calculatedExercises = completed_exercises || 0;
+    let calculatedSets = total_sets || 0;
+    let calculatedReps = total_reps || 0;
+
+    if (!isManual && calculatedExercises === 0 && data.programs) {
+      const allEx = (data.programs.program_days || []).flatMap((d: any) => d.exercises || []);
+      calculatedExercises = allEx.length > 0 ? allEx.length : 5;
+      calculatedSets = calculatedExercises * 3;
+      calculatedReps = calculatedExercises * 30;
+    }
 
     // Format the response
     const formattedSession = {
@@ -121,10 +216,12 @@ export async function POST(request: Request) {
       duration: data.duration,
       category: data.category,
       createdAt: data.createdAt,
-      program_name: data.programs?.name || 'Antreman',
+      program_name: isManual ? 'Salonda Geçirilen Vakit' : (data.programs?.name || 'Antrenman'),
       user_name: data.users?.name || null,
-      completed_exercises: 0,
-      total_reps: 0,
+      completed_exercises: calculatedExercises,
+      total_sets: calculatedSets,
+      total_reps: calculatedReps,
+      is_manual_timer: isManual
     };
 
     return NextResponse.json(formattedSession, { status: 201 });

@@ -21,6 +21,8 @@ interface RecentSession {
   startTime: string;
   user_name?: string;
   category: string;
+  programId?: number | null;
+  is_manual_timer?: boolean;
 }
 
 interface WeightLog {
@@ -84,16 +86,19 @@ export default function Dashboard() {
 
       const today = new Date().toISOString().split('T')[0];
       const todaySessions = Array.isArray(sessions)
-        ? sessions.filter((s: any) => s.startTime?.startsWith(today)).length
+        ? sessions.filter((s: any) => s.startTime?.startsWith(today) && !s.is_manual_timer && s.programId != null).length
         : 0;
 
       const totalExercises = Array.isArray(exercises) ? exercises.length : 0;
+      const actualWorkoutSessions = Array.isArray(sessions)
+        ? sessions.filter((s: any) => !s.is_manual_timer && s.programId != null)
+        : [];
 
       setStats({
         totalPrograms: Array.isArray(programs) ? programs.length : 0,
         totalExercises,
         totalUsers: Array.isArray(users) ? users.length : 0,
-        totalSessions: Array.isArray(sessions) ? sessions.length : 0,
+        totalSessions: actualWorkoutSessions.length,
         todaySessions,
         totalGoals: Array.isArray(goals) ? goals.length : 0,
         activeGoals: Array.isArray(goals) ? goals.filter((g: any) => g.status === 'active').length : 0,
@@ -183,34 +188,44 @@ export default function Dashboard() {
             {/* Recent Workouts */}
             <div className="lg:col-span-2 bg-[#141414] rounded-2xl border border-[#2A2A2A] overflow-hidden">
               <div className="flex items-center justify-between px-6 py-4 border-b border-[#2A2A2A]">
-                <h2 className="font-bold text-white">Son Antrenmanlar</h2>
+                <h2 className="font-bold text-white">Son Oturumlar</h2>
                 <Link href="/time" className="text-xs text-[#6366F1] hover:underline">Tümünü gör</Link>
               </div>
               {recentSessions.length === 0 ? (
-                <div className="py-12 text-center text-gray-500 text-sm">Henüz antreman kaydı yok</div>
+                <div className="py-12 text-center text-gray-500 text-sm">Henüz oturum kaydı yok</div>
               ) : (
                 <div className="divide-y divide-[#2A2A2A]">
-                  {recentSessions.map((s) => (
-                    <div key={s.id} className="flex items-center gap-4 px-6 py-3.5 hover:bg-white/[0.02] transition-colors">
-                      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: COLORS.purple + '22' }}>
-                        <Dumbbell size={16} style={{ color: COLORS.purple }} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-white truncate">{s.program_name || 'Bilinmeyen Program'}</p>
-                        <p className="text-xs text-gray-500">
-                          {new Date(s.startTime).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })}
-                          {s.duration ? ` · ${s.duration}` : ''}
-                        </p>
-                      </div>
-                      {s.category && (
+                  {recentSessions.map((s) => {
+                    const isManual = s.is_manual_timer || !s.programId;
+                    return (
+                      <div key={s.id} className="flex items-center gap-4 px-6 py-3.5 hover:bg-white/[0.02] transition-colors">
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: (isManual ? COLORS.orange : COLORS.purple) + '22' }}>
+                          {isManual ? (
+                            <Clock size={16} style={{ color: COLORS.orange }} />
+                          ) : (
+                            <Dumbbell size={16} style={{ color: COLORS.purple }} />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-white truncate">
+                            {isManual ? 'Salonda Geçirilen Vakit' : (s.program_name || 'Antrenman')}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {new Date(s.startTime).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {s.duration ? ` · ${s.duration}` : ''}
+                          </p>
+                        </div>
                         <span className="text-xs px-2 py-1 rounded-full font-medium"
-                          style={{ backgroundColor: COLORS.green + '18', color: COLORS.green }}>
-                          {s.category}
+                          style={{ 
+                            backgroundColor: (isManual ? COLORS.orange : COLORS.green) + '18', 
+                            color: isManual ? COLORS.orange : COLORS.green 
+                          }}>
+                          {isManual ? 'Süre' : 'Antrenman'}
                         </span>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
