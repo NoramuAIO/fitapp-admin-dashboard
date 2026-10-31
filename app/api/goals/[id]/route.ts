@@ -26,9 +26,12 @@ export async function PUT(
       .update(updatePayload)
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
+    if (!data) {
+      return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
+    }
 
     return NextResponse.json(data);
   } catch (error) {
