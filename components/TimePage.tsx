@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Clock, Dumbbell, Calendar, Search, User, CheckSquare, Activity, Sparkles, Filter } from 'lucide-react';
+import { Clock, Dumbbell, Calendar, Search, User, CheckSquare, Activity } from 'lucide-react';
 
 interface WorkoutSession {
   id: number;
@@ -116,8 +116,12 @@ export default function TimePage() {
   };
 
   const filteredSessions = getFilteredSessions();
-  const totalDurationMins = filteredSessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
-  const workoutCount = filteredSessions.filter(s => !s.is_manual_timer && s.programId != null).length;
+  const workoutSessions = filteredSessions.filter(s => !s.is_manual_timer && s.programId != null);
+  const durationSessions = filteredSessions.filter(s => s.is_manual_timer || s.programId == null);
+
+  const workoutDurationMins = workoutSessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
+  const gymDurationMins = durationSessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
+  const workoutCount = workoutSessions.length;
   const totalExercises = filteredSessions.reduce((sum, s) => sum + (s.completed_exercises || 0), 0);
 
   return (
@@ -229,10 +233,19 @@ export default function TimePage() {
             <Clock size={24} className="text-[#5DD97C]" />
           </div>
           <div>
-            <p className="text-gray-400 text-sm">Toplam Süre</p>
+            <p className="text-gray-400 text-sm">
+              {categoryFilter === 'duration' ? 'Salonda Geçen Vakit' : 'Antrenman Süresi'}
+            </p>
             <h3 className="text-2xl font-bold text-white">
-              {Math.floor(totalDurationMins / 60)}s {totalDurationMins % 60}dk
+              {categoryFilter === 'duration'
+                ? `${Math.floor(gymDurationMins / 60)}s ${gymDurationMins % 60}dk`
+                : `${Math.floor(workoutDurationMins / 60)}s ${workoutDurationMins % 60}dk`}
             </h3>
+            {categoryFilter === 'all' && gymDurationMins > 0 && (
+              <p className="text-xs text-purple-400 mt-0.5">
+                + {Math.floor(gymDurationMins / 60)}s {gymDurationMins % 60}dk salon vakti
+              </p>
+            )}
           </div>
         </div>
 

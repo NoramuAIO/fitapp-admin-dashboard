@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BarChart2, Activity, Clock, Dumbbell, User, Calendar, PieChart, TrendingUp, Sparkles } from 'lucide-react';
+import { BarChart2, Activity, Clock, Dumbbell, User, Calendar, PieChart, TrendingUp } from 'lucide-react';
 
 interface WorkoutSession {
   id: number;
@@ -111,9 +111,14 @@ export default function AnalyticsPage() {
   });
   totalSets = Math.round(totalSets);
 
-  const totalMinutes = sessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
-  const totalHours = Math.floor(totalMinutes / 60);
-  const remainingMinutes = totalMinutes % 60;
+  // Separated Durations: pure workout duration vs gym stay duration
+  const workoutMinutes = workoutSessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
+  const workoutHours = Math.floor(workoutMinutes / 60);
+  const remainingWorkoutMinutes = workoutMinutes % 60;
+
+  const gymMinutes = durationSessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
+  const gymHours = Math.floor(gymMinutes / 60);
+  const remainingGymMinutes = gymMinutes % 60;
 
   // Program Distribution (Only actual workouts!)
   const programCounts = workoutSessions.reduce((acc: any, session) => {
@@ -199,11 +204,17 @@ export default function AnalyticsPage() {
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#5DD97C]/10">
                   <Clock size={18} className="text-[#5DD97C]" />
                 </div>
-                <span className="text-sm text-gray-400">Toplam Süre</span>
+                <span className="text-sm text-gray-400">Antrenman Süresi</span>
               </div>
               <p className="text-3xl font-bold text-white">
-                {totalHours > 0 ? `${totalHours}s ` : ''}{remainingMinutes}dk
+                {workoutHours > 0 ? `${workoutHours}s ` : ''}{remainingWorkoutMinutes}dk
               </p>
+              {gymMinutes > 0 && (
+                <p className="text-xs text-purple-400 mt-1 font-medium flex items-center gap-1">
+                  <span>⏱️ Salon Vakti:</span>
+                  <span>{gymHours > 0 ? `${gymHours}s ` : ''}{remainingGymMinutes}dk</span>
+                </p>
+              )}
             </div>
 
             <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A]">
@@ -231,11 +242,11 @@ export default function AnalyticsPage() {
           {durationSessions.length > 0 && (
             <div className="mb-8 p-4 bg-[#1A1A1A] rounded-2xl border border-purple-500/20 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
+                <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400 shrink-0">
                   <Clock size={16} />
                 </div>
                 <p className="text-sm text-gray-300">
-                  <span className="font-semibold text-white">{durationSessions.length} adet</span> serbest süre / salonda geçirilen vakit kaydı mevcut (toplam süreye dahil edildi, antrenman grafiğini kirletmemesi için ayrıştırıldı).
+                  <span className="font-semibold text-white">{durationSessions.length} adet serbest süre kaydı ({gymHours > 0 ? `${gymHours}s ` : ''}{remainingGymMinutes}dk)</span> salonda geçirilen vakit olarak ayrıca tutulmaktadır; antrenman efor süresine eklenmeyerek çakışma ve süre şişmesi önlenmiştir.
                 </p>
               </div>
             </div>
