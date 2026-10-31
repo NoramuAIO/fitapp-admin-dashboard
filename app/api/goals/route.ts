@@ -24,11 +24,41 @@ export async function GET(request: Request) {
 
     if (error) throw error;
 
-    // Flatten user name
-    const formattedGoals = (data || []).map(goal => ({
-      ...goal,
-      user_name: goal.users?.name || null,
-      users: undefined
+    const rawGoals = data || [];
+
+    // Auto-sync any kg goals that have 0 or empty currentValue with the user's latest weight log
+    const formattedGoals = await Promise.all(rawGoals.map(async goal => {
+      let currentVal = goal.currentValue || 0;
+
+      if (goal.unit === 'kg' && currentVal === 0 && goal.userId) {
+        try {
+          const { data: latestWeight } = await supabase
+            .from('weight_logs')
+            .select('weight')
+            .eq('userId', goal.userId)
+            .order('date', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (latestWeight && latestWeight.weight) {
+            currentVal = Number(latestWeight.weight);
+            // Persist the synced weight to Supabase (safe integer for column type)
+            await supabase
+              .from('goals')
+              .update({ currentValue: Math.round(currentVal) })
+              .eq('id', goal.id);
+          }
+        } catch (wErr) {
+          console.error('Error auto-syncing weight for goal:', wErr);
+        }
+      }
+
+      return {
+        ...goal,
+        currentValue: currentVal,
+        user_name: goal.users?.name || null,
+        users: undefined
+      };
     }));
 
     return NextResponse.json(formattedGoals);
@@ -64,14 +94,35 @@ export async function POST(request: Request) {
     
     const { userId, title, description, targetValue, currentValue, unit, startDate, endDate, status } = body;
 
+    let initialCurrentValue = currentValue || 0;
+
+    // If unit is kg and no currentValue provided, pull from the user's latest weight log
+    if (unit === 'kg' && initialCurrentValue === 0 && userId) {
+      try {
+        const { data: latestWeight } = await supabase
+          .from('weight_logs')
+          .select('weight')
+          .eq('userId', userId)
+          .order('date', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (latestWeight && latestWeight.weight) {
+          initialCurrentValue = Number(latestWeight.weight);
+        }
+      } catch (wErr) {
+        console.error('Error fetching latest weight for new goal:', wErr);
+      }
+    }
+
     const { data, error } = await supabase
       .from('goals')
       .insert([{
         userId,
         title,
         description: description || null,
-        targetValue,
-        currentValue: currentValue || 0,
+        targetValue: Math.round(Number(targetValue)),
+        currentValue: Math.round(Number(initialCurrentValue)),
         unit,
         startDate,
         endDate,

@@ -10,18 +10,20 @@ export async function PUT(
     const body = await request.json();
     const { title, description, targetValue, currentValue, unit, startDate, endDate, status } = body;
 
+    const updatePayload: any = {
+      title,
+      description,
+      unit,
+      startDate,
+      endDate,
+      status
+    };
+    if (targetValue !== undefined) updatePayload.targetValue = Math.round(Number(targetValue));
+    if (currentValue !== undefined) updatePayload.currentValue = Math.round(Number(currentValue));
+
     const { data, error } = await supabase
       .from('goals')
-      .update({
-        title,
-        description,
-        targetValue,
-        currentValue,
-        unit,
-        startDate,
-        endDate,
-        status
-      })
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single();
