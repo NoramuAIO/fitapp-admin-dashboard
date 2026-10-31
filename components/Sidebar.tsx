@@ -1,8 +1,8 @@
-'use client'
+'use client';
 
 interface SidebarProps {
-  activeTab: string
-  setActiveTab: (tab: string) => void
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
 }
 
 export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
@@ -14,8 +14,11 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
     { id: 'goals', icon: '🎯', label: 'Hedefler', href: '/goals' },
     { id: 'analytics', icon: '📊', label: 'Analizler', href: '/analytics' },
     { id: 'time', icon: '🕐', label: 'Zaman', href: '/time' },
-    { id: 'settings', icon: '⚙️', label: 'Ayarlar', href: '/settings' }
-  ]
+    { id: 'body', icon: '⚖️', label: 'Vücut Takibi', href: '/body' },
+    { id: 'notifications', icon: '🔔', label: 'Bildirim Merkezi', href: '/notifications' },
+    { id: 'widgets', icon: '📱', label: 'Custom Widget', href: '/widgets' },
+    { id: 'settings', icon: '⚙️', label: 'Ayarlar', href: '/settings' },
+  ];
 
   return (
     <div className="w-24 bg-gradient-to-b from-[#6366F1] via-[#7C3AED] to-[#8B5CF6] flex flex-col items-center py-8 shadow-2xl relative">
@@ -47,7 +50,7 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
             title={item.label}
           >
             <span className="text-2xl filter drop-shadow-lg">{item.icon}</span>
-            
+
             {/* Active indicator */}
             {activeTab === item.id && (
               <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-white rounded-r-full shadow-lg"></div>
@@ -65,7 +68,7 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
       {/* Help Button */}
       <button className="w-14 h-14 rounded-2xl flex items-center justify-center hover:bg-white/10 transition-all duration-300 relative z-10 group mt-auto">
         <span className="text-2xl filter drop-shadow-lg">❓</span>
-        
+
         {/* Tooltip */}
         <div className="absolute left-full ml-4 px-3 py-2 bg-gray-900 text-white text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-xl">
           Yardım
@@ -74,7 +77,7 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
       </button>
 
       {/* Logout Button */}
-      <button 
+      <button
         onClick={async () => {
           if (confirm('Çıkış yapmak istediğinizden emin misiniz?')) {
             await fetch('/api/admin/logout', { method: 'POST' });
@@ -84,7 +87,7 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
         className="w-14 h-14 rounded-2xl flex items-center justify-center hover:bg-red-500/20 transition-all duration-300 relative z-10 group mt-2"
       >
         <span className="text-2xl filter drop-shadow-lg">🚪</span>
-        
+
         {/* Tooltip */}
         <div className="absolute left-full ml-4 px-3 py-2 bg-gray-900 text-white text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-xl">
           Çıkış Yap
@@ -92,5 +95,5 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
         </div>
       </button>
     </div>
-  )
+  );
 }

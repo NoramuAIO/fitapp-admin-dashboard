@@ -2,7 +2,8 @@
 
 import { 
   Home, Users, Dumbbell, Activity, Target, BarChart2, 
-  Clock, Scale, Settings, LogOut, HelpCircle, ChevronRight, ChevronLeft
+  Clock, Scale, Settings, LogOut, HelpCircle, ChevronRight, ChevronLeft,
+  Bell, LayoutGrid
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -28,6 +29,8 @@ export default function FloatingSidebar() {
     { id: 'analytics', icon: BarChart2, label: 'Analizler', href: '/analytics' },
     { id: 'time', icon: Clock, label: 'Süre Takibi', href: '/time' },
     { id: 'body', icon: Scale, label: 'Vücut Takibi', href: '/body' },
+    { id: 'notifications', icon: Bell, label: 'Bildirim Merkezi', href: '/notifications' },
+    { id: 'widgets', icon: LayoutGrid, label: 'Custom Widget', href: '/widgets' },
     { id: 'settings', icon: Settings, label: 'Ayarlar', href: '/settings' }
   ];
 
