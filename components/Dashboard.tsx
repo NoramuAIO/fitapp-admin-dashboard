@@ -68,26 +68,26 @@ export default function Dashboard() {
         } catch {}
       }
 
-      const [programsRes, usersRes, sessionsRes, goalsRes] = await Promise.all([
+      const [programsRes, usersRes, sessionsRes, goalsRes, exercisesRes] = await Promise.all([
         fetch('/api/programs').catch(() => null),
         fetch('/api/users').catch(() => null),
         fetch(userId ? `/api/workout-sessions?userId=${userId}` : '/api/workout-sessions').catch(() => null),
         fetch(userId ? `/api/goals?userId=${userId}` : '/api/goals').catch(() => null),
+        fetch('/api/exercises').catch(() => null),
       ]);
 
       const programs = programsRes?.ok ? await programsRes.json() : [];
       const users = usersRes?.ok ? await usersRes.json() : [];
       const sessions = sessionsRes?.ok ? await sessionsRes.json() : [];
       const goals = goalsRes?.ok ? await goalsRes.json() : [];
+      const exercises = exercisesRes?.ok ? await exercisesRes.json() : [];
 
       const today = new Date().toISOString().split('T')[0];
       const todaySessions = Array.isArray(sessions)
         ? sessions.filter((s: any) => s.startTime?.startsWith(today)).length
         : 0;
 
-      const totalExercises = Array.isArray(programs)
-        ? programs.reduce((sum: number, p: any) => sum + (p.exercises?.length ?? 0), 0)
-        : 0;
+      const totalExercises = Array.isArray(exercises) ? exercises.length : 0;
 
       setStats({
         totalPrograms: Array.isArray(programs) ? programs.length : 0,

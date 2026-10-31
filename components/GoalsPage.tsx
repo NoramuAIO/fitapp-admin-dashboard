@@ -115,8 +115,8 @@ export default function GoalsPage() {
       targetValue: goal.targetValue,
       currentValue: goal.currentValue,
       unit: goal.unit,
-      startDate: new Date(goal.startDate).toISOString().split('T')[0],
-      endDate: new Date(goal.endDate).toISOString().split('T')[0],
+      startDate: goal.startDate ? goal.startDate.split('T')[0] : '',
+      endDate: goal.endDate ? goal.endDate.split('T')[0] : '',
       status: goal.status
     });
     setShowForm(true);

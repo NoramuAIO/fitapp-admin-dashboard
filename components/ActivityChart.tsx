@@ -18,9 +18,11 @@ export default function ActivityChart() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/stats')
+      const userId = typeof window !== 'undefined' ? localStorage.getItem('selectedUserId') : null;
+      const url = userId ? `/api/stats?userId=${userId}` : '/api/stats';
+      const response = await fetch(url)
       const data = await response.json()
-      setStats(data)
+      setStats(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Error fetching stats:', error)
     }

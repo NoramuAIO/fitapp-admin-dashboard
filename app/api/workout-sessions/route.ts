@@ -18,10 +18,10 @@ export async function GET(request: Request) {
         )
       `)
       .order('createdAt', { ascending: false })
-      .limit(50);
+      .limit(100);
 
     if (userId) {
-      query = query.eq('userId', userId);
+      query = query.eq('userId', parseInt(userId));
     }
 
     const { data, error } = await query;
@@ -62,16 +62,42 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { userId, programId, startTime, duration, category } = body;
 
+    // Supabase column startTime is VARCHAR(10)
+    // Safe slicing: extract date YYYY-MM-DD (10 chars)
+    let safeStartTime = new Date().toISOString().split('T')[0];
+    if (startTime && typeof startTime === 'string') {
+      if (startTime.includes('T')) {
+        safeStartTime = startTime.split('T')[0];
+      } else {
+        safeStartTime = startTime.slice(0, 10);
+      }
+    }
+
+    // Verify programId exists to avoid foreign key violation
+    let validProgramId: number | null = null;
+    if (programId) {
+      const { data: prog } = await supabase
+        .from('programs')
+        .select('id')
+        .eq('id', programId)
+        .maybeSingle();
+      if (prog) {
+        validProgramId = prog.id;
+      }
+    }
+
+    const insertPayload: any = {
+      userId: userId ? parseInt(userId) : null,
+      programId: validProgramId,
+      startTime: safeStartTime,
+      duration: duration || null,
+      category: category || 'workout',
+      createdAt: new Date().toISOString()
+    };
+
     const { data, error } = await supabase
       .from('workout_sessions')
-      .insert([{
-        userId,
-        programId,
-        startTime,
-        duration,
-        category: category || 'workout',
-        createdAt: new Date().toISOString()
-      }])
+      .insert([insertPayload])
       .select(`
         *,
         programs (
@@ -106,6 +132,32 @@ export async function POST(request: Request) {
     console.error('Error creating workout session:', error);
     return NextResponse.json(
       { error: 'Failed to create workout session: ' + (error as Error).message },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from('workout_sessions')
+      .delete()
+      .eq('id', parseInt(id));
+
+    if (error) throw error;
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting workout session:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete workout session: ' + (error as Error).message },
       { status: 500 }
     );
   }
