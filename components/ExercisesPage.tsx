@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Search, Filter, Trash2, Plus, Upload, Activity, Dumbbell, Edit2 } from 'lucide-react';
+import { Search, Filter, Trash2, Plus, Upload, Activity, Dumbbell, Edit2, History, X, Calendar, TrendingUp, User } from 'lucide-react';
 
 interface Exercise {
   id: number;
@@ -14,6 +14,22 @@ interface Exercise {
   imageUrl?: string;
   orderIndex: number;
   program_name?: string;
+}
+
+interface ExerciseHistoryItem {
+  id: number;
+  userId: number;
+  exerciseId: number;
+  sessionId?: number | null;
+  completedAt: string;
+  sets: number;
+  reps: number;
+  weight?: number | null;
+  notes?: string | null;
+  users?: {
+    id: number;
+    name: string;
+  } | null;
 }
 
 export default function ExercisesPage() {
@@ -29,6 +45,10 @@ export default function ExercisesPage() {
   const [importProgramId, setImportProgramId] = useState<number | null>(null);
   const [importFormat, setImportFormat] = useState<'bodybuilding' | 'fitnessprogramer'>('bodybuilding');
   const [selectedExerciseIds, setSelectedExerciseIds] = useState<number[]>([]);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyExercise, setHistoryExercise] = useState<Exercise | null>(null);
+  const [exerciseHistory, setExerciseHistory] = useState<ExerciseHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -127,6 +147,26 @@ export default function ExercisesPage() {
       imageUrl: exercise.imageUrl || '',
     });
     setShowAddModal(true);
+  };
+
+  const handleShowHistory = async (exercise: Exercise) => {
+    setHistoryExercise(exercise);
+    setShowHistoryModal(true);
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/exercise-completions?exerciseId=${exercise.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setExerciseHistory(Array.isArray(data) ? data : []);
+      } else {
+        setExerciseHistory([]);
+      }
+    } catch (err) {
+      console.error('Error fetching exercise history:', err);
+      setExerciseHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
   };
 
   const resetForm = () => {
@@ -498,16 +538,23 @@ export default function ExercisesPage() {
                   {/* Actions */}
                   <div className="flex gap-2">
                     <button
-                      onClick={() => handleEdit(exercise)}
-                      className="flex-1 flex items-center justify-center gap-2 bg-[#6366F1]/10 text-[#6366F1] py-2.5 rounded-xl hover:bg-[#6366F1]/20 transition-colors text-sm font-semibold"
+                      onClick={() => handleShowHistory(exercise)}
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-[#4ECDC4]/10 text-[#4ECDC4] py-2.5 rounded-xl hover:bg-[#4ECDC4]/20 transition-colors text-xs font-semibold"
+                      title="Ağırlık ve Tekrar Geçmişi"
                     >
-                      <Edit2 size={16} /> Düzenle
+                      <History size={15} /> Geçmiş
+                    </button>
+                    <button
+                      onClick={() => handleEdit(exercise)}
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-[#6366F1]/10 text-[#6366F1] py-2.5 rounded-xl hover:bg-[#6366F1]/20 transition-colors text-xs font-semibold"
+                    >
+                      <Edit2 size={15} /> Düzenle
                     </button>
                     <button
                       onClick={() => handleDelete(exercise.id)}
-                      className="flex-1 flex items-center justify-center gap-2 bg-[#FF6B4A]/10 text-[#FF6B4A] py-2.5 rounded-xl hover:bg-[#FF6B4A]/20 transition-colors text-sm font-semibold"
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-[#FF6B4A]/10 text-[#FF6B4A] py-2.5 rounded-xl hover:bg-[#FF6B4A]/20 transition-colors text-xs font-semibold"
                     >
-                      <Trash2 size={16} /> Sil
+                      <Trash2 size={15} /> Sil
                     </button>
                   </div>
                 </div>
@@ -743,6 +790,181 @@ export default function ExercisesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Exercise Weight & Rep History Modal */}
+      {showHistoryModal && historyExercise && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-[#2A2A2A] bg-[#141414]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#4ECDC4]/10 flex items-center justify-center shrink-0 border border-[#4ECDC4]/20">
+                  <History size={20} className="text-[#4ECDC4]" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    {historyExercise.name}
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#4ECDC4]/10 text-[#4ECDC4] border border-[#4ECDC4]/20 font-medium">
+                      Geçmiş Takibi
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {historyExercise.program_name || 'Antrenman Programı'} · Kullanıcı ağırlık, tekrar ve ekipman notları
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowHistoryModal(false);
+                  setHistoryExercise(null);
+                  setExerciseHistory([]);
+                }}
+                className="w-9 h-9 rounded-xl bg-[#2A2A2A] hover:bg-[#3A3A3A] text-gray-400 hover:text-white flex items-center justify-center transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+              {historyLoading ? (
+                <div className="py-16 flex flex-col items-center justify-center gap-3">
+                  <div className="w-8 h-8 border-2 border-[#4ECDC4] border-t-transparent rounded-full animate-spin" />
+                  <p className="text-gray-400 text-sm">Geçmiş verileri yükleniyor...</p>
+                </div>
+              ) : exerciseHistory.length === 0 ? (
+                <div className="py-16 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-[#2A2A2A]/50 flex items-center justify-center mx-auto mb-4 text-gray-500">
+                    <History size={28} />
+                  </div>
+                  <h4 className="text-white font-bold text-base mb-1">Henüz Antrenman Kaydı Yok</h4>
+                  <p className="text-gray-400 text-sm max-w-md mx-auto">
+                    Kullanıcılar mobil uygulamada bu egzersizi tamamladığında ağırlık (kg), tekrar ve makine ayar notları bu tabloda listelenecektir.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Summary Metric Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Max Weight */}
+                    <div className="bg-[#141414] rounded-xl p-4 border border-[#2A2A2A]">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-400 font-medium">En Yüksek Ağırlık</span>
+                        <TrendingUp size={16} className="text-[#4ECDC4]" />
+                      </div>
+                      <div className="text-2xl font-bold text-[#4ECDC4]">
+                        {(() => {
+                          const weights = exerciseHistory.map(h => Number(h.weight) || 0).filter(w => w > 0);
+                          return weights.length > 0 ? `${Math.max(...weights)} kg` : 'Vücut Ağırlığı';
+                        })()}
+                      </div>
+                    </div>
+
+                    {/* Latest Weight */}
+                    <div className="bg-[#141414] rounded-xl p-4 border border-[#2A2A2A]">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-400 font-medium">Son Antrenman</span>
+                        <Calendar size={16} className="text-[#5DD97C]" />
+                      </div>
+                      <div className="text-2xl font-bold text-[#5DD97C]">
+                        {exerciseHistory[0]?.weight ? `${exerciseHistory[0].weight} kg` : 'Vücut Ağırlığı'}
+                      </div>
+                    </div>
+
+                    {/* Total Logs */}
+                    <div className="bg-[#141414] rounded-xl p-4 border border-[#2A2A2A]">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-400 font-medium">Toplam Kayıt</span>
+                        <Activity size={16} className="text-[#9B6FFF]" />
+                      </div>
+                      <div className="text-2xl font-bold text-[#9B6FFF]">
+                        {exerciseHistory.length} Set/Kayıt
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* History Table */}
+                  <div className="border border-[#2A2A2A] rounded-xl overflow-hidden bg-[#141414]">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-[#0F0F0F] text-gray-400 text-xs uppercase font-semibold border-b border-[#2A2A2A]">
+                          <tr>
+                            <th className="py-3 px-4">Tarih & Saat</th>
+                            <th className="py-3 px-4">Kullanıcı</th>
+                            <th className="py-3 px-4">Ağırlık</th>
+                            <th className="py-3 px-4">Tekrar</th>
+                            <th className="py-3 px-4">Set</th>
+                            <th className="py-3 px-4">Ekipman / Makine Notu</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#2A2A2A]">
+                          {exerciseHistory.map((item) => (
+                            <tr key={item.id} className="hover:bg-[#1E1E1E]/50 transition-colors">
+                              <td className="py-3 px-4 text-gray-300 font-medium whitespace-nowrap">
+                                {item.completedAt
+                                  ? new Date(item.completedAt).toLocaleString('tr-TR', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })
+                                  : '-'}
+                              </td>
+                              <td className="py-3 px-4 text-white font-medium whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  <User size={13} className="text-gray-400" />
+                                  <span>{item.users?.name || `Kullanıcı #${item.userId}`}</span>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-[#4ECDC4]/10 text-[#4ECDC4] border border-[#4ECDC4]/20">
+                                  {item.weight !== null && item.weight !== undefined && Number(item.weight) > 0
+                                    ? `${item.weight} kg`
+                                    : 'Vücut Ağırlığı'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-white font-bold whitespace-nowrap">
+                                {item.reps} tekrar
+                              </td>
+                              <td className="py-3 px-4 text-gray-400 whitespace-nowrap">
+                                {item.sets || 1} set
+                              </td>
+                              <td className="py-3 px-4">
+                                {item.notes ? (
+                                  <span className="inline-block text-xs text-gray-200 bg-[#1F1F1F] px-2.5 py-1 rounded-md border border-[#333] font-mono">
+                                    {item.notes}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-600 text-xs italic">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-[#2A2A2A] bg-[#141414] flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowHistoryModal(false);
+                  setHistoryExercise(null);
+                  setExerciseHistory([]);
+                }}
+                className="bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+              >
+                Kapat
+              </button>
+            </div>
           </div>
         </div>
       )}
