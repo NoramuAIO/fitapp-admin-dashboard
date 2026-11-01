@@ -33,16 +33,26 @@ export default function AddExerciseForm({ workoutId, programId, onSuccess, onCan
                 body: JSON.stringify({
                     workoutId,
                     programId,
-                    ...newExercise,
+                    name: newExercise.name.trim(),
+                    sets: newExercise.sets || 3,
+                    reps: newExercise.reps || 10,
+                    duration: newExercise.duration || null,
+                    description: newExercise.description || null,
+                    imageUrl: newExercise.imageUrl || null,
+                    muscleGroup: newExercise.muscleGroup || null,
                     orderIndex: 0,
                 }),
             });
 
             if (response.ok) {
                 await onSuccess();
+            } else {
+                const errData = await response.json().catch(() => ({}));
+                alert(errData.error || 'Hareket eklenemedi');
             }
         } catch (error) {
             console.error('Error adding exercise:', error);
+            alert('Hareket eklenirken bir hata oluştu');
         } finally {
             setLoading(false);
         }

@@ -12,6 +12,7 @@ interface ProgramItemProps {
     onUpdate: () => Promise<void>;
     onDeleteWorkout: (workoutId: number) => Promise<void>;
     onDeleteExercise: (workoutId: number, exerciseId: number) => Promise<void>;
+    onOpenExerciseSelector?: (workoutId: number) => void;
     onDragStart?: () => void;
     onDragOver?: (e: React.DragEvent) => void;
     onDragEnd?: () => void;
@@ -28,6 +29,7 @@ export default function ProgramItem({
     onUpdate,
     onDeleteWorkout,
     onDeleteExercise,
+    onOpenExerciseSelector,
     onDragStart,
     onDragOver,
     onDragEnd,
@@ -37,6 +39,7 @@ export default function ProgramItem({
 }: ProgramItemProps) {
     const [showAddWorkout, setShowAddWorkout] = useState(false);
     const [expandedWorkouts, setExpandedWorkouts] = useState<Set<number>>(new Set());
+    const [activeAddWorkoutId, setActiveAddWorkoutId] = useState<number | null>(null);
     const [isDraggable, setIsDraggable] = useState(false);
 
     const toggleWorkout = (workoutId: number) => {
@@ -130,9 +133,15 @@ export default function ProgramItem({
                                 onDelete={() => onDeleteWorkout(workout.id)}
                                 onUpdate={onUpdate}
                                 onDeleteExercise={(exerciseId) => onDeleteExercise(workout.id, exerciseId)}
-                                showAddExercise={false}
-                                onShowAddExercise={() => {}}
-                                onCloseAddExercise={() => {}}
+                                showAddExercise={activeAddWorkoutId === workout.id}
+                                onShowAddExercise={() => {
+                                    if (!expandedWorkouts.has(workout.id)) {
+                                        toggleWorkout(workout.id);
+                                    }
+                                    setActiveAddWorkoutId(workout.id);
+                                }}
+                                onCloseAddExercise={() => setActiveAddWorkoutId(null)}
+                                onOpenExerciseSelector={onOpenExerciseSelector ? () => onOpenExerciseSelector(workout.id) : undefined}
                             />
                         ))}
 

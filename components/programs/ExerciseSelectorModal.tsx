@@ -61,13 +61,18 @@ export default function ExerciseSelectorModal({
     // Get existing exercise names from the workout or program
     const existingExerciseNames = new Set(
         workout 
-            ? workout.exercises.map(e => e.name)
-            : program?.workouts?.flatMap(w => w.exercises.map(e => e.name)) || []
+            ? workout.exercises?.map(e => e.name) || []
+            : program?.workouts?.flatMap(w => w.exercises?.map(e => e.name) || []) || []
     );
 
-    const availableExercises = allExercises.filter(exercise =>
-        !existingExerciseNames.has(exercise.name)
-    );
+    const seenNames = new Set<string>();
+    const availableExercises = allExercises.filter(exercise => {
+        if (!exercise?.name) return false;
+        if (existingExerciseNames.has(exercise.name)) return false;
+        if (seenNames.has(exercise.name.toLowerCase())) return false;
+        seenNames.add(exercise.name.toLowerCase());
+        return true;
+    });
 
     const filteredExercises = availableExercises.filter(exercise =>
         exercise.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()) ||
@@ -116,11 +121,12 @@ export default function ExerciseSelectorModal({
                         workoutId,
                         programId,
                         name: exercise.name,
-                        sets: exercise.sets,
-                        reps: exercise.reps,
-                        duration: exercise.duration,
-                        description: exercise.description,
-                        imageUrl: exercise.imageUrl,
+                        sets: exercise.sets || 3,
+                        reps: exercise.reps || 10,
+                        duration: exercise.duration || null,
+                        description: exercise.description || null,
+                        imageUrl: exercise.imageUrl || null,
+                        muscleGroup: exercise.muscleGroup || null,
                         orderIndex: 0,
                     }),
                 });

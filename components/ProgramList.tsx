@@ -286,6 +286,11 @@ export default function ProgramList() {
             onUpdate={fetchPrograms}
             onDeleteWorkout={handleDeleteWorkout}
             onDeleteExercise={handleDeleteExercise}
+            onOpenExerciseSelector={(workoutId) => {
+              setSelectedProgramId(program.id);
+              setSelectedWorkoutId(workoutId);
+              setShowExerciseSelector(true);
+            }}
             onDragStart={() => handleProgramDragStart(program.id)}
             onDragOver={(e) => handleProgramDragOver(e, program.id)}
             onDragEnd={handleProgramDragEnd}

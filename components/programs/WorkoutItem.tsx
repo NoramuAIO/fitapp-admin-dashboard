@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, Plus, Trash2, ListPlus } from 'lucide-react';
 import AddExerciseForm from './AddExerciseForm';
 import ExerciseItem from './ExerciseItem';
 import { Exercise, Workout } from './ExerciseSelectorModal';
@@ -11,9 +11,10 @@ interface WorkoutItemProps {
     onDelete: () => Promise<void>;
     onUpdate: () => Promise<void>;
     onDeleteExercise: (exerciseId: number) => Promise<void>;
-    showAddExercise: boolean;
-    onShowAddExercise: () => void;
-    onCloseAddExercise: () => void;
+    showAddExercise?: boolean;
+    onShowAddExercise?: () => void;
+    onCloseAddExercise?: () => void;
+    onOpenExerciseSelector?: () => void;
 }
 
 export default function WorkoutItem({
@@ -23,11 +24,35 @@ export default function WorkoutItem({
     onDelete,
     onUpdate,
     onDeleteExercise,
-    showAddExercise,
+    showAddExercise = false,
     onShowAddExercise,
-    onCloseAddExercise
+    onCloseAddExercise,
+    onOpenExerciseSelector
 }: WorkoutItemProps) {
     const [isDragOver, setIsDragOver] = useState(false);
+    const [localShowAdd, setLocalShowAdd] = useState(false);
+
+    const isAddFormVisible = showAddExercise || localShowAdd;
+
+    const handleToggleAddForm = () => {
+        if (isCollapsed) {
+            onToggleCollapse();
+        }
+        if (isAddFormVisible) {
+            onCloseAddExercise?.();
+            setLocalShowAdd(false);
+        } else {
+            onShowAddExercise?.();
+            setLocalShowAdd(true);
+        }
+    };
+
+    const handleOpenSelector = () => {
+        if (isCollapsed) {
+            onToggleCollapse();
+        }
+        onOpenExerciseSelector?.();
+    };
 
     return (
         <div
@@ -55,20 +80,40 @@ export default function WorkoutItem({
                             )}
                         </div>
                         <span className="text-xs text-gray-500 mt-0.5 block">
-                            {workout.exercises.length} hareket
+                            {workout.exercises?.length || 0} hareket
                         </span>
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
+
+                <div className="flex items-center gap-2 flex-wrap">
+                    {/* Kütüphaneden Hareket Seç Butonu */}
+                    {onOpenExerciseSelector && (
+                        <button
+                            onClick={handleOpenSelector}
+                            className="flex items-center gap-1.5 bg-[#6366F1]/15 text-[#818CF8] hover:bg-[#6366F1]/25 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border border-[#6366F1]/30"
+                            title="Kayıtlı hareketler arasından seçerek bu güne ekle"
+                        >
+                            <ListPlus size={14} /> Hareket Seç
+                        </button>
+                    )}
+
+                    {/* Yeni Özel Hareket Ekle Butonu */}
                     <button
-                        onClick={onShowAddExercise}
-                        className="flex items-center gap-1.5 text-[#6366F1] hover:text-[#818CF8] hover:bg-[#6366F1]/10 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                        onClick={handleToggleAddForm}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
+                            isAddFormVisible
+                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
+                                : 'bg-[#5DD97C]/15 text-[#5DD97C] border-[#5DD97C]/30 hover:bg-[#5DD97C]/25'
+                        }`}
+                        title="Bu antrenmana özel yeni bir hareket oluştur"
                     >
-                        <Plus size={14} /> Hareket
+                        <Plus size={14} /> {isAddFormVisible ? 'Formu Kapat' : 'Yeni Hareket'}
                     </button>
+
+                    {/* Sil Butonu */}
                     <button
                         onClick={onDelete}
-                        className="flex items-center gap-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                        className="flex items-center gap-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border border-transparent hover:border-red-500/20"
                     >
                         <Trash2 size={14} /> Sil
                     </button>
@@ -76,26 +121,54 @@ export default function WorkoutItem({
             </div>
 
             {!isCollapsed && (
-                <div className="space-y-2 pl-8">
-                    {workout.exercises.map((exercise: Exercise) => (
-                        <ExerciseItem
-                            key={exercise.id}
-                            workoutId={workout.id}
-                            exercise={exercise}
-                            onUpdate={onUpdate}
-                            onDelete={async () => onDeleteExercise(exercise.id)}
-                        />
-                    ))}
+                <div className="space-y-2 pl-2 md:pl-8">
+                    {/* Egzersiz Listesi */}
+                    {workout.exercises && workout.exercises.length > 0 ? (
+                        workout.exercises.map((exercise: Exercise) => (
+                            <ExerciseItem
+                                key={exercise.id}
+                                workoutId={workout.id}
+                                exercise={exercise}
+                                onUpdate={onUpdate}
+                                onDelete={async () => onDeleteExercise(exercise.id)}
+                            />
+                        ))
+                    ) : (
+                        !isAddFormVisible && (
+                            <div className="py-5 text-center border border-dashed border-[#2A2A2A] rounded-xl text-gray-500 text-xs">
+                                Bu antrenman gününde henüz hareket yok. Yukarıdaki{' '}
+                                <button
+                                    onClick={handleOpenSelector}
+                                    className="text-[#818CF8] font-bold hover:underline"
+                                >
+                                    "Hareket Seç"
+                                </button>{' '}
+                                veya{' '}
+                                <button
+                                    onClick={handleToggleAddForm}
+                                    className="text-[#5DD97C] font-bold hover:underline"
+                                >
+                                    "Yeni Hareket"
+                                </button>{' '}
+                                butonları ile hareket ekleyebilirsiniz.
+                            </div>
+                        )
+                    )}
 
-                    {showAddExercise && (
+                    {/* Inline Yeni Hareket Ekle Formu */}
+                    {isAddFormVisible && (
                         <AddExerciseForm
                             workoutId={workout.id}
                             programId={workout.programId}
                             onSuccess={async () => {
                                 await onUpdate();
-                                onCloseAddExercise();
+                                onCloseAddExercise?.();
+                                setLocalShowAdd(false);
                             }}
-                            onCancel={onCloseAddExercise}
+                            onCancel={() => {
+                                onCloseAddExercise?.();
+                                setLocalShowAdd(false);
+                            }}
                         />
                     )}
                 </div>
