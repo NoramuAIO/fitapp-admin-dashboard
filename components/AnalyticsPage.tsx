@@ -402,7 +402,7 @@ export default function AnalyticsPage() {
                 <span className="text-xs text-gray-400 font-medium">Kaldırılan Hacim</span>
               </div>
               <p className="text-3xl font-extrabold text-[#4ECDC4]">
-                {totalVolumeKg > 0 ? `${totalVolumeKg.toLocaleString('tr-TR')} kg` : 'Vücut Ağırlığı'}
+                {totalVolumeKg > 0 ? `${totalVolumeKg.toLocaleString('tr-TR')} kg` : '0 kg'}
               </p>
               <p className="text-xs text-gray-500 mt-1">
                 {avgVolumePerWorkout > 0 ? `Ort. ${avgVolumePerWorkout.toLocaleString('tr-TR')} kg / seans` : 'Toplam iş yükü'}
