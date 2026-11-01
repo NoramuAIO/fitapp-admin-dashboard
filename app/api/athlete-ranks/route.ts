@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export interface AthleteRank {
+interface AthleteRank {
   id: number;
   title: string;
   icon: string;
@@ -14,7 +14,7 @@ export interface AthleteRank {
   description: string;
 }
 
-export const DEFAULT_RANKS: AthleteRank[] = [
+const DEFAULT_RANKS: AthleteRank[] = [
   {
     id: 1,
     title: 'Demir Çırağı',

@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export interface CustomWidget {
+interface CustomWidget {
   id: number;
   title: string;
   widget_type: 'countdown' | 'custom_text' | 'weight_goal';
