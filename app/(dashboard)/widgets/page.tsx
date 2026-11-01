@@ -23,6 +23,7 @@ interface CustomWidget {
   widget_type: 'countdown' | 'custom_text' | 'weight_goal';
   target_time?: string | null;
   custom_content?: string | null;
+  userId?: number | null;
   is_active: boolean;
   display_order: number;
 }
@@ -59,6 +60,10 @@ export default function WidgetsAdminPage() {
   const [editingWidget, setEditingWidget] = useState<CustomWidget | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const [users, setUsers] = useState<any[]>([]);
+  const [targetUserId, setTargetUserId] = useState<number | null>(null);
+  const [filterUserId, setFilterUserId] = useState<string>('all');
 
   // Form State
   const [title, setTitle] = useState('');
@@ -112,9 +117,14 @@ export default function WidgetsAdminPage() {
   const loadWidgets = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/widgets?t=${Date.now()}`, { cache: 'no-store' });
-      const data = await res.json();
+      const [resWidgets, resUsers] = await Promise.all([
+        fetch(`/api/widgets?t=${Date.now()}`, { cache: 'no-store' }),
+        fetch('/api/users', { cache: 'no-store' }),
+      ]);
+      const data = await resWidgets.json();
       setWidgets(Array.isArray(data) ? data : []);
+      const usersData = await resUsers.json();
+      setUsers(Array.isArray(usersData) ? usersData : []);
     } catch {
       setWidgets([]);
     } finally {
@@ -130,6 +140,7 @@ export default function WidgetsAdminPage() {
       setWidgetType(widget.widget_type);
       setTargetTime(widget.target_time || '18:00:00');
       setCustomContent(widget.custom_content || '');
+      setTargetUserId(widget.userId !== undefined && widget.userId !== null ? Number(widget.userId) : null);
       setDisplayOrder(widget.display_order);
       setIsActive(widget.is_active);
     } else {
@@ -138,6 +149,7 @@ export default function WidgetsAdminPage() {
       setWidgetType('countdown');
       setTargetTime('18:00:00');
       setCustomContent('');
+      setTargetUserId(null);
       setDisplayOrder(widgets.length + 1);
       setIsActive(true);
     }
@@ -163,6 +175,7 @@ export default function WidgetsAdminPage() {
       widget_type: widgetType,
       target_time: formattedTargetTime,
       custom_content: customContent ? customContent.trim() : null,
+      userId: targetUserId,
       display_order: displayOrder,
       is_active: isActive,
     };
@@ -235,6 +248,12 @@ export default function WidgetsAdminPage() {
 
   const formatTwoDigits = (num: number) => String(num).padStart(2, '0');
 
+  const displayedWidgets = widgets.filter((w) => {
+    if (filterUserId === 'all') return true;
+    if (filterUserId === 'global') return !w.userId;
+    return w.userId === Number(filterUserId);
+  });
+
   return (
     <div className="p-8 max-w-7xl mx-auto">
       {/* Top Floating Success Toast */}
@@ -272,23 +291,38 @@ export default function WidgetsAdminPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left 2 Cols: Widget Cards */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <LayoutGrid size={18} className="text-[#4ECDC4]" />
-              <span>Yayınlanan Widget Kartları ({widgets.length})</span>
+              <span>Yayınlanan Widget Kartları ({displayedWidgets.length})</span>
             </h2>
-            <span className="text-xs text-gray-500">Sıralamaya göre mobil ana ekranda dizilir</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400 font-medium">Hedef:</span>
+              <select
+                value={filterUserId}
+                onChange={(e) => setFilterUserId(e.target.value)}
+                className="bg-[#1C1C1E] border border-[#2E2E2E] rounded-xl px-2.5 py-1 text-xs text-white focus:outline-none focus:border-[#4ECDC4] cursor-pointer"
+              >
+                <option value="all">Tüm Widgetlar ({widgets.length})</option>
+                <option value="global">🌍 Sadece Genel ({widgets.filter(w => !w.userId).length})</option>
+                {users.map((u) => (
+                  <option key={u.id} value={String(u.id)}>
+                    👤 {u.name} ({widgets.filter(w => w.userId === u.id).length})
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {loading ? (
             <div className="py-20 text-center text-gray-500">Yükleniyor...</div>
-          ) : widgets.length === 0 ? (
+          ) : displayedWidgets.length === 0 ? (
             <div className="bg-[#141414] border border-[#242424] rounded-2xl p-12 text-center text-gray-500">
               <LayoutGrid size={36} className="mx-auto mb-3 text-gray-600" />
-              <p>Henüz tanımlanmış bir widget kartı yok.</p>
+              <p>Seçilen filtreye uygun widget kartı bulunamadı.</p>
             </div>
           ) : (
-            widgets.map((widget) => {
+            displayedWidgets.map((widget) => {
               const typeMeta = WIDGET_TYPES.find((t) => t.id === widget.widget_type) || WIDGET_TYPES[0];
               const Icon = typeMeta.icon;
 
@@ -317,6 +351,15 @@ export default function WidgetsAdminPage() {
                           >
                             {typeMeta.label}
                           </span>
+                          {widget.userId ? (
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                              👤 {users.find(u => u.id === widget.userId)?.name || `Kullanıcı #${widget.userId}`}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                              🌍 Genel (Herkes)
+                            </span>
+                          )}
                           <span className="text-[11px] text-gray-400 font-semibold px-2 py-0.5 rounded-full bg-[#1F1F1F]">
                             Sıra: #{widget.display_order}
                           </span>
@@ -556,6 +599,33 @@ export default function WidgetsAdminPage() {
                   onChange={(e) => setCustomContent(e.target.value)}
                   className="w-full bg-[#222] border border-[#333] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#4ECDC4]"
                 />
+              </div>
+
+              {/* Target User (Kişiye Özel Widget Seçimi) */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 mb-1.5 flex items-center justify-between">
+                  <span>Kullanıcı Hedefi (Kim İçin Geçerli?)</span>
+                  <span className="text-[10px] text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded font-mono font-semibold">
+                    Kişiye Özel
+                  </span>
+                </label>
+                <select
+                  value={targetUserId === null ? '' : String(targetUserId)}
+                  onChange={(e) => setTargetUserId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full bg-[#222] border border-[#333] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#4ECDC4] cursor-pointer"
+                >
+                  <option value="">🌍 Tüm Kullanıcılar (Genel Widget)</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={String(u.id)}>
+                      👤 {u.name} (ID: #{u.id} {u.email ? `· ${u.email}` : ''})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  {targetUserId
+                    ? `Bu widget sadece seçilen kullanıcının (${users.find(u => u.id === targetUserId)?.name || `ID #${targetUserId}`}) mobil ana ekranında ve widgetında görünür.`
+                    : 'Bu widget istisnasız tüm kullanıcıların mobil ana ekranında ve widgetında ortak görünür.'}
+                </p>
               </div>
 
               {/* Display Order & Active */}

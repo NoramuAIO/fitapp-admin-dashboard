@@ -17,7 +17,14 @@ import {
   ArrowDownRight,
   Layers,
   MessageSquare,
-  Sparkles
+  Sparkles,
+  Trophy,
+  Plus,
+  Trash2,
+  Edit2,
+  RotateCcw,
+  X,
+  Check
 } from 'lucide-react';
 
 interface WorkoutSession {
@@ -76,6 +83,16 @@ interface WeightLog {
   notes?: string | null;
 }
 
+interface AthleteRank {
+  id: number;
+  title: string;
+  icon: string;
+  color: string;
+  min_volume_kg: number;
+  max_volume_kg: number;
+  description: string;
+}
+
 export default function AnalyticsPage() {
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -86,11 +103,112 @@ export default function AnalyticsPage() {
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | 'all'>('7d');
   const [loading, setLoading] = useState(true);
 
+  // Sporcu Seviyeleri (Athlete Ranks) State
+  const [ranks, setRanks] = useState<AthleteRank[]>([]);
+  const [showRanksModal, setShowRanksModal] = useState(false);
+  const [editingRank, setEditingRank] = useState<AthleteRank | null>(null);
+  const [showRankForm, setShowRankForm] = useState(false);
+  const [rankTitle, setRankTitle] = useState('');
+  const [rankIcon, setRankIcon] = useState('⚡');
+  const [rankColor, setRankColor] = useState('#5DD97C');
+  const [rankMinKg, setRankMinKg] = useState(0);
+  const [rankMaxKg, setRankMaxKg] = useState(300);
+  const [rankDesc, setRankDesc] = useState('');
+  const [isSavingRank, setIsSavingRank] = useState(false);
+
   useEffect(() => {
     fetchUsers();
+    loadRanks();
     const saved = localStorage.getItem('selectedUserId');
     if (saved) setSelectedUserId(parseInt(saved));
   }, []);
+
+  const loadRanks = async () => {
+    try {
+      const res = await fetch('/api/athlete-ranks');
+      const data = await res.json();
+      if (Array.isArray(data)) setRanks(data);
+    } catch {}
+  };
+
+  const handleOpenRankForm = (r?: AthleteRank) => {
+    if (r) {
+      setEditingRank(r);
+      setRankTitle(r.title);
+      setRankIcon(r.icon);
+      setRankColor(r.color);
+      setRankMinKg(r.min_volume_kg);
+      setRankMaxKg(r.max_volume_kg);
+      setRankDesc(r.description);
+    } else {
+      setEditingRank(null);
+      setRankTitle('');
+      setRankIcon('⚡');
+      setRankColor('#5DD97C');
+      const lastRank = ranks[ranks.length - 1];
+      const nextMin = lastRank ? lastRank.max_volume_kg : 0;
+      setRankMinKg(nextMin);
+      setRankMaxKg(nextMin + 2500);
+      setRankDesc('');
+    }
+    setShowRankForm(true);
+  };
+
+  const handleSaveRank = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rankTitle.trim()) return;
+    setIsSavingRank(true);
+    try {
+      const payload = {
+        title: rankTitle.trim(),
+        icon: rankIcon,
+        color: rankColor,
+        min_volume_kg: Number(rankMinKg) || 0,
+        max_volume_kg: Number(rankMaxKg) || 1000,
+        description: rankDesc.trim(),
+      };
+      if (editingRank) {
+        await fetch('/api/athlete-ranks', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: editingRank.id, ...payload }),
+        });
+      } else {
+        await fetch('/api/athlete-ranks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }
+      await loadRanks();
+      setShowRankForm(false);
+      setEditingRank(null);
+    } catch (err) {
+      console.error('Error saving rank:', err);
+    } finally {
+      setIsSavingRank(false);
+    }
+  };
+
+  const handleDeleteRank = async (id: number) => {
+    if (!confirm('Bu seviyeyi silmek istediğinizden emin misiniz?')) return;
+    try {
+      await fetch(`/api/athlete-ranks?id=${id}`, { method: 'DELETE' });
+      await loadRanks();
+    } catch {}
+  };
+
+  const handleResetDefaultRanks = async () => {
+    if (!confirm('Tüm seviyeler önerilen standart sporcu seviyelerine sıfırlanacak. Onaylıyor musunuz?')) return;
+    try {
+      await fetch('/api/athlete-ranks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset_defaults' }),
+      });
+      await loadRanks();
+    } catch {}
+  };
 
   useEffect(() => {
     loadData();
@@ -298,6 +416,18 @@ export default function AnalyticsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          {/* Sporcu Seviyeleri & Tonaj Eşikleri Butonu */}
+          <button
+            onClick={() => {
+              setShowRanksModal(true);
+              setShowRankForm(false);
+            }}
+            className="flex items-center gap-2 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] border border-[#FFD700]/30 font-bold px-3.5 py-2 rounded-xl text-xs transition-all shadow-sm"
+          >
+            <Trophy size={14} className="stroke-[2.5]" />
+            <span>Sporcu Seviyeleri ({ranks.length})</span>
+          </button>
+
           {/* Time Filter Pills */}
           <div className="flex items-center bg-[#141414] p-1 rounded-xl border border-[#2A2A2A]">
             {[
@@ -720,6 +850,270 @@ export default function AnalyticsPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* SPORCU SEVİYELERİ YÖNETİM MODALI */}
+      {showRanksModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#181818] border border-[#2E2E2E] rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-[#2A2A2A] bg-[#141414]">
+              <div>
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Trophy size={20} className="text-[#FFD700]" />
+                  <span>Sporcu Seviyeleri & Tonaj Eşikleri</span>
+                </h3>
+                <p className="text-xs text-gray-400 mt-1">
+                  Mobil uygulamadaki "Analizlerim" ekranında sporcuların hangi toplam tonajda hangi seviyeye ulaşacağını buradan özelleştirin.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowRanksModal(false);
+                  setShowRankForm(false);
+                }}
+                className="w-9 h-9 rounded-xl bg-[#222] hover:bg-[#333] flex items-center justify-center text-gray-400 hover:text-white transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-4">
+              {showRankForm ? (
+                /* Rank Add/Edit Form */
+                <form onSubmit={handleSaveRank} className="bg-[#141414] border border-[#2A2A2A] rounded-2xl p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-[#262626] pb-3">
+                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                      <Trophy size={16} style={{ color: rankColor }} />
+                      <span>{editingRank ? 'Seviyeyi Düzenle' : 'Yeni Seviye Ekle'}</span>
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setShowRankForm(false)}
+                      className="text-xs text-gray-400 hover:text-white"
+                    >
+                      İptal
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-400 mb-1.5">Seviye / Rütbe Adı *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Örn: Gümüş Güç"
+                        value={rankTitle}
+                        onChange={(e) => setRankTitle(e.target.value)}
+                        className="w-full bg-[#202020] border border-[#333] rounded-xl px-3.5 py-2 text-white text-sm focus:outline-none focus:border-[#FFD700]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-400 mb-1.5">İkon / Emoji *</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          required
+                          value={rankIcon}
+                          onChange={(e) => setRankIcon(e.target.value)}
+                          className="w-16 bg-[#202020] border border-[#333] rounded-xl px-3 py-2 text-white text-base text-center focus:outline-none focus:border-[#FFD700]"
+                        />
+                        <div className="flex gap-1.5 flex-wrap">
+                          {['⚡', '🥉', '🥈', '🥇', '💎', '🔥', '🏆', '👑', '🥋'].map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => setRankIcon(emoji)}
+                              className={`w-8 h-8 rounded-lg border text-sm flex items-center justify-center transition-all ${
+                                rankIcon === emoji ? 'bg-[#FFD700]/20 border-[#FFD700]' : 'bg-[#202020] border-[#333]'
+                              }`}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Color Selector */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5">Rozet Rengi *</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={rankColor}
+                        onChange={(e) => setRankColor(e.target.value)}
+                        className="w-9 h-9 rounded-xl bg-transparent border-0 cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={rankColor}
+                        onChange={(e) => setRankColor(e.target.value)}
+                        className="w-28 bg-[#202020] border border-[#333] rounded-xl px-3 py-1.5 text-white font-mono text-xs focus:outline-none focus:border-[#FFD700]"
+                      />
+                      <div className="flex gap-1.5">
+                        {['#5DD97C', '#FF6B4A', '#9B6FFF', '#F59E0B', '#4ECDC4', '#FF6B9D', '#FFD700'].map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setRankColor(c)}
+                            className="w-6 h-6 rounded-full border border-white/20"
+                            style={{ backgroundColor: c }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Volume Range (kg) */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-400 mb-1.5">Min Tonaj (kg) *</label>
+                      <input
+                        type="number"
+                        min="0"
+                        required
+                        value={rankMinKg}
+                        onChange={(e) => setRankMinKg(Number(e.target.value) || 0)}
+                        className="w-full bg-[#202020] border border-[#333] rounded-xl px-3.5 py-2 text-white text-sm focus:outline-none focus:border-[#FFD700]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-400 mb-1.5">Sonraki Hedef / Max Tonaj (kg) *</label>
+                      <input
+                        type="number"
+                        min="1"
+                        required
+                        value={rankMaxKg}
+                        onChange={(e) => setRankMaxKg(Number(e.target.value) || 1000)}
+                        className="w-full bg-[#202020] border border-[#333] rounded-xl px-3.5 py-2 text-white text-sm focus:outline-none focus:border-[#FFD700]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5">Açıklama / Unvan Detayı</label>
+                    <input
+                      type="text"
+                      placeholder="Örn: Disiplinli çalışan ve kuvvetlenen sporcu"
+                      value={rankDesc}
+                      onChange={(e) => setRankDesc(e.target.value)}
+                      className="w-full bg-[#202020] border border-[#333] rounded-xl px-3.5 py-2 text-white text-sm focus:outline-none focus:border-[#FFD700]"
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowRankForm(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#222] text-gray-300 hover:bg-[#2C2C2C]"
+                    >
+                      Vazgeç
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingRank}
+                      className="px-5 py-2 rounded-xl text-xs font-bold bg-[#FFD700] hover:bg-[#E5C100] text-gray-950 transition-all flex items-center gap-1.5"
+                    >
+                      <Check size={14} />
+                      <span>{isSavingRank ? 'Kaydediliyor...' : 'Kaydet'}</span>
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                /* Ranks List Table */
+                <>
+                  <div className="flex items-center justify-between pb-2">
+                    <div className="text-xs text-gray-400 font-medium">
+                      Tanımlı Seviyeler: <span className="text-white font-bold">{ranks.length} Rütbe</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleResetDefaultRanks}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#222] text-gray-400 hover:text-white hover:bg-[#2C2C2C] transition-all"
+                        title="Önerilen 7 seviyeye sıfırla"
+                      >
+                        <RotateCcw size={12} />
+                        <span>Varsayılanlara Sıfırla</span>
+                      </button>
+                      <button
+                        onClick={() => handleOpenRankForm()}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#FFD700] hover:bg-[#E5C100] text-gray-950 transition-all shadow-sm"
+                      >
+                        <Plus size={14} className="stroke-[2.5]" />
+                        <span>Yeni Seviye</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {ranks.map((r, index) => (
+                      <div
+                        key={r.id || index}
+                        className="flex items-center justify-between p-3.5 rounded-xl bg-[#141414] border border-[#262626] hover:border-[#383838] transition-all"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-10 h-10 rounded-xl flex items-center justify-center text-lg border"
+                            style={{ backgroundColor: r.color + '15', borderColor: r.color + '40' }}
+                          >
+                            {r.icon}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h5 className="font-bold text-white text-sm">{r.title}</h5>
+                              <span
+                                className="text-[10px] font-bold px-2 py-0.5 rounded-md"
+                                style={{ backgroundColor: r.color + '20', color: r.color }}
+                              >
+                                {r.min_volume_kg.toLocaleString('tr-TR')} - {r.max_volume_kg.toLocaleString('tr-TR')} kg
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-0.5">{r.description || 'Sporcu seviye eşiği'}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleOpenRankForm(r)}
+                            className="w-8 h-8 rounded-lg bg-[#222] hover:bg-[#2C2C2C] text-gray-400 hover:text-white flex items-center justify-center transition-all"
+                            title="Düzenle"
+                          >
+                            <Edit2 size={13} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRank(r.id)}
+                            className="w-8 h-8 rounded-lg bg-[#222] hover:bg-red-500/20 text-gray-400 hover:text-red-400 flex items-center justify-center transition-all"
+                            title="Sil"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-[#2A2A2A] bg-[#141414] flex justify-end">
+              <button
+                onClick={() => {
+                  setShowRanksModal(false);
+                  setShowRankForm(false);
+                }}
+                className="px-5 py-2 rounded-xl text-xs font-semibold bg-[#222] text-white hover:bg-[#2C2C2C]"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
