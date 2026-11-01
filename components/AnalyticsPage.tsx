@@ -1,7 +1,24 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BarChart2, Activity, Clock, Dumbbell, User, Calendar, PieChart, TrendingUp } from 'lucide-react';
+import {
+  BarChart2,
+  Activity,
+  Clock,
+  Dumbbell,
+  User,
+  Calendar,
+  PieChart,
+  TrendingUp,
+  Award,
+  Zap,
+  Scale,
+  ArrowUpRight,
+  ArrowDownRight,
+  Layers,
+  MessageSquare,
+  Sparkles
+} from 'lucide-react';
 
 interface WorkoutSession {
   id: number;
@@ -29,11 +46,44 @@ interface UserModel {
   name: string;
 }
 
+interface ExerciseCompletion {
+  id: number;
+  userId: number;
+  exerciseId: number;
+  sessionId?: number | null;
+  completedAt: string;
+  sets: number;
+  reps: number;
+  weight?: number | null;
+  notes?: string | null;
+  exercises?: {
+    id: number;
+    name: string;
+    sets: number;
+    reps: number;
+  } | null;
+  users?: {
+    id: number;
+    name: string;
+  } | null;
+}
+
+interface WeightLog {
+  id: number;
+  userId: number;
+  date: string;
+  weight: number;
+  notes?: string | null;
+}
+
 export default function AnalyticsPage() {
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [completions, setCompletions] = useState<ExerciseCompletion[]>([]);
+  const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
   const [users, setUsers] = useState<UserModel[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [timeRange, setTimeRange] = useState<'7d' | '30d' | 'all'>('7d');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -57,19 +107,28 @@ export default function AnalyticsPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const url = selectedUserId ? `/api/workout-sessions?userId=${selectedUserId}` : '/api/workout-sessions';
-      const [sessionsRes, programsRes] = await Promise.all([
-        fetch(url),
+      const sessionUrl = selectedUserId ? `/api/workout-sessions?userId=${selectedUserId}` : '/api/workout-sessions';
+      const completionUrl = selectedUserId ? `/api/exercise-completions?userId=${selectedUserId}` : '/api/exercise-completions';
+      const weightUrl = selectedUserId ? `/api/weight-logs?userId=${selectedUserId}` : '/api/weight-logs';
+
+      const [sessionsRes, programsRes, completionsRes, weightRes] = await Promise.all([
+        fetch(sessionUrl),
         fetch('/api/programs'),
+        fetch(completionUrl),
+        fetch(weightUrl),
       ]);
-      
+
       const sessionsData = await sessionsRes.json();
       const programsData = await programsRes.json();
-      
+      const completionsData = await completionsRes.json();
+      const weightData = await weightRes.json();
+
       setSessions(Array.isArray(sessionsData) ? sessionsData : []);
       setPrograms(Array.isArray(programsData) ? programsData : []);
+      setCompletions(Array.isArray(completionsData) ? completionsData : []);
+      setWeightLogs(Array.isArray(weightData) ? weightData : []);
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('Error loading analytics data:', error);
     } finally {
       setLoading(false);
     }
@@ -85,31 +144,57 @@ export default function AnalyticsPage() {
     return mins;
   };
 
+  // Date filtering helper
+  const now = new Date();
+  const filterByTime = (dateStr: string) => {
+    if (timeRange === 'all') return true;
+    const itemDate = new Date(dateStr);
+    if (isNaN(itemDate.getTime())) return true;
+    const diffDays = (now.getTime() - itemDate.getTime()) / (1000 * 3600 * 24);
+    if (timeRange === '7d') return diffDays <= 7;
+    if (timeRange === '30d') return diffDays <= 30;
+    return true;
+  };
+
+  // Filter sessions and completions based on time range
+  const filteredSessions = sessions.filter(s => filterByTime(s.startTime));
+  const filteredCompletions = completions.filter(c => filterByTime(c.completedAt));
+
   // Separate real workout sessions from manual timer logs
-  const workoutSessions = sessions.filter(
+  const workoutSessions = filteredSessions.filter(
     s => !s.is_manual_timer && s.programId != null
   );
-  const durationSessions = sessions.filter(
+  const durationSessions = filteredSessions.filter(
     s => s.is_manual_timer || s.programId == null
   );
 
   // Key Stats
   const totalWorkouts = workoutSessions.length;
   const totalExercises = workoutSessions.reduce((sum, s) => sum + (s.completed_exercises || 0), 0);
-  
+
   let totalSets = 0;
   workoutSessions.forEach(session => {
     if (session.total_sets && session.total_sets > 0) {
       totalSets += session.total_sets;
     } else {
       const program = programs.find(p => p.id === session.programId);
-      const avgSets = (program?.exercises?.length)
+      const avgSets = program?.exercises?.length
         ? program.exercises.reduce((sum: number, ex: any) => sum + (ex.sets || 0), 0) / program.exercises.length
         : 3;
       totalSets += (session.completed_exercises || 0) * avgSets;
     }
   });
   totalSets = Math.round(totalSets);
+
+  // Total Volume Lifted (Tonaj Hesabı): weight * reps * sets
+  const totalVolumeKg = filteredCompletions.reduce((sum, c) => {
+    const w = Number(c.weight) || 0;
+    const r = Number(c.reps) || 10;
+    const s = Number(c.sets) || 1;
+    return sum + (w * r * s);
+  }, 0);
+
+  const avgVolumePerWorkout = totalWorkouts > 0 ? Math.round(totalVolumeKg / totalWorkouts) : 0;
 
   // Separated Durations: pure workout duration vs gym stay duration
   const workoutMinutes = workoutSessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
@@ -123,61 +208,150 @@ export default function AnalyticsPage() {
   // Program Distribution (Only actual workouts!)
   const programCounts = workoutSessions.reduce((acc: any, session) => {
     const name = session.program_name && session.program_name !== 'Salonda Geçirilen Vakit'
-      ? session.program_name 
+      ? session.program_name
       : 'Genel Program';
     acc[name] = (acc[name] || 0) + 1;
     return acc;
   }, {});
   const mostUsedProgram = Object.entries(programCounts).sort((a: any, b: any) => b[1] - a[1])[0];
 
-  // Daily Activity (Last 7 Days)
-  const last7Days = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (6 - i));
-    return date.toISOString().split('T')[0];
+  // Daily Activity Chart Bars (7 or 14 days depending on range)
+  const daysToShow = timeRange === '30d' ? 14 : 7;
+  const daysList = Array.from({ length: daysToShow }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (daysToShow - 1 - i));
+    return d.toISOString().split('T')[0];
   });
-  const dailyWorkouts = last7Days.map(date => {
-    const count = workoutSessions.filter(s => s.startTime && s.startTime.split('T')[0] === date).length;
-    return { date, count };
+
+  const dailyWorkouts = daysList.map(date => {
+    const daySessions = workoutSessions.filter(s => s.startTime && s.startTime.split('T')[0] === date);
+    const dayCompletions = completions.filter(c => c.completedAt && c.completedAt.split('T')[0] === date);
+    const dayVolume = dayCompletions.reduce((sum, c) => {
+      const w = Number(c.weight) || 0;
+      const r = Number(c.reps) || 10;
+      const s = Number(c.sets) || 1;
+      return sum + (w * r * s);
+    }, 0);
+    return {
+      date,
+      count: daySessions.length,
+      volume: dayVolume,
+    };
   });
   const maxDailyCount = Math.max(...dailyWorkouts.map(d => d.count), 1);
 
+  // Personal Records (PRs): Best weight lifted for each exercise
+  const prMap: Record<string, { exerciseName: string; maxWeight: number; reps: number; date: string; userName: string; notes?: string | null }> = {};
+  completions.forEach(c => {
+    const exName = c.exercises?.name || `Hareket #${c.exerciseId}`;
+    const w = Number(c.weight) || 0;
+    if (w > 0) {
+      if (!prMap[exName] || w > prMap[exName].maxWeight) {
+        prMap[exName] = {
+          exerciseName: exName,
+          maxWeight: w,
+          reps: c.reps,
+          date: c.completedAt,
+          userName: c.users?.name || 'Kullanıcı',
+          notes: c.notes || null,
+        };
+      }
+    }
+  });
+  const prList = Object.values(prMap).sort((a, b) => b.maxWeight - a.maxWeight).slice(0, 6);
+
+  // Top Exercises by Volume
+  const exerciseVolumeMap: Record<string, { name: string; volume: number; sets: number; maxWeight: number }> = {};
+  filteredCompletions.forEach(c => {
+    const name = c.exercises?.name || `Hareket #${c.exerciseId}`;
+    const vol = (Number(c.weight) || 0) * (Number(c.reps) || 10) * (Number(c.sets) || 1);
+    if (!exerciseVolumeMap[name]) {
+      exerciseVolumeMap[name] = { name, volume: 0, sets: 0, maxWeight: 0 };
+    }
+    exerciseVolumeMap[name].volume += vol;
+    exerciseVolumeMap[name].sets += Number(c.sets) || 1;
+    exerciseVolumeMap[name].maxWeight = Math.max(exerciseVolumeMap[name].maxWeight, Number(c.weight) || 0);
+  });
+  const topVolumeExercises = Object.values(exerciseVolumeMap).sort((a, b) => b.volume - a.volume).slice(0, 5);
+  const maxExerciseVolume = Math.max(...topVolumeExercises.map(e => e.volume), 1);
+
+  // Recent Exercise Stream
+  const recentCompletions = completions.slice(0, 7);
+
+  // Body Weight Tracker Snapshot
+  const latestWeight = weightLogs.length > 0 ? weightLogs[0].weight : null;
+  const initialWeight = weightLogs.length > 1 ? weightLogs[weightLogs.length - 1].weight : null;
+  const weightChange = latestWeight && initialWeight ? Number((latestWeight - initialWeight).toFixed(1)) : null;
+
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+    <div className="p-8 max-w-7xl mx-auto space-y-8">
+      {/* Top Header & Filters */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Analizler</h1>
-          <p className="text-gray-400">Genel sistem ve kullanıcı bazlı performans analizleri</p>
+          <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
+            Analizler
+            <span className="text-xs px-2.5 py-1 rounded-full bg-[#4ECDC4]/10 text-[#4ECDC4] border border-[#4ECDC4]/20 font-semibold">
+              Canlı Metrikler
+            </span>
+          </h1>
+          <p className="text-gray-400">Antrenman hacmi, kaldırılan ağırlıklar, PR rekorları ve performans analizleri</p>
         </div>
-        
-        <div className="relative">
-          <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
-          <select
-            className="bg-[#141414] border border-[#2A2A2A] text-white rounded-xl py-2.5 pl-10 pr-10 text-sm focus:outline-none focus:border-[#6366F1] appearance-none cursor-pointer"
-            value={selectedUserId ?? ''}
-            onChange={(e) => {
-              const val = e.target.value;
-              if (val) {
-                const id = parseInt(val);
-                setSelectedUserId(id);
-                localStorage.setItem('selectedUserId', id.toString());
-              } else {
-                setSelectedUserId(null);
-                localStorage.removeItem('selectedUserId');
-              }
-            }}
-          >
-            <option value="">Tüm Kullanıcılar (Genel)</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>{u.name}</option>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Time Filter Pills */}
+          <div className="flex items-center bg-[#141414] p-1 rounded-xl border border-[#2A2A2A]">
+            {[
+              { id: '7d', label: 'Son 7 Gün' },
+              { id: '30d', label: 'Son 30 Gün' },
+              { id: 'all', label: 'Tüm Zamanlar' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setTimeRange(tab.id as any)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  timeRange === tab.id
+                    ? 'bg-[#6366F1] text-white shadow'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
             ))}
-          </select>
+          </div>
+
+          {/* User Filter Dropdown */}
+          <div className="relative">
+            <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+            <select
+              className="bg-[#141414] border border-[#2A2A2A] text-white rounded-xl py-2 pl-9 pr-9 text-xs font-medium focus:outline-none focus:border-[#6366F1] appearance-none cursor-pointer"
+              value={selectedUserId ?? ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val) {
+                  const id = parseInt(val);
+                  setSelectedUserId(id);
+                  localStorage.setItem('selectedUserId', id.toString());
+                } else {
+                  setSelectedUserId(null);
+                  localStorage.removeItem('selectedUserId');
+                }
+              }}
+            >
+              <option value="">Tüm Kullanıcılar (Genel)</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
       {loading ? (
-        <div className="py-20 text-center text-gray-500">Yükleniyor...</div>
-      ) : sessions.length === 0 ? (
+        <div className="py-24 flex flex-col items-center justify-center gap-3">
+          <div className="w-9 h-9 border-2 border-[#6366F1] border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-400 text-sm">Analiz verileri yükleniyor...</p>
+        </div>
+      ) : sessions.length === 0 && completions.length === 0 ? (
         <div className="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-16 flex flex-col items-center justify-center text-center">
           <div className="w-16 h-16 rounded-2xl bg-[#1A1A1A] flex items-center justify-center mb-4">
             <BarChart2 size={32} className="text-gray-500" />
@@ -187,60 +361,97 @@ export default function AnalyticsPage() {
         </div>
       ) : (
         <>
-          {/* Top Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A]">
+          {/* Top KPI Cards (5 Metrics) */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            {/* 1. Toplam Antrenman */}
+            <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A] hover:border-[#3A3A3A] transition-colors">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#6366F1]/10">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#6366F1]/10 border border-[#6366F1]/20">
                   <Activity size={18} className="text-[#6366F1]" />
                 </div>
-                <span className="text-sm text-gray-400">Toplam Antrenman</span>
+                <span className="text-xs text-gray-400 font-medium">Toplam Antrenman</span>
               </div>
-              <p className="text-3xl font-bold text-white">{totalWorkouts}</p>
+              <p className="text-3xl font-extrabold text-white">{totalWorkouts}</p>
+              <p className="text-xs text-gray-500 mt-1">Efor seansı</p>
             </div>
 
-            <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A]">
+            {/* 2. Antrenman Süresi */}
+            <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A] hover:border-[#3A3A3A] transition-colors">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#5DD97C]/10">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#5DD97C]/10 border border-[#5DD97C]/20">
                   <Clock size={18} className="text-[#5DD97C]" />
                 </div>
-                <span className="text-sm text-gray-400">Antrenman Süresi</span>
+                <span className="text-xs text-gray-400 font-medium">Antrenman Süresi</span>
               </div>
-              <p className="text-3xl font-bold text-white">
+              <p className="text-3xl font-extrabold text-white">
                 {workoutHours > 0 ? `${workoutHours}s ` : ''}{remainingWorkoutMinutes}dk
               </p>
               {gymMinutes > 0 && (
-                <p className="text-xs text-purple-400 mt-1 font-medium flex items-center gap-1">
-                  <span>⏱️ Salon Vakti:</span>
-                  <span>{gymHours > 0 ? `${gymHours}s ` : ''}{remainingGymMinutes}dk</span>
+                <p className="text-xs text-purple-400 mt-1 font-medium">
+                  ⏱️ Salon: {gymHours > 0 ? `${gymHours}s ` : ''}{remainingGymMinutes}dk
                 </p>
               )}
             </div>
 
-            <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A]">
+            {/* 3. Kaldırılan Hacim (Tonaj) */}
+            <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A] hover:border-[#4ECDC4]/30 transition-colors">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#FF6B4A]/10">
-                  <Dumbbell size={18} className="text-[#FF6B4A]" />
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#4ECDC4]/10 border border-[#4ECDC4]/20">
+                  <Zap size={18} className="text-[#4ECDC4]" />
                 </div>
-                <span className="text-sm text-gray-400">Tamamlanan Set</span>
+                <span className="text-xs text-gray-400 font-medium">Kaldırılan Hacim</span>
               </div>
-              <p className="text-3xl font-bold text-white">{totalSets}</p>
+              <p className="text-3xl font-extrabold text-[#4ECDC4]">
+                {totalVolumeKg > 0 ? `${totalVolumeKg.toLocaleString('tr-TR')} kg` : 'Vücut Ağırlığı'}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                {avgVolumePerWorkout > 0 ? `Ort. ${avgVolumePerWorkout.toLocaleString('tr-TR')} kg / seans` : 'Toplam iş yükü'}
+              </p>
             </div>
 
-            <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A]">
+            {/* 4. Tamamlanan Set */}
+            <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A] hover:border-[#3A3A3A] transition-colors">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#FF6B9D]/10">
-                  <TrendingUp size={18} className="text-[#FF6B9D]" />
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#FF6B4A]/10 border border-[#FF6B4A]/20">
+                  <Dumbbell size={18} className="text-[#FF6B4A]" />
                 </div>
-                <span className="text-sm text-gray-400">Yapılan Hareket</span>
+                <span className="text-xs text-gray-400 font-medium">Tamamlanan Set</span>
               </div>
-              <p className="text-3xl font-bold text-white">{totalExercises}</p>
+              <p className="text-3xl font-extrabold text-white">{totalSets}</p>
+              <p className="text-xs text-gray-500 mt-1">{totalExercises} hareket tamamlandı</p>
+            </div>
+
+            {/* 5. Vücut Ağırlığı / Kilo */}
+            <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A] hover:border-[#3A3A3A] transition-colors">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#9B6FFF]/10 border border-[#9B6FFF]/20">
+                  <Scale size={18} className="text-[#9B6FFF]" />
+                </div>
+                <span className="text-xs text-gray-400 font-medium">Vücut Ağırlığı</span>
+              </div>
+              <p className="text-3xl font-extrabold text-white">
+                {latestWeight ? `${latestWeight} kg` : '-'}
+              </p>
+              {weightChange !== null && (
+                <div className="flex items-center gap-1 mt-1">
+                  {weightChange >= 0 ? (
+                    <span className="text-xs text-green-400 font-semibold flex items-center">
+                      <ArrowUpRight size={13} /> +{weightChange} kg
+                    </span>
+                  ) : (
+                    <span className="text-xs text-orange-400 font-semibold flex items-center">
+                      <ArrowDownRight size={13} /> {weightChange} kg
+                    </span>
+                  )}
+                  <span className="text-xs text-gray-500">başlangıçtan</span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Info banner if there are manual timer sessions */}
+          {/* Info banner for manual timer */}
           {durationSessions.length > 0 && (
-            <div className="mb-8 p-4 bg-[#1A1A1A] rounded-2xl border border-purple-500/20 flex items-center justify-between">
+            <div className="p-4 bg-[#1A1A1A] rounded-2xl border border-purple-500/20 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400 shrink-0">
                   <Clock size={16} />
@@ -252,28 +463,93 @@ export default function AnalyticsPage() {
             </div>
           )}
 
+          {/* Personal Records (PR Vitrini) */}
+          <div className="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[#FFD700]/10 flex items-center justify-center text-[#FFD700] border border-[#FFD700]/20">
+                  <Award size={18} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base flex items-center gap-2">
+                    Kişisel Rekorlar (PR Vitrini)
+                    <span className="text-xs font-normal text-gray-400">· En Yüksek Ağırlıklar</span>
+                  </h3>
+                </div>
+              </div>
+              <span className="text-xs text-gray-400">{prList.length} kayıtlı hareket</span>
+            </div>
+
+            {prList.length === 0 ? (
+              <div className="py-8 text-center text-gray-500 text-sm">
+                Henüz ağırlık girişi yapılmış egzersiz bulunmuyor. Mobil uygulamada girilen setler burada PR olarak listelenecektir.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {prList.map((pr, index) => (
+                  <div
+                    key={pr.exerciseName}
+                    className="bg-[#1A1A1A] rounded-xl p-4 border border-[#2A2A2A] hover:border-[#4ECDC4]/30 transition-all group"
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 h-6 rounded-md bg-[#252525] text-xs font-bold flex items-center justify-center text-gray-400 group-hover:bg-[#4ECDC4]/20 group-hover:text-[#4ECDC4] transition-colors">
+                          #{index + 1}
+                        </span>
+                        <h4 className="text-sm font-bold text-white truncate max-w-[150px]">
+                          {pr.exerciseName}
+                        </h4>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-[#4ECDC4]/15 text-[#4ECDC4] border border-[#4ECDC4]/25 shrink-0">
+                        {pr.maxWeight} kg
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t border-[#262626]">
+                      <span>{pr.reps} tekrar</span>
+                      <span className="text-gray-500">
+                        {pr.date ? new Date(pr.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' }) : ''}
+                      </span>
+                    </div>
+
+                    {pr.notes ? (
+                      <div className="mt-2.5 text-xs text-purple-300 bg-purple-500/10 px-2 py-1 rounded border border-purple-500/20 truncate">
+                        📌 {pr.notes}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Charts Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Activity Chart (Last 7 Days) */}
+            {/* Activity & Volume Chart */}
             <div className="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-6">
               <div className="flex items-center justify-between mb-8">
                 <h3 className="font-bold text-white flex items-center gap-2">
-                  <Calendar size={18} className="text-[#6366F1]" /> Son 7 Gün Antrenman Aktivitesi
+                  <Calendar size={18} className="text-[#6366F1]" /> Antrenman & Hacim Aktivitesi
                 </h3>
+                <span className="text-xs text-gray-400">Son {daysToShow} Gün</span>
               </div>
-              
+
               <div className="flex items-end justify-between h-48 gap-2">
                 {dailyWorkouts.map((day) => {
                   const heightPercent = (day.count / maxDailyCount) * 100;
                   return (
                     <div key={day.date} className="flex-1 flex flex-col items-center gap-3 group relative">
                       {/* Tooltip */}
-                      <div className="absolute -top-10 bg-[#2A2A2A] text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                        {day.count} Antrenman
+                      <div className="absolute -top-12 bg-[#2A2A2A] border border-[#3A3A3A] text-white text-xs py-1.5 px-2.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10 shadow-xl">
+                        <div className="font-bold">{day.count} Antrenman</div>
+                        {day.volume > 0 && (
+                          <div className="text-[#4ECDC4] text-[11px]">{day.volume.toLocaleString('tr-TR')} kg hacim</div>
+                        )}
                       </div>
-                      
+
                       <div className="w-full bg-[#1A1A1A] rounded-t-lg mt-auto overflow-hidden h-full flex items-end">
-                        <div 
-                          className="w-full bg-gradient-to-t from-[#6366F1] to-[#8B5CF6] transition-all duration-500 rounded-t-lg"
+                        <div
+                          className="w-full bg-gradient-to-t from-[#6366F1] to-[#8B5CF6] transition-all duration-500 rounded-t-lg group-hover:brightness-110"
                           style={{ height: `${Math.max(heightPercent, 5)}%` }}
                         />
                       </div>
@@ -293,36 +569,39 @@ export default function AnalyticsPage() {
                   <PieChart size={18} className="text-[#5DD97C]" /> Program Dağılımı
                 </h3>
               </div>
-              
+
               {Object.keys(programCounts).length === 0 ? (
                 <div className="text-center py-12 text-gray-500 text-sm">
                   Henüz tamamlanan bir program antrenmanı bulunmuyor.
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {Object.entries(programCounts).sort((a: any, b: any) => b[1] - a[1]).slice(0, 5).map(([name, count]: any, idx) => {
-                    const percent = Math.round((count / (totalWorkouts || 1)) * 100);
-                    const colors = ['#6366F1', '#5DD97C', '#FF6B4A', '#4ECDC4', '#FF6B9D'];
-                    const color = colors[idx % colors.length];
-                    
-                    return (
-                      <div key={name}>
-                        <div className="flex justify-between text-sm mb-1.5">
-                          <span className="font-medium text-white">{name}</span>
-                          <span className="text-gray-400">{count} ({percent}%)</span>
+                  {Object.entries(programCounts)
+                    .sort((a: any, b: any) => b[1] - a[1])
+                    .slice(0, 5)
+                    .map(([name, count]: any, idx) => {
+                      const percent = Math.round((count / (totalWorkouts || 1)) * 100);
+                      const colors = ['#6366F1', '#5DD97C', '#FF6B4A', '#4ECDC4', '#FF6B9D'];
+                      const color = colors[idx % colors.length];
+
+                      return (
+                        <div key={name}>
+                          <div className="flex justify-between text-sm mb-1.5">
+                            <span className="font-medium text-white">{name}</span>
+                            <span className="text-gray-400">{count} ({percent}%)</span>
+                          </div>
+                          <div className="h-2 bg-[#1A1A1A] rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{ width: `${percent}%`, backgroundColor: color }}
+                            />
+                          </div>
                         </div>
-                        <div className="h-2 bg-[#1A1A1A] rounded-full overflow-hidden">
-                          <div 
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{ width: `${percent}%`, backgroundColor: color }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
               )}
-              
+
               {mostUsedProgram && (
                 <div className="mt-6 p-4 bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-[#FFD700]/10 flex items-center justify-center shrink-0">
@@ -332,6 +611,107 @@ export default function AnalyticsPage() {
                     <p className="text-xs text-gray-500 mb-0.5">En Çok Kullanılan Program</p>
                     <p className="text-white font-bold text-sm">{mostUsedProgram[0]}</p>
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Row: Top Volume Exercises & Recent Exercise Stream */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Top Exercises by Volume */}
+            <div className="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="font-bold text-white flex items-center gap-2">
+                  <TrendingUp size={18} className="text-[#4ECDC4]" /> En Çok Hacim Yapılan Hareketler
+                </h3>
+                <span className="text-xs text-gray-400">Toplam Tonaj</span>
+              </div>
+
+              {topVolumeExercises.length === 0 ? (
+                <div className="text-center py-12 text-gray-500 text-sm">
+                  Henüz ağırlık kaydı bulunmuyor.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {topVolumeExercises.map((ex, idx) => {
+                    const percent = Math.round((ex.volume / maxExerciseVolume) * 100);
+                    return (
+                      <div key={ex.name} className="bg-[#1A1A1A] p-3.5 rounded-xl border border-[#262626]">
+                        <div className="flex items-center justify-between text-sm mb-2">
+                          <span className="font-semibold text-white flex items-center gap-2">
+                            <span className="text-xs text-gray-500">#{idx + 1}</span>
+                            {ex.name}
+                          </span>
+                          <span className="font-bold text-[#4ECDC4]">
+                            {ex.volume.toLocaleString('tr-TR')} kg
+                          </span>
+                        </div>
+                        <div className="h-1.5 bg-[#252525] rounded-full overflow-hidden mb-2">
+                          <div
+                            className="h-full bg-[#4ECDC4] rounded-full transition-all duration-500"
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-500">
+                          <span>{ex.sets} set tamamlandı</span>
+                          <span>Maks: {ex.maxWeight > 0 ? `${ex.maxWeight} kg` : '-'}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Live Lift & Machine Notes Stream */}
+            <div className="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="font-bold text-white flex items-center gap-2">
+                  <Sparkles size={18} className="text-[#9B6FFF]" /> Son Tamamlanan Egzersizler
+                </h3>
+                <span className="text-xs text-gray-400">Canlı Akış</span>
+              </div>
+
+              {recentCompletions.length === 0 ? (
+                <div className="text-center py-12 text-gray-500 text-sm">
+                  Henüz tamamlanan hareket kaydı bulunmuyor.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {recentCompletions.map((comp) => (
+                    <div
+                      key={comp.id}
+                      className="bg-[#1A1A1A] p-3.5 rounded-xl border border-[#262626] flex items-center justify-between gap-3 hover:border-[#3A3A3A] transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <h4 className="text-sm font-bold text-white truncate">
+                            {comp.exercises?.name || `Hareket #${comp.exerciseId}`}
+                          </h4>
+                          <span className="text-xs text-gray-500 truncate">
+                            · {comp.users?.name || `Kullanıcı #${comp.userId}`}
+                          </span>
+                        </div>
+                        {comp.notes ? (
+                          <div className="text-xs text-purple-300 truncate mt-1 flex items-center gap-1 font-mono">
+                            <MessageSquare size={11} className="text-purple-400 shrink-0" />
+                            <span>{comp.notes}</span>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="text-xs font-extrabold text-[#4ECDC4] bg-[#4ECDC4]/10 px-2 py-0.5 rounded border border-[#4ECDC4]/20 inline-block mb-1">
+                          {comp.weight !== null && comp.weight !== undefined && Number(comp.weight) > 0
+                            ? `${comp.weight} kg`
+                            : 'Vücut Ağ.'}
+                        </div>
+                        <div className="text-xs text-gray-400 font-medium">
+                          {comp.sets || 1} set × {comp.reps} tekrar
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
