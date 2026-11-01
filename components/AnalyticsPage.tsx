@@ -399,13 +399,16 @@ export default function AnalyticsPage() {
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#4ECDC4]/10 border border-[#4ECDC4]/20">
                   <Zap size={18} className="text-[#4ECDC4]" />
                 </div>
-                <span className="text-xs text-gray-400 font-medium">Kaldırılan Hacim</span>
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-400 font-medium">Toplam Hacim (Tonaj)</span>
+                  <span className="text-[10px] text-gray-500">Kaldırılan Toplam İş Yükü</span>
+                </div>
               </div>
               <p className="text-3xl font-extrabold text-[#4ECDC4]">
                 {totalVolumeKg > 0 ? `${totalVolumeKg.toLocaleString('tr-TR')} kg` : '0 kg'}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {avgVolumePerWorkout > 0 ? `Ort. ${avgVolumePerWorkout.toLocaleString('tr-TR')} kg / seans` : 'Toplam iş yükü'}
+                {avgVolumePerWorkout > 0 ? `Ort. ${avgVolumePerWorkout.toLocaleString('tr-TR')} kg / seans (Set × Tekrar × Kg)` : 'Set × Tekrar × Ağırlık'}
               </p>
             </div>
 
