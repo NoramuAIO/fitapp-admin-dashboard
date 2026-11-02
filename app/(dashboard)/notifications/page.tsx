@@ -16,7 +16,16 @@ import {
   Square,
   X,
   Edit2,
-  AlertCircle
+  AlertCircle,
+  Wifi,
+  Battery,
+  Smartphone,
+  Lock,
+  Camera,
+  Flashlight,
+  Eye,
+  Flame,
+  Activity
 } from 'lucide-react';
 
 interface NotificationRule {
@@ -71,8 +80,30 @@ export default function NotificationAdminPage() {
   const [testSuccess, setTestSuccess] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  // Live Smartphone Preview States
+  const [previewRuleId, setPreviewRuleId] = useState<number | null>(null);
+  const [previewMode, setPreviewMode] = useState<'lockscreen' | 'heads_up'>('lockscreen');
+  const [currentTime, setCurrentTime] = useState('14:30');
+  const [currentDate, setCurrentDate] = useState('Pazartesi, 2 Kasım');
+
   useEffect(() => {
     loadRules();
+  }, []);
+
+  // Update live clock & Turkish date for smartphone mockup
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setCurrentTime(
+        now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+      );
+      setCurrentDate(
+        now.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })
+      );
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadRules = async () => {
@@ -80,7 +111,11 @@ export default function NotificationAdminPage() {
     try {
       const res = await fetch('/api/notifications/rules');
       const data = await res.json();
-      setRules(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setRules(list);
+      if (list.length > 0 && !previewRuleId) {
+        setPreviewRuleId(list[0].id);
+      }
     } catch {
       setRules([]);
     } finally {
@@ -261,6 +296,47 @@ export default function NotificationAdminPage() {
 
   const activeCategory = CATEGORIES.find((c) => c.id === category) || CATEGORIES[0];
 
+  // Dynamic preview payload: prioritize form state when modal is open, or selected rule
+  const activePreview = showModal
+    ? {
+        id: editingRule?.id ?? -1,
+        title: title || '🏋️‍♂️ Antrenman Zamanı!',
+        subtitle: subtitle || 'FitApp Motivasyon Koçu',
+        message: message || 'Bugün antrenman günün. Ayakkabılarını bağla ve salona doğru yola çık!',
+        category,
+        scheduled_time: scheduledTime || '18:00',
+        days_of_week: selectedDays.join(','),
+        voice_enabled: voiceEnabled,
+        voice_script: voiceScript || message,
+        is_active: true,
+        isEditing: true,
+      }
+    : (() => {
+        const found =
+          rules.find((r) => r.id === previewRuleId) ||
+          rules.find((r) => r.is_active) ||
+          rules[0];
+        if (found) {
+          return { ...found, isEditing: false };
+        }
+        return {
+          id: 0,
+          title: '🏋️‍♂️ Antrenman Zamanı!',
+          subtitle: 'FitApp Motivasyon Koçu',
+          message: 'Bugün üst vücut antrenmanın var. Ayakkabılarını bağla ve salona doğru yola çık!',
+          category: 'antrenman' as const,
+          scheduled_time: '18:00',
+          days_of_week: '1,2,3,4,5',
+          voice_enabled: true,
+          voice_script: 'Bugün üst vücut antrenmanın var. Sınırlarını zorla!',
+          is_active: true,
+          isEditing: false,
+        };
+      })();
+
+  const activePreviewCat =
+    CATEGORIES.find((c) => c.id === activePreview.category) || CATEGORIES[0];
+
   return (
     <div className="p-8 max-w-7xl mx-auto">
       {/* Top Header */}
@@ -301,16 +377,16 @@ export default function NotificationAdminPage() {
         </div>
       )}
 
-      {/* Grid: Rules List + Live Preview Card */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left 2 Cols: Rules List */}
-        <div className="lg:col-span-2 space-y-4">
+      {/* Grid: Rules List + Live Phone Mockup Preview */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Left Col (7 of 12): Rules List */}
+        <div className="lg:col-span-7 space-y-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <Bell size={18} className="text-[#4ECDC4]" />
               <span>Kayıtlı Bildirim Kuralları ({rules.length})</span>
             </h2>
-            <span className="text-xs text-gray-500">Mobil uygulamaya otomatik senkronize edilir</span>
+            <span className="text-xs text-gray-500">Mobil uygulamaya anlık senkronizedir</span>
           </div>
 
           {loading ? (
@@ -324,12 +400,18 @@ export default function NotificationAdminPage() {
             rules.map((rule) => {
               const cat = CATEGORIES.find((c) => c.id === rule.category) || CATEGORIES[0];
               const daysList = rule.days_of_week ? rule.days_of_week.split(',') : [];
+              const isSelectedForPhone = !showModal && activePreview.id === rule.id;
 
               return (
                 <div
                   key={rule.id}
-                  className={`bg-[#141414] border transition-all rounded-2xl p-5 shadow-sm ${
-                    rule.is_active ? 'border-[#262626] hover:border-[#383838]' : 'border-[#1E1E1E] opacity-60'
+                  onClick={() => setPreviewRuleId(rule.id)}
+                  className={`bg-[#141414] border transition-all rounded-2xl p-5 shadow-sm cursor-pointer ${
+                    isSelectedForPhone
+                      ? 'ring-2 ring-[#4ECDC4] border-[#4ECDC4] bg-[#161c24]'
+                      : rule.is_active
+                      ? 'border-[#262626] hover:border-[#383838]'
+                      : 'border-[#1E1E1E] opacity-60'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-4">
@@ -355,6 +437,11 @@ export default function NotificationAdminPage() {
                               <Volume2 size={12} /> Sesli Koç
                             </span>
                           )}
+                          {isSelectedForPhone && (
+                            <span className="text-[10px] font-bold text-[#4ECDC4] bg-[#4ECDC4]/15 px-2 py-0.5 rounded-full border border-[#4ECDC4]/30 flex items-center gap-1">
+                              <Smartphone size={10} /> Telefonda Gösteriliyor
+                            </span>
+                          )}
                         </div>
 
                         {rule.subtitle && (
@@ -374,7 +461,11 @@ export default function NotificationAdminPage() {
                               <p className="italic text-gray-200">&quot;{rule.voice_script}&quot;</p>
                             </div>
                             <button
-                              onClick={() => handlePlayVoice(rule.voice_script!)}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePlayVoice(rule.voice_script!);
+                              }}
                               className="px-2 py-1 bg-[#262626] hover:bg-[#333] rounded-lg text-[11px] text-[#4ECDC4] font-medium flex items-center gap-1 transition-colors shrink-0"
                               title="Tarayıcıda Dinle"
                             >
@@ -414,16 +505,41 @@ export default function NotificationAdminPage() {
                     {/* Actions */}
                     <div className="flex items-center gap-2 shrink-0">
                       <button
-                        onClick={() => handleSendTestNotification(rule)}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPreviewRuleId(rule.id);
+                        }}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all border flex items-center gap-1 ${
+                          isSelectedForPhone
+                            ? 'bg-[#4ECDC4] text-gray-950 border-[#4ECDC4] font-bold'
+                            : 'bg-[#1E1E1E] hover:bg-[#2A2A2A] text-gray-300 border-[#2E2E2E]'
+                        }`}
+                        title="Bu bildirimi canlı telefonda önizle"
+                      >
+                        <Smartphone size={12} className={isSelectedForPhone ? 'text-gray-950' : 'text-[#4ECDC4]'} />
+                        <span className="hidden sm:inline">Önizle</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSendTestNotification(rule);
+                        }}
                         className="px-3 py-1.5 bg-[#1E1E1E] hover:bg-[#2A2A2A] text-gray-300 hover:text-white rounded-xl text-xs font-semibold transition-all border border-[#2E2E2E] flex items-center gap-1.5"
                         title="Telefona / Ekrana Test Bildirimi Gönder"
                       >
                         <Send size={12} className="text-[#4ECDC4]" />
-                        <span className="hidden sm:inline">Test Gönder</span>
+                        <span className="hidden sm:inline">Test</span>
                       </button>
 
                       <button
-                        onClick={() => handleToggleActive(rule)}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleActive(rule);
+                        }}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
                           rule.is_active
                             ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
@@ -434,7 +550,11 @@ export default function NotificationAdminPage() {
                       </button>
 
                       <button
-                        onClick={() => handleOpenModal(rule)}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenModal(rule);
+                        }}
                         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
                         title="Düzenle"
                       >
@@ -462,97 +582,410 @@ export default function NotificationAdminPage() {
           )}
         </div>
 
-        {/* Right Col: Phone Heads-Up Preview */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles size={18} className="text-[#4ECDC4]" />
-            <h2 className="text-lg font-bold text-white">Canlı Telefon Önizlemesi</h2>
+        {/* Right Col (5 of 12): Hyper-Realistic Live Smartphone Preview */}
+        <div className="lg:col-span-5 space-y-4 sticky top-6">
+          {/* Header Controls */}
+          <div className="bg-[#141414] border border-[#262626] rounded-2xl p-4 shadow-xl">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles size={18} className="text-[#4ECDC4]" />
+                <h2 className="text-base font-bold text-white">Canlı Telefon Önizlemesi</h2>
+              </div>
+              <div className="flex items-center gap-1.5 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[10px] font-bold text-emerald-300">iPhone 16 Pro</span>
+              </div>
+            </div>
+
+            {/* Mode Toggle & Rule Selector */}
+            <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#222]">
+              <span className="text-xs text-gray-400 font-medium">Görünüm Modu:</span>
+              <div className="flex items-center gap-1 bg-[#1C1C22] p-1 rounded-xl border border-[#2E2E38]">
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode('lockscreen')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    previewMode === 'lockscreen'
+                      ? 'bg-[#4ECDC4] text-gray-950 shadow-sm'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <Lock size={12} />
+                  <span>Kilit Ekranı</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode('heads_up')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    previewMode === 'heads_up'
+                      ? 'bg-[#4ECDC4] text-gray-950 shadow-sm'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <Bell size={12} />
+                  <span>Heads-Up Banner</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Rule Selector Chips */}
+            <div className="mt-3 pt-3 border-t border-[#222]">
+              <div className="text-[11px] text-gray-400 mb-1.5 flex items-center justify-between font-medium">
+                <span>Önizlenen Kural:</span>
+                <span className="text-gray-500">{rules.length} kural mevcut</span>
+              </div>
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                {showModal && (
+                  <button
+                    type="button"
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#4ECDC4] text-gray-950 border border-[#4ECDC4] flex items-center gap-1 shrink-0 animate-pulse"
+                  >
+                    <Sparkles size={11} />
+                    <span>Canlı Form</span>
+                  </button>
+                )}
+                {rules.map((r, idx) => {
+                  const rCat = CATEGORIES.find((c) => c.id === r.category) || CATEGORIES[0];
+                  const isSel = !showModal && activePreview.id === r.id;
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setPreviewRuleId(r.id)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 shrink-0 transition-all border ${
+                        isSel
+                          ? 'bg-[#4ECDC4]/20 border-[#4ECDC4] text-white shadow-sm'
+                          : 'bg-[#1A1A20] hover:bg-[#24242E] border-[#2A2A38] text-gray-400'
+                      }`}
+                    >
+                      <span>{rCat.icon}</span>
+                      <span className="truncate max-w-[90px]">{r.title || `Kural #${idx + 1}`}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
-          <div className="bg-[#141414] border border-[#262626] rounded-3xl p-6 shadow-xl sticky top-8">
-            <div className="text-xs text-gray-500 mb-4 text-center">
-              Kullanıcının telefonunda görünecek zengin bildirim kartı
-            </div>
+          {/* ============ SMARTPHONE HARDWARE MOCKUP ============ */}
+          <div className="relative mx-auto w-full max-w-[340px] rounded-[52px] p-3 bg-gradient-to-b from-[#2e313b] via-[#1a1b22] to-[#121318] shadow-[0_30px_70px_-15px_rgba(0,0,0,0.95),0_0_0_1px_rgba(255,255,255,0.12),0_0_40px_rgba(78,205,196,0.15)] border-2 border-[#383d4a]">
+            {/* Hardware Side Buttons */}
+            <div className="absolute -left-[6px] top-[95px] w-[4px] h-[24px] bg-[#3d4250] rounded-l-md" title="Action Button" />
+            <div className="absolute -left-[6px] top-[135px] w-[4px] h-[45px] bg-[#3d4250] rounded-l-md" title="Volume Up" />
+            <div className="absolute -left-[6px] top-[190px] w-[4px] h-[45px] bg-[#3d4250] rounded-l-md" title="Volume Down" />
+            <div className="absolute -right-[6px] top-[150px] w-[4px] h-[65px] bg-[#3d4250] rounded-r-md" title="Power Button" />
 
-            {/* Android / iOS Mock Notification Banner */}
-            <div className="bg-[#1E1E1E] border border-[#383838] rounded-2xl p-4 shadow-2xl relative overflow-hidden">
-              {/* Turquoise accent stripe */}
-              <div className="absolute top-0 left-0 right-0 h-1 bg-[#14b8a6]" />
+            {/* Screen Glass */}
+            <div className="relative rounded-[42px] overflow-hidden bg-gradient-to-b from-[#0a1020] via-[#05070e] to-[#010205] min-h-[580px] p-4 text-white flex flex-col justify-between border border-white/5 select-none">
+              {/* Ambient Wallpaper Glows */}
+              <div className="absolute -top-16 -left-16 w-52 h-52 bg-[#4ECDC4]/15 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute top-1/2 -right-16 w-48 h-48 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
 
-              {/* App meta */}
-              <div className="flex items-center justify-between mb-2.5 pt-1">
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-md bg-[#14b8a6] flex items-center justify-center text-[10px] font-black text-black">
-                    FA
-                  </div>
-                  <span className="text-xs font-bold text-gray-300">FitApp • Şimdi</span>
+              {/* Top Section: Dynamic Island & Status Bar */}
+              <div className="relative z-30 pt-0.5">
+                {/* Dynamic Island */}
+                <div
+                  className={`mx-auto transition-all duration-300 ease-out bg-black rounded-full border border-white/10 flex items-center justify-between px-3 shadow-lg ${
+                    isPlayingVoice ? 'w-[205px] h-7' : 'w-[96px] h-6'
+                  }`}
+                >
+                  {isPlayingVoice ? (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-[10px] font-bold text-[#4ECDC4] tracking-tight">Sesli Koç Aktif</span>
+                      </div>
+                      <div className="flex items-center gap-0.5">
+                        <span className="w-0.5 h-3 bg-[#4ECDC4] rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
+                        <span className="w-0.5 h-4 bg-[#4ECDC4] rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                        <span className="w-0.5 h-2 bg-[#4ECDC4] rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                        <span className="w-0.5 h-3.5 bg-[#4ECDC4] rounded-full animate-pulse" style={{ animationDelay: '80ms' }} />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-[#151515] ring-1 ring-white/10" />
+                      <div className="w-2 h-2 rounded-full bg-[#0d1f2d] ring-1 ring-[#4ECDC4]/30" />
+                    </>
+                  )}
                 </div>
-                <span className="text-[10px] font-semibold text-[#14b8a6] bg-[#14b8a6]/15 px-2 py-0.5 rounded-full">
-                  Heads-Up Banner
-                </span>
+
+                {/* Status Bar */}
+                <div className="flex items-center justify-between text-xs font-semibold px-2 -mt-5">
+                  <span className="text-[12px] font-bold text-white/90">{currentTime}</span>
+                  <div className="flex items-center gap-1.5 text-white/90">
+                    {/* Signal bars */}
+                    <div className="flex items-end gap-0.5 h-2.5">
+                      <div className="w-0.5 h-1 bg-white/90 rounded-sm" />
+                      <div className="w-0.5 h-1.5 bg-white/90 rounded-sm" />
+                      <div className="w-0.5 h-2 bg-white/90 rounded-sm" />
+                      <div className="w-0.5 h-2.5 bg-white/90 rounded-sm" />
+                    </div>
+                    <span className="text-[10px] font-extrabold tracking-tighter">5G</span>
+                    <Wifi size={12} strokeWidth={2.5} />
+                    <div className="flex items-center gap-0.5">
+                      <div className="w-4 h-2 rounded-[3px] border border-white/80 p-0.5 flex items-center">
+                        <div className="w-full h-full bg-white/90 rounded-[1px]" />
+                      </div>
+                      <div className="w-0.5 h-1 bg-white/80 rounded-r-sm" />
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Title & Body */}
-              <h4 className="font-bold text-white text-sm">
-                {title || '🏋️‍♂️ Antrenman Zamanı!'}
-              </h4>
-              {subtitle && (
-                <p className="text-xs text-gray-400 font-medium">{subtitle}</p>
-              )}
-              <p className="text-xs text-gray-300 mt-1 leading-relaxed">
-                {message || 'Bugün üst vücut antrenmanın var. Ayakkabılarını bağla ve salona doğru yola çık!'}
-              </p>
+              {/* Screen Content */}
+              {previewMode === 'lockscreen' ? (
+                /* LOCK SCREEN LAYOUT */
+                <div className="relative z-20 flex-1 flex flex-col justify-between pt-3 pb-1">
+                  <div>
+                    <div className="flex justify-center mb-1">
+                      <Lock size={13} className="text-white/60" />
+                    </div>
+                    <div className="text-5xl font-extralight tracking-tight text-center text-white/95">
+                      {currentTime}
+                    </div>
+                    <div className="text-xs font-medium text-center text-white/75 capitalize mt-1">
+                      {currentDate}
+                    </div>
 
-              {/* Expandable BigTextStyle Voice Indicator */}
-              {voiceEnabled && (
-                <div className="mt-3 p-2.5 rounded-xl bg-[#161616] border border-[#2A2A2A] flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 text-emerald-400 font-medium">
-                    <Volume2 size={14} />
-                    <span>Sesli Koç Hazır</span>
+                    {/* Push Notification Card on Lock Screen */}
+                    <div className="mt-5 relative backdrop-blur-2xl bg-black/65 hover:bg-black/75 border border-white/15 rounded-2xl p-3.5 shadow-2xl transition-all">
+                      {/* Accent line */}
+                      <div
+                        className="absolute top-0 left-3 right-3 h-[2px] rounded-full"
+                        style={{ backgroundColor: activePreviewCat.color }}
+                      />
+
+                      {/* App Meta Header */}
+                      <div className="flex items-center justify-between mb-2 pt-0.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 rounded-md bg-gradient-to-br from-[#4ECDC4] to-[#14b8a6] flex items-center justify-center text-[9px] font-black text-black shadow-sm">
+                            FA
+                          </div>
+                          <span className="text-[11px] font-bold text-white tracking-wide">FITAPP</span>
+                          <span className="text-[10px] text-gray-400 font-medium">• Şimdi</span>
+                        </div>
+                        <span
+                          className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                          style={{
+                            backgroundColor: activePreviewCat.color + '25',
+                            color: activePreviewCat.color,
+                            border: `1px solid ${activePreviewCat.color}40`,
+                          }}
+                        >
+                          {activePreviewCat.icon} {activePreviewCat.label}
+                        </span>
+                      </div>
+
+                      {/* Title & Body */}
+                      <h4 className="font-bold text-white text-xs leading-snug">
+                        {activePreview.title || '🏋️‍♂️ Antrenman Zamanı!'}
+                      </h4>
+                      {activePreview.subtitle && (
+                        <p className="text-[11px] text-gray-300 font-medium mt-0.5">{activePreview.subtitle}</p>
+                      )}
+                      <p className="text-[11px] text-gray-200 mt-1 leading-relaxed">
+                        {activePreview.message || 'Bugün üst vücut antrenmanın var. Ayakkabılarını bağla ve salona doğru yola çık!'}
+                      </p>
+
+                      {/* In-Notification Voice Coach Bar */}
+                      {activePreview.voice_enabled && (
+                        <div className="mt-2.5 p-2 rounded-xl bg-white/[0.08] border border-white/10 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-5 h-5 rounded-md flex items-center justify-center ${
+                              isPlayingVoice ? 'bg-emerald-400 text-black animate-pulse' : 'bg-emerald-500/20 text-emerald-300'
+                            }`}>
+                              <Volume2 size={12} />
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-bold text-white block">Sesli Koç</span>
+                              <span className="text-[8px] text-emerald-400 font-medium">Türkçe seslendirme hazır</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handlePlayVoice(activePreview.voice_script || activePreview.message)}
+                            className="px-2 py-0.5 rounded-md bg-emerald-500/25 hover:bg-emerald-500/40 text-emerald-300 text-[10px] font-bold transition-colors flex items-center gap-1"
+                          >
+                            {isPlayingVoice ? (
+                              <>
+                                <Square size={9} className="fill-current" />
+                                <span>Durdur</span>
+                              </>
+                            ) : (
+                              <>
+                                <Play size={9} className="fill-current" />
+                                <span>Dinle</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Quick Actions */}
+                      <div className="mt-2.5 pt-2 border-t border-white/10 grid grid-cols-3 gap-1 text-center">
+                        <button
+                          type="button"
+                          onClick={() => alert('Tamamlandı bildirimi simüle edildi')}
+                          className="py-1 px-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold text-white transition-colors"
+                        >
+                          ✅ Tamamla
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePlayVoice(activePreview.voice_script || activePreview.message)}
+                          className="py-1 px-1 rounded-lg bg-[#4ECDC4]/20 hover:bg-[#4ECDC4]/30 text-[10px] font-bold text-[#4ECDC4] transition-colors flex items-center justify-center gap-1"
+                        >
+                          <Volume2 size={10} /> Oku
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => alert('10 dakika sonraya ertelendi')}
+                          className="py-1 px-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold text-gray-300 transition-colors"
+                        >
+                          ⏰ Ertele
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => handlePlayVoice(voiceScript || message)}
-                    className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[11px] font-bold"
-                  >
-                    {isPlayingVoice ? 'Durdur' : 'Dinle'}
-                  </button>
+
+                  {/* Lock Screen Bottom shortcuts */}
+                  <div className="flex items-center justify-between px-3 pt-6">
+                    <div className="w-10 h-10 rounded-full bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-white/90 shadow-md">
+                      <Flashlight size={16} />
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-white/90 shadow-md">
+                      <Camera size={16} />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* HEADS-UP BANNER LAYOUT (App In-Use) */
+                <div className="relative z-20 flex-1 flex flex-col justify-between pt-2">
+                  {/* Dropping Banner */}
+                  <div className="backdrop-blur-2xl bg-black/85 border border-[#4ECDC4]/40 rounded-2xl p-3.5 shadow-2xl transition-all">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-md bg-gradient-to-br from-[#4ECDC4] to-[#14b8a6] flex items-center justify-center text-[9px] font-black text-black">
+                          FA
+                        </div>
+                        <span className="text-[11px] font-bold text-white">FitApp</span>
+                        <span className="text-[9px] text-[#4ECDC4] bg-[#4ECDC4]/15 px-1.5 py-0.5 rounded-full font-bold">Heads-Up</span>
+                      </div>
+                      <span className="text-[9px] text-gray-400">Şimdi</span>
+                    </div>
+
+                    <h4 className="font-bold text-white text-xs leading-snug">
+                      {activePreview.title || '🏋️‍♂️ Antrenman Zamanı!'}
+                    </h4>
+                    {activePreview.subtitle && (
+                      <p className="text-[11px] text-gray-300 font-medium mt-0.5">{activePreview.subtitle}</p>
+                    )}
+                    <p className="text-[11px] text-gray-300 mt-1 leading-relaxed">
+                      {activePreview.message}
+                    </p>
+
+                    {activePreview.voice_enabled && (
+                      <div className="mt-2.5 p-2 rounded-xl bg-white/[0.08] border border-white/10 flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Volume2 size={12} className="text-[#4ECDC4]" />
+                          <span className="text-[10px] font-bold text-white">Sesli Koç</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handlePlayVoice(activePreview.voice_script || activePreview.message)}
+                          className="px-2 py-0.5 rounded bg-[#4ECDC4]/20 text-[#4ECDC4] text-[10px] font-bold"
+                        >
+                          {isPlayingVoice ? 'Durdur' : 'Dinle'}
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="mt-2.5 pt-2 border-t border-white/10 grid grid-cols-3 gap-1 text-center">
+                      <button
+                        type="button"
+                        onClick={() => alert('Tamamlandı')}
+                        className="py-1 px-1 rounded-lg bg-white/10 text-[10px] font-bold text-white"
+                      >
+                        ✅ Tamamla
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePlayVoice(activePreview.voice_script || activePreview.message)}
+                        className="py-1 px-1 rounded-lg bg-[#4ECDC4]/20 text-[10px] font-bold text-[#4ECDC4]"
+                      >
+                        <Volume2 size={10} className="inline mr-1" /> Oku
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => alert('Ertelendi')}
+                        className="py-1 px-1 rounded-lg bg-white/10 text-[10px] font-bold text-gray-300"
+                      >
+                        ⏰ Ertele
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Simulated In-App Background Widgets */}
+                  <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/5 space-y-2 mt-4 opacity-50">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-400">Günün Antrenmanı</span>
+                      <span className="text-[#4ECDC4] font-bold">Giriş Yapıldı</span>
+                    </div>
+                    <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-[#4ECDC4] to-emerald-400 w-3/4 rounded-full" />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-gray-500">
+                      <span>6,240 / 8,000 Adım</span>
+                      <span>%78 Tamamlandı</span>
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {/* Rich Push Action Buttons */}
-              <div className="mt-3 pt-3 border-t border-[#2A2A2A] grid grid-cols-3 gap-1.5 text-center">
-                <button
-                  type="button"
-                  onClick={() => alert('Tamamlandı bildirimi simüle edildi')}
-                  className="py-1.5 px-2 rounded-lg bg-[#2A2A2A] hover:bg-[#333] text-[11px] font-bold text-white transition-colors"
-                >
-                  ✅ Tamamlandı
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePlayVoice(voiceScript || message)}
-                  className="py-1.5 px-2 rounded-lg bg-[#14b8a6]/20 hover:bg-[#14b8a6]/30 text-[11px] font-bold text-[#4ECDC4] transition-colors flex items-center justify-center gap-1"
-                >
-                  <Volume2 size={11} /> Sesli Oku
-                </button>
-                <button
-                  type="button"
-                  onClick={() => alert('10 dakika sonraya ertelendi')}
-                  className="py-1.5 px-2 rounded-lg bg-[#2A2A2A] hover:bg-[#333] text-[11px] font-bold text-gray-300 transition-colors"
-                >
-                  ⏰ 10 Dk Ertele
-                </button>
+              {/* Bottom Home Indicator */}
+              <div className="relative z-30 pt-2 pb-0.5">
+                <div className="w-32 h-1 bg-white/40 rounded-full mx-auto" />
               </div>
             </div>
+          </div>
 
-            <div className="mt-5 text-center">
-              <button
-                onClick={() => handleSendTestNotification()}
-                className="w-full flex items-center justify-center gap-2 bg-[#14b8a6] hover:bg-[#0d9488] text-gray-950 font-bold py-3 rounded-xl text-sm transition-all shadow-lg shadow-[#14b8a6]/20"
-              >
-                <Send size={15} />
-                <span>Önizlemeyi Test Olarak Gönder</span>
-              </button>
+          {/* Under-Phone Actions */}
+          <div className="space-y-2 pt-1">
+            <button
+              onClick={() => handleSendTestNotification(activePreview.isEditing ? undefined : activePreview)}
+              className="w-full flex items-center justify-center gap-2 bg-[#4ECDC4] hover:bg-[#45B8B0] text-gray-950 font-bold py-3.5 rounded-2xl text-sm transition-all shadow-lg shadow-[#4ECDC4]/25"
+            >
+              <Send size={15} className="stroke-[2.5]" />
+              <span>Bu Bildirimi Telefona Test Gönder</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handlePlayVoice(activePreview.voice_script || activePreview.message)}
+              className="w-full flex items-center justify-center gap-2 bg-[#18181C] hover:bg-[#222228] border border-[#2A2A38] text-gray-300 hover:text-white font-semibold py-2.5 rounded-xl text-xs transition-colors"
+            >
+              {isPlayingVoice ? (
+                <>
+                  <Square size={13} className="text-red-400 fill-current" />
+                  <span className="text-red-300">Sesli Koç Konuşmasını Durdur</span>
+                </>
+              ) : (
+                <>
+                  <Volume2 size={13} className="text-[#4ECDC4]" />
+                  <span>Türkçe Sesli Koç Sesini Dinle (tr-TR)</span>
+                </>
+              )}
+            </button>
+
+            <div className="p-3 rounded-xl bg-[#141414] border border-[#262626] text-[11px] text-gray-400 flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <Clock size={12} className="text-[#4ECDC4]" />
+                <span>Saat: <strong className="text-white">{activePreview.scheduled_time}</strong></span>
+              </span>
+              <span>
+                Sesli Koç: <strong className={activePreview.voice_enabled ? 'text-emerald-400' : 'text-gray-500'}>{activePreview.voice_enabled ? 'Aktif' : 'Kapalı'}</strong>
+              </span>
             </div>
           </div>
         </div>
@@ -725,7 +1158,34 @@ export default function NotificationAdminPage() {
                 )}
               </div>
 
-              <div className="flex items-center justify-between gap-3 pt-3">
+                {/* Modal Live Notification Banner Preview */}
+                <div className="p-3.5 rounded-xl bg-black/60 border border-[#4ECDC4]/30 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-gray-400">
+                    <span className="flex items-center gap-1.5 font-semibold text-white">
+                      <Smartphone size={12} className="text-[#4ECDC4]" />
+                      <span>Anlık Telefon Bildirim Önizlemesi</span>
+                    </span>
+                    <span className="text-[10px] text-[#4ECDC4] bg-[#4ECDC4]/10 px-2 py-0.5 rounded-full border border-[#4ECDC4]/20 font-bold">
+                      Canlı
+                    </span>
+                  </div>
+                  <div className="bg-[#1C1C22] border border-[#2D2D38] rounded-xl p-3 shadow-md">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-4 h-4 rounded-md bg-[#4ECDC4] flex items-center justify-center text-[8px] font-black text-black">
+                          FA
+                        </div>
+                        <span className="text-xs font-bold text-white">FitApp • Şimdi</span>
+                      </div>
+                      <span className="text-[10px] text-gray-400 font-medium">{scheduledTime || '18:00'}</span>
+                    </div>
+                    <div className="font-bold text-white text-xs">{title || 'Başlık yazın...'}</div>
+                    {subtitle && <div className="text-[11px] text-gray-400 font-medium">{subtitle}</div>}
+                    <div className="text-[11px] text-gray-300 mt-1">{message || 'Mesaj metni yazın...'}</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 pt-3">
                 {editingRule ? (
                   <button
                     type="button"
