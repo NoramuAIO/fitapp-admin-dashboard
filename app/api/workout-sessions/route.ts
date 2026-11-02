@@ -132,6 +132,18 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+
+    if (body.action === 'delete') {
+      const targetId = parseInt(String(body.id), 10);
+      if (isNaN(targetId)) {
+        return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+      }
+      await supabase.from('exercise_completions').delete().eq('sessionId', targetId);
+      const { error } = await supabase.from('workout_sessions').delete().eq('id', targetId);
+      if (error) throw error;
+      return NextResponse.json({ success: true });
+    }
+
     const { userId, programId, startTime, duration, category, completed_exercises, total_reps, total_sets } = body;
 
     // Supabase column startTime is VARCHAR(10)
@@ -243,10 +255,17 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 });
     }
 
+    const numericId = parseInt(id, 10);
+    if (isNaN(numericId)) {
+      return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+    }
+
+    await supabase.from('exercise_completions').delete().eq('sessionId', numericId);
+
     const { error } = await supabase
       .from('workout_sessions')
       .delete()
-      .eq('id', parseInt(id));
+      .eq('id', numericId);
 
     if (error) throw error;
 
