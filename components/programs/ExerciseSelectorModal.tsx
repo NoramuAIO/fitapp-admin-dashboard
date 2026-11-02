@@ -127,7 +127,6 @@ export default function ExerciseSelectorModal({
                         description: exercise.description || null,
                         imageUrl: exercise.imageUrl || null,
                         muscleGroup: exercise.muscleGroup || null,
-                        orderIndex: 0,
                     }),
                 });
 

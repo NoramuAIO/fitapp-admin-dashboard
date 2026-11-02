@@ -40,7 +40,6 @@ export default function AddExerciseForm({ workoutId, programId, onSuccess, onCan
                     description: newExercise.description || null,
                     imageUrl: newExercise.imageUrl || null,
                     muscleGroup: newExercise.muscleGroup || null,
-                    orderIndex: 0,
                 }),
             });
 

@@ -68,6 +68,26 @@ export async function POST(request: Request) {
       }
     }
 
+    // Determine orderIndex: if not explicitly specified > 0, append to the end of the day's exercises
+    let finalOrderIndex = typeof orderIndex === 'number' && orderIndex > 0 ? orderIndex : undefined
+    if (finalOrderIndex === undefined) {
+      if (workoutId) {
+        const { data: maxOrder } = await supabase
+          .from('exercises')
+          .select('orderIndex')
+          .eq('dayId', workoutId)
+          .order('orderIndex', { ascending: false })
+          .limit(1)
+        if (maxOrder && maxOrder.length > 0 && typeof maxOrder[0].orderIndex === 'number') {
+          finalOrderIndex = maxOrder[0].orderIndex + 1
+        } else {
+          finalOrderIndex = 0
+        }
+      } else {
+        finalOrderIndex = 0
+      }
+    }
+
     const insertData: any = {
       name,
       sets,
@@ -75,7 +95,7 @@ export async function POST(request: Request) {
       duration: duration || null,
       description: description || null,
       imageUrl: imageUrl || null,
-      orderIndex: orderIndex || 0,
+      orderIndex: finalOrderIndex,
       muscleGroup: muscleGroup || null
     }
 

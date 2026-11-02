@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronRight, Plus, Trash2, ListPlus } from 'lucide-react';
 import AddExerciseForm from './AddExerciseForm';
 import ExerciseItem from './ExerciseItem';
@@ -32,6 +32,14 @@ export default function WorkoutItem({
     const [isDragOver, setIsDragOver] = useState(false);
     const [localShowAdd, setLocalShowAdd] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [localExercises, setLocalExercises] = useState<Exercise[]>(workout.exercises || []);
+    const [draggedExerciseId, setDraggedExerciseId] = useState<number | null>(null);
+    const [dragOverExerciseId, setDragOverExerciseId] = useState<number | null>(null);
+    const [isReordering, setIsReordering] = useState(false);
+
+    useEffect(() => {
+        setLocalExercises(workout.exercises || []);
+    }, [workout.exercises]);
 
     const isAddFormVisible = showAddExercise || localShowAdd;
 
@@ -67,6 +75,101 @@ export default function WorkoutItem({
         }
     };
 
+    const handleReorder = async (newExercises: Exercise[]) => {
+        setLocalExercises(newExercises);
+        setIsReordering(true);
+        try {
+            const reorderPayload = newExercises.map((ex, index) => ({
+                id: ex.id,
+                orderIndex: index,
+                workoutId: workout.id,
+            }));
+
+            const response = await fetch('/api/exercises/reorder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ exercises: reorderPayload }),
+            });
+
+            if (!response.ok) {
+                // Fallback to individual updates
+                await Promise.all(
+                    newExercises.map((ex, index) =>
+                        fetch(`/api/exercises/${ex.id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ orderIndex: index }),
+                        })
+                    )
+                );
+            }
+            await onUpdate();
+        } catch (error) {
+            console.error('Error reordering exercises:', error);
+            await onUpdate();
+        } finally {
+            setIsReordering(false);
+            setDraggedExerciseId(null);
+            setDragOverExerciseId(null);
+        }
+    };
+
+    const handleMoveExercise = async (currentIndex: number, direction: 'up' | 'down') => {
+        if (isReordering) return;
+        const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+        if (targetIndex < 0 || targetIndex >= localExercises.length) return;
+
+        const newExercises = [...localExercises];
+        const [moved] = newExercises.splice(currentIndex, 1);
+        newExercises.splice(targetIndex, 0, moved);
+
+        await handleReorder(newExercises);
+    };
+
+    const handleDragStart = (workoutId: number, exerciseId: number) => {
+        setDraggedExerciseId(exerciseId);
+    };
+
+    const handleDragOver = (e: React.DragEvent, workoutId: number, exerciseId: number) => {
+        e.preventDefault();
+        if (draggedExerciseId !== exerciseId) {
+            setDragOverExerciseId(exerciseId);
+        }
+    };
+
+    const handleDragEnd = () => {
+        setDraggedExerciseId(null);
+        setDragOverExerciseId(null);
+    };
+
+    const handleDrop = async (e: React.DragEvent, targetWorkoutId: number, targetExerciseId: number) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const rawExerciseId = draggedExerciseId || (e.dataTransfer ? parseInt(e.dataTransfer.getData('text/plain'), 10) : null);
+
+        if (!rawExerciseId || rawExerciseId === targetExerciseId) {
+            setDraggedExerciseId(null);
+            setDragOverExerciseId(null);
+            return;
+        }
+
+        const draggedIndex = localExercises.findIndex((ex) => ex.id === rawExerciseId);
+        const targetIndex = localExercises.findIndex((ex) => ex.id === targetExerciseId);
+
+        if (draggedIndex === -1 || targetIndex === -1) {
+            setDraggedExerciseId(null);
+            setDragOverExerciseId(null);
+            return;
+        }
+
+        const newExercises = [...localExercises];
+        const [removed] = newExercises.splice(draggedIndex, 1);
+        newExercises.splice(targetIndex, 0, removed);
+
+        await handleReorder(newExercises);
+    };
+
     return (
         <div
             className={`bg-[#1A1A1A] rounded-2xl p-5 border transition-all ${isDragOver ? 'border-[#6366F1] border-dashed' : 'border-[#2A2A2A]'}`}
@@ -75,7 +178,19 @@ export default function WorkoutItem({
                 setIsDragOver(true);
             }}
             onDragLeave={() => setIsDragOver(false)}
-            onDrop={() => setIsDragOver(false)}
+            onDrop={async (e) => {
+                e.preventDefault();
+                setIsDragOver(false);
+                if (draggedExerciseId) {
+                    const draggedIndex = localExercises.findIndex((ex) => ex.id === draggedExerciseId);
+                    if (draggedIndex !== -1 && draggedIndex !== localExercises.length - 1) {
+                        const newExercises = [...localExercises];
+                        const [removed] = newExercises.splice(draggedIndex, 1);
+                        newExercises.push(removed);
+                        await handleReorder(newExercises);
+                    }
+                }
+            }}
         >
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3">
                 <div className="flex items-center gap-3">
@@ -93,7 +208,7 @@ export default function WorkoutItem({
                             )}
                         </div>
                         <span className="text-xs text-gray-500 mt-0.5 block">
-                            {workout.exercises?.length || 0} hareket
+                            {localExercises.length} hareket
                         </span>
                     </div>
                 </div>
@@ -137,14 +252,24 @@ export default function WorkoutItem({
             {!isCollapsed && (
                 <div className="space-y-2 pl-2 md:pl-8">
                     {/* Egzersiz Listesi */}
-                    {workout.exercises && workout.exercises.length > 0 ? (
-                        workout.exercises.map((exercise: Exercise) => (
+                    {localExercises.length > 0 ? (
+                        localExercises.map((exercise: Exercise, idx: number) => (
                             <ExerciseItem
                                 key={exercise.id}
+                                index={idx}
+                                totalExercises={localExercises.length}
                                 workoutId={workout.id}
                                 exercise={exercise}
                                 onUpdate={onUpdate}
                                 onDelete={async () => onDeleteExercise(exercise.id)}
+                                onMoveUp={() => handleMoveExercise(idx, 'up')}
+                                onMoveDown={() => handleMoveExercise(idx, 'down')}
+                                onDragStart={handleDragStart}
+                                onDragOver={handleDragOver}
+                                onDragEnd={handleDragEnd}
+                                onDrop={handleDrop}
+                                isDragged={draggedExerciseId === exercise.id}
+                                isDragOver={dragOverExerciseId === exercise.id}
                             />
                         ))
                     ) : (

@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
-import { GripVertical, Edit2, Trash2 } from 'lucide-react';
+import { GripVertical, Edit2, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
 import { Exercise } from './ExerciseSelectorModal';
 
 interface ExerciseItemProps {
     workoutId?: number;
     programId?: number;
     exercise: Exercise;
+    index?: number;
+    totalExercises?: number;
     onUpdate: () => Promise<void>;
     onDelete: () => Promise<void>;
-    onDragStart?: (programId: number, exerciseId: number) => void;
-    onDragOver?: (e: React.DragEvent, programId: number, exerciseId: number) => void;
+    onMoveUp?: () => void;
+    onMoveDown?: () => void;
+    onDragStart?: (workoutId: number, exerciseId: number) => void;
+    onDragOver?: (e: React.DragEvent, workoutId: number, exerciseId: number) => void;
     onDragEnd?: () => void;
-    onDrop?: (e: React.DragEvent, targetProgramId: number, targetExerciseId: number) => void;
+    onDrop?: (e: React.DragEvent, workoutId: number, exerciseId: number) => void;
     isDragged?: boolean;
     isDragOver?: boolean;
 }
@@ -19,8 +23,12 @@ interface ExerciseItemProps {
 export default function ExerciseItem({
     workoutId,
     exercise,
+    index,
+    totalExercises,
     onUpdate,
     onDelete,
+    onMoveUp,
+    onMoveDown,
     onDragStart,
     onDragOver,
     onDragEnd,
@@ -155,21 +163,65 @@ export default function ExerciseItem({
     return (
         <div
             draggable={isDraggable}
-            onDragStart={() => workoutId && onDragStart?.(workoutId, exercise.id)}
+            onDragStart={(e) => {
+                e.dataTransfer.setData('text/plain', String(exercise.id));
+                workoutId && onDragStart?.(workoutId, exercise.id);
+            }}
             onDragOver={(e) => workoutId && onDragOver?.(e, workoutId, exercise.id)}
             onDragEnd={onDragEnd}
             onDrop={(e) => workoutId && onDrop?.(e, workoutId, exercise.id)}
-            className={`flex items-center justify-between p-3 rounded-xl bg-[#222222] border transition-all ${isDragOver ? 'border-[#6366F1]' : 'border-[#2E2E2E]'} hover:border-[#3E3E3E] ${isDragged ? 'opacity-40' : ''}`}
+            className={`flex items-center justify-between p-3 rounded-xl bg-[#222222] border transition-all ${
+                isDragOver ? 'border-[#6366F1] bg-[#6366F1]/10 scale-[1.01]' : 'border-[#2E2E2E]'
+            } hover:border-[#3E3E3E] ${isDragged ? 'opacity-40 border-dashed border-[#6366F1]' : ''}`}
         >
             <div className="flex items-center gap-3">
-                <div
-                    className="text-gray-600 hover:text-gray-400 cursor-grab active:cursor-grabbing p-1"
-                    onMouseEnter={() => setIsDraggable(true)}
-                    onMouseLeave={() => setIsDraggable(false)}
-                    onMouseUp={() => setIsDraggable(false)}
-                >
-                    <GripVertical size={16} />
+                {/* Drag Handle & Up/Down Arrows */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                    <div
+                        className="text-gray-500 hover:text-gray-200 cursor-grab active:cursor-grabbing p-1 rounded hover:bg-white/5 transition-colors"
+                        onMouseEnter={() => setIsDraggable(true)}
+                        onMouseLeave={() => setIsDraggable(false)}
+                        title="Sürükleyip bırakarak sırayı değiştirin"
+                    >
+                        <GripVertical size={16} />
+                    </div>
+
+                    {/* Move Up / Down Buttons */}
+                    <div className="flex flex-col">
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onMoveUp?.();
+                            }}
+                            disabled={index === undefined || index === 0}
+                            className="p-0.5 text-gray-500 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed hover:bg-white/10 rounded transition-colors"
+                            title="Yukarı taşı"
+                        >
+                            <ChevronUp size={13} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onMoveDown?.();
+                            }}
+                            disabled={index === undefined || totalExercises === undefined || index >= totalExercises - 1}
+                            className="p-0.5 text-gray-500 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed hover:bg-white/10 rounded transition-colors"
+                            title="Aşağı taşı"
+                        >
+                            <ChevronDown size={13} />
+                        </button>
+                    </div>
+
+                    {/* Order Index Badge */}
+                    {index !== undefined && (
+                        <span className="text-[11px] font-mono font-bold text-gray-400 bg-black/40 border border-white/5 px-1.5 py-0.5 rounded min-w-[20px] text-center">
+                            {index + 1}
+                        </span>
+                    )}
                 </div>
+
                 <div>
                     <div className="flex items-center gap-2">
                         <span className="font-semibold text-sm text-white">{exercise.name}</span>
@@ -193,7 +245,7 @@ export default function ExerciseItem({
                 </div>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
                 <button
                     onClick={() => setIsEditing(true)}
                     className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
