@@ -98,8 +98,13 @@ export async function PUT(request: Request) {
     }
 
     const updateData: any = {}
-    if (name !== undefined) updateData.name = name
-    if (dayNumber !== undefined) updateData.dayNumber = dayNumber
+    if (name !== undefined) {
+      updateData.name = name
+      updateData.dayName = name
+    }
+    if (dayNumber !== undefined) {
+      updateData.dayNumber = dayNumber ? parseInt(String(dayNumber), 10) : null
+    }
     if (orderIndex !== undefined) updateData.orderIndex = orderIndex
 
     const { data, error } = await supabase

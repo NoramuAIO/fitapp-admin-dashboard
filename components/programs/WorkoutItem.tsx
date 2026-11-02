@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronRight, Plus, Trash2, ListPlus } from 'lucide-react';
+import { ChevronRight, Plus, Trash2, ListPlus, Edit2, Check, X } from 'lucide-react';
 import AddExerciseForm from './AddExerciseForm';
 import ExerciseItem from './ExerciseItem';
 import { Exercise, Workout } from './ExerciseSelectorModal';
@@ -37,9 +37,20 @@ export default function WorkoutItem({
     const [dragOverExerciseId, setDragOverExerciseId] = useState<number | null>(null);
     const [isReordering, setIsReordering] = useState(false);
 
+    // Workout Name Editing state
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [nameInput, setNameInput] = useState(workout.name || '');
+    const [dayNumberInput, setDayNumberInput] = useState(workout.dayNumber ? String(workout.dayNumber) : '');
+    const [isSavingName, setIsSavingName] = useState(false);
+
     useEffect(() => {
         setLocalExercises(workout.exercises || []);
     }, [workout.exercises]);
+
+    useEffect(() => {
+        setNameInput(workout.name || '');
+        setDayNumberInput(workout.dayNumber ? String(workout.dayNumber) : '');
+    }, [workout.name, workout.dayNumber]);
 
     const isAddFormVisible = showAddExercise || localShowAdd;
 
@@ -73,6 +84,42 @@ export default function WorkoutItem({
         } finally {
             setIsDeleting(false);
         }
+    };
+
+    const handleSaveWorkoutName = async () => {
+        const trimmed = nameInput.trim();
+        if (!trimmed) return;
+        setIsSavingName(true);
+        try {
+            const response = await fetch('/api/workouts', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: workout.id,
+                    name: trimmed,
+                    dayNumber: dayNumberInput.trim() ? parseInt(dayNumberInput.trim(), 10) : null,
+                }),
+            });
+
+            if (response.ok) {
+                setIsEditingName(false);
+                await onUpdate();
+            } else {
+                const err = await response.json().catch(() => ({}));
+                alert(err.error || 'Antreman adı güncellenemedi');
+            }
+        } catch (error) {
+            console.error('Error updating workout name:', error);
+            alert('Antreman adı güncellenirken bir hata oluştu');
+        } finally {
+            setIsSavingName(false);
+        }
+    };
+
+    const handleCancelEditName = () => {
+        setNameInput(workout.name || '');
+        setDayNumberInput(workout.dayNumber ? String(workout.dayNumber) : '');
+        setIsEditingName(false);
     };
 
     const handleReorder = async (newExercises: Exercise[]) => {
@@ -200,17 +247,78 @@ export default function WorkoutItem({
                     >
                         <ChevronRight size={16} className={`transition-transform duration-200 ${isCollapsed ? 'rotate-0' : 'rotate-90'}`} />
                     </button>
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <h4 className="text-white font-bold">{workout.name}</h4>
-                            {workout.dayNumber && (
-                                <span className="text-xs font-semibold bg-white/5 text-gray-400 px-2 py-0.5 rounded-md border border-white/10">Gün {workout.dayNumber}</span>
-                            )}
+
+                    {isEditingName ? (
+                        <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                            <input
+                                type="text"
+                                value={nameInput}
+                                onChange={(e) => setNameInput(e.target.value)}
+                                className="bg-[#0F0F0F] border border-[#6366F1] text-white rounded-lg px-2.5 py-1 text-sm font-semibold focus:outline-none min-w-[170px]"
+                                placeholder="Antreman adı"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleSaveWorkoutName();
+                                    if (e.key === 'Escape') handleCancelEditName();
+                                }}
+                            />
+                            <div className="flex items-center gap-1">
+                                <span className="text-xs text-gray-400">Gün:</span>
+                                <input
+                                    type="number"
+                                    value={dayNumberInput}
+                                    onChange={(e) => setDayNumberInput(e.target.value)}
+                                    className="bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-2 py-1 text-xs w-14 text-center focus:border-[#6366F1] focus:outline-none"
+                                    placeholder="1"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleSaveWorkoutName();
+                                        if (e.key === 'Escape') handleCancelEditName();
+                                    }}
+                                />
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleSaveWorkoutName}
+                                disabled={isSavingName || !nameInput.trim()}
+                                className="flex items-center gap-1 bg-[#6366F1] hover:bg-[#5558DD] text-white px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+                                title="Kaydet (Enter)"
+                            >
+                                <Check size={13} /> {isSavingName ? '...' : 'Kaydet'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleCancelEditName}
+                                disabled={isSavingName}
+                                className="flex items-center gap-1 bg-[#2A2A2A] hover:bg-[#333] text-gray-300 hover:text-white px-2 py-1 rounded-lg text-xs font-semibold transition-colors"
+                                title="İptal (Esc)"
+                            >
+                                <X size={13} /> İptal
+                            </button>
                         </div>
-                        <span className="text-xs text-gray-500 mt-0.5 block">
-                            {localExercises.length} hareket
-                        </span>
-                    </div>
+                    ) : (
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h4 className="text-white font-bold">{workout.name}</h4>
+                                {workout.dayNumber && (
+                                    <span className="text-xs font-semibold bg-white/5 text-gray-400 px-2 py-0.5 rounded-md border border-white/10">Gün {workout.dayNumber}</span>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIsEditingName(true);
+                                    }}
+                                    className="p-1 text-gray-500 hover:text-white rounded hover:bg-white/10 transition-colors"
+                                    title="Antreman Adını Değiştir"
+                                >
+                                    <Edit2 size={13} />
+                                </button>
+                            </div>
+                            <span className="text-xs text-gray-500 mt-0.5 block">
+                                {localExercises.length} hareket
+                            </span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
