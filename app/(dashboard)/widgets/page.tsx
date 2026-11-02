@@ -17,6 +17,7 @@ import {
   Target,
   Calendar,
 } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmModal';
 
 interface CustomWidget {
   id: number;
@@ -83,6 +84,7 @@ function getSpecialDayInfo(targetTimeStr?: string | null) {
 }
 
 export default function WidgetsAdminPage() {
+  const { confirm } = useConfirm();
   const [widgets, setWidgets] = useState<CustomWidget[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -293,6 +295,13 @@ export default function WidgetsAdminPage() {
   };
 
   const handleDeleteWidget = async (id: number) => {
+    const ok = await confirm({
+      title: 'Widgetı Sil',
+      message: 'Bu ana sayfa widgetını silmek istediğinizden emin misiniz?',
+      confirmText: 'Evet, Widgetı Sil',
+    });
+    if (!ok) return;
+
     try {
       const numericId = Number(id);
       // Optimistic instant UI removal with guaranteed type comparison

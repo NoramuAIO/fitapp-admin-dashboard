@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Target, Plus, Edit2, Trash2, CheckCircle2, XCircle, Search, Calendar, User, Scale } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmModal';
 
 interface Goal {
   id: number;
@@ -24,6 +25,7 @@ interface UserModel {
 }
 
 export default function GoalsPage() {
+  const { confirm } = useConfirm();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [users, setUsers] = useState<UserModel[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -107,6 +109,13 @@ export default function GoalsPage() {
   };
 
   const handleDelete = async (id: number) => {
+    const ok = await confirm({
+      title: 'Hedefi Sil',
+      message: 'Bu hedef kaydını silmek istediğinizden emin misiniz?',
+      confirmText: 'Evet, Sil',
+    });
+    if (!ok) return;
+
     const numericId = Number(id);
     // Instant optimistic removal from UI
     setGoals((prev) => prev.filter((g) => Number(g.id) !== numericId));

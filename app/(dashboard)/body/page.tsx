@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { Scale, TrendingDown, TrendingUp, Trash2, BarChart3, Plus, X, Calendar, Activity, Coffee, Utensils } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmModal';
 
 interface WeightLog {
   id: number;
@@ -48,6 +49,7 @@ function parseMealTag(notes?: string | null): { tag: 'ac' | 'tok' | null; cleanN
 }
 
 export default function BodyAdminPage() {
+  const { confirm } = useConfirm();
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
@@ -103,6 +105,13 @@ export default function BodyAdminPage() {
   };
 
   const handleDeleteWeight = async (id: number) => {
+    const ok = await confirm({
+      title: 'Kilo Kaydını Sil',
+      message: 'Bu kilo ölçüm kaydını silmek istediğinizden emin misiniz?',
+      confirmText: 'Evet, Sil',
+    });
+    if (!ok) return;
+
     const numericId = Number(id);
     // Optimistic instant UI removal
     setWeightLogs(prev => prev.filter(w => Number(w.id) !== numericId));
@@ -125,6 +134,13 @@ export default function BodyAdminPage() {
   };
 
   const handleDeleteFat = async (id: number) => {
+    const ok = await confirm({
+      title: 'Yağ Oranı Kaydını Sil',
+      message: 'Bu vücut yağ oranı ölçüm kaydını silmek istediğinizden emin misiniz?',
+      confirmText: 'Evet, Sil',
+    });
+    if (!ok) return;
+
     const numericId = Number(id);
     // Optimistic instant UI removal
     setFatLogs(prev => prev.filter(f => Number(f.id) !== numericId));

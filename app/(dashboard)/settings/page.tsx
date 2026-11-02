@@ -1,23 +1,32 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, Trash2, CheckCircle2, Info, X } from 'lucide-react';
+import { AlertTriangle, Trash2, CheckCircle2, Info } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmModal';
 
-interface PendingAction {
+interface DangerAction {
   url: string;
   label: string;
   title: string;
+  desc: string;
 }
 
 export default function SettingsPage() {
+  const { confirm } = useConfirm();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
-  const [pendingConfirm, setPendingConfirm] = useState<PendingAction | null>(null);
 
-  const executeDanger = async (action: PendingAction) => {
+  const executeDanger = async (action: DangerAction) => {
+    const ok = await confirm({
+      title: action.title,
+      message: `${action.desc} Bu işlem geri alınamaz! İlgili tüm veriler kalıcı olarak silinecektir.`,
+      confirmText: 'Evet, Hepsini Sil',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
     setLoading(true);
     setMessage(null);
-    setPendingConfirm(null);
 
     try {
       let res = await fetch(action.url, { method: 'POST' });
@@ -83,7 +92,7 @@ export default function SettingsPage() {
               <p className="text-sm text-gray-400 mb-4">{item.desc}</p>
               <button
                 type="button"
-                onClick={() => setPendingConfirm(item)}
+                onClick={() => executeDanger(item)}
                 disabled={loading}
                 className="flex items-center gap-2 bg-[#FF6B4A]/20 hover:bg-[#FF6B4A]/30 border border-[#FF6B4A]/40 text-[#FF6B4A] rounded-xl px-4 py-2.5 text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
@@ -94,48 +103,6 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
-
-      {/* In-App Confirmation Modal */}
-      {pendingConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-[#1A1A1A] border border-[#FF6B4A]/30 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
-            <div className="flex items-start gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-[#FF6B4A]/20 flex items-center justify-center text-[#FF6B4A] shrink-0">
-                <AlertTriangle size={20} />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-bold text-white text-lg">{pendingConfirm.title}</h3>
-                <p className="text-xs text-gray-400 mt-1">Bu işlem geri alınamaz! İlgili tüm veriler kalıcı olarak silinecektir.</p>
-              </div>
-              <button 
-                onClick={() => setPendingConfirm(null)}
-                className="text-gray-400 hover:text-white"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 mt-6">
-              <button
-                type="button"
-                onClick={() => setPendingConfirm(null)}
-                className="px-4 py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
-              >
-                İptal Et
-              </button>
-              <button
-                type="button"
-                onClick={() => executeDanger(pendingConfirm)}
-                disabled={loading}
-                className="flex items-center gap-2 bg-[#FF6B4A] hover:bg-[#E05335] text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-[#FF6B4A]/25 transition-all"
-              >
-                <Trash2 size={16} />
-                <span>Evet, Hepsini Sil</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Info */}
       <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-6">

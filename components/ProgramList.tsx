@@ -6,8 +6,10 @@ import AddProgramModal from './programs/AddProgramModal'
 import ExerciseSelectorModal, { Exercise, Program } from './programs/ExerciseSelectorModal'
 import ImportModal from './programs/ImportModal'
 import ProgramItem from './programs/ProgramItem'
+import { useConfirm } from '@/components/ConfirmModal'
 
 export default function ProgramList() {
+  const { confirm } = useConfirm()
   const [programs, setPrograms] = useState<Program[]>([])
   const [loading, setLoading] = useState(true)
   const [users, setUsers] = useState<any[]>([])
@@ -90,6 +92,13 @@ export default function ProgramList() {
 
   // --- Program Delete (Optimistic UI + Safe Cascade) ---
   const handleDeleteProgram = async (id: number) => {
+    const ok = await confirm({
+      title: 'Programı Sil',
+      message: 'Bu programı ve içindeki tüm antrenman günlerini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
+      confirmText: 'Evet, Programı Sil',
+    });
+    if (!ok) return;
+
     const numericId = Number(id)
     // Instant optimistic removal from UI
     setPrograms((prev) => prev.filter((p) => Number(p.id) !== numericId))
@@ -116,6 +125,13 @@ export default function ProgramList() {
 
   // --- Workout Delete (Optimistic UI + Safe Cascade) ---
   const handleDeleteWorkout = async (workoutId: number) => {
+    const ok = await confirm({
+      title: 'Antrenman Gününü Sil',
+      message: 'Bu antrenman gününü ve içindeki tüm egzersizleri silmek istediğinizden emin misiniz?',
+      confirmText: 'Evet, Günü Sil',
+    });
+    if (!ok) return;
+
     const numericId = Number(workoutId)
     // Instant optimistic removal from UI
     setPrograms((prev) =>
@@ -147,6 +163,13 @@ export default function ProgramList() {
 
   // --- Exercise Delete (Optimistic UI) ---
   const handleDeleteExercise = async (workoutId: number, exerciseId: number) => {
+    const ok = await confirm({
+      title: 'Egzersiz Hareketini Sil',
+      message: 'Bu hareketi antrenman programından kaldırmak istediğinizden emin misiniz?',
+      confirmText: 'Evet, Hareketi Sil',
+    });
+    if (!ok) return;
+
     const wId = Number(workoutId)
     const exId = Number(exerciseId)
     // Instant optimistic removal from UI

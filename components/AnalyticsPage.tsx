@@ -26,6 +26,7 @@ import {
   X,
   Check
 } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmModal';
 
 interface WorkoutSession {
   id: number;
@@ -94,6 +95,7 @@ interface AthleteRank {
 }
 
 export default function AnalyticsPage() {
+  const { confirm } = useConfirm();
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [completions, setCompletions] = useState<ExerciseCompletion[]>([]);
@@ -191,6 +193,13 @@ export default function AnalyticsPage() {
   };
 
   const handleDeleteRank = async (id: number) => {
+    const ok = await confirm({
+      title: 'Sporcu Seviyesini Sil',
+      message: 'Bu seviye kademesini silmek istediğinizden emin misiniz?',
+      confirmText: 'Evet, Sil',
+    });
+    if (!ok) return;
+
     try {
       const numericId = Number(id);
       setRanks((prev) => prev.filter((r) => Number(r.id) !== numericId));

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Search, Filter, Trash2, Plus, Upload, Activity, Dumbbell, Edit2, History, X, Calendar, TrendingUp, User } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmModal';
 
 interface Exercise {
   id: number;
@@ -33,6 +34,7 @@ interface ExerciseHistoryItem {
 }
 
 export default function ExercisesPage() {
+  const { confirm } = useConfirm();
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -122,6 +124,13 @@ export default function ExercisesPage() {
   };
 
   const handleDelete = async (id: number) => {
+    const ok = await confirm({
+      title: 'Hareketi Sil',
+      message: 'Bu egzersiz hareketini silmek istediğinizden emin misiniz?',
+      confirmText: 'Evet, Sil',
+    });
+    if (!ok) return;
+
     const numericId = Number(id);
     // Optimistic instant UI removal
     setExercises((prev) => prev.filter((e) => Number(e.id) !== numericId));
@@ -269,10 +278,14 @@ export default function ExercisesPage() {
   };
 
   const handleDeleteSelected = async () => {
-    if (selectedExerciseIds.length === 0) {
-      alert('Lütfen silinecek hareketleri seçin');
-      return;
-    }
+    if (selectedExerciseIds.length === 0) return;
+
+    const ok = await confirm({
+      title: 'Seçili Hareketleri Sil',
+      message: `Seçtiğiniz ${selectedExerciseIds.length} egzersiz hareketini silmek istediğinizden emin misiniz?`,
+      confirmText: `Evet, ${selectedExerciseIds.length} Hareketi Sil`,
+    });
+    if (!ok) return;
 
     const idsToDelete = [...selectedExerciseIds];
     // Optimistic removal
@@ -298,10 +311,14 @@ export default function ExercisesPage() {
   };
 
   const handleDeleteAll = async () => {
-    if (filteredExercises.length === 0) {
-      alert('Silinecek hareket yok');
-      return;
-    }
+    if (filteredExercises.length === 0) return;
+
+    const ok = await confirm({
+      title: 'Tüm Hareketleri Sil',
+      message: `Filtrelenen ${filteredExercises.length} egzersiz hareketinin tamamını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!`,
+      confirmText: 'Evet, Hepsini Sil',
+    });
+    if (!ok) return;
 
     const idsToDelete = filteredExercises.map((e) => e.id);
     // Optimistic removal

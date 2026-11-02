@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { User, Mail, Calendar, Activity, Dumbbell, Trash2, Search, UserCheck } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmModal';
 
 interface UserModel {
   id: number;
@@ -13,6 +14,7 @@ interface UserModel {
 }
 
 export default function UsersPage() {
+  const { confirm } = useConfirm();
   const [users, setUsers] = useState<UserModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -37,6 +39,13 @@ export default function UsersPage() {
   };
 
   const deleteUser = async (id: number) => {
+    const ok = await confirm({
+      title: 'Kullanıcıyı Sil',
+      message: 'Bu kullanıcıyı ve kullanıcıya ait tüm antreman, kilo, hedef ve ilerleme geçmişini kalıcı olarak silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
+      confirmText: 'Evet, Kullanıcıyı Sil',
+    });
+    if (!ok) return;
+
     const numericId = Number(id);
     // Optimistic instant removal
     setUsers((prev) => prev.filter((u) => u.id !== numericId));

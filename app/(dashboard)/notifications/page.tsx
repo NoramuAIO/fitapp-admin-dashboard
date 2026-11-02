@@ -18,6 +18,7 @@ import {
   Edit2,
   AlertCircle
 } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmModal';
 
 interface NotificationRule {
   id: number;
@@ -53,6 +54,7 @@ const DAYS = [
 ];
 
 export default function NotificationAdminPage() {
+  const { confirm } = useConfirm();
   const [rules, setRules] = useState<NotificationRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -172,6 +174,13 @@ export default function NotificationAdminPage() {
   };
 
   const handleDeleteRule = async (id: number) => {
+    const ok = await confirm({
+      title: 'Bildirim Kuralını Sil',
+      message: 'Bu otomatik bildirim kuralını silmek istediğinizden emin misiniz?',
+      confirmText: 'Evet, Sil',
+    });
+    if (!ok) return;
+
     const numericId = Number(id);
     // Optimistic instant UI removal
     setRules((prev) => prev.filter((r) => Number(r.id) !== numericId));
