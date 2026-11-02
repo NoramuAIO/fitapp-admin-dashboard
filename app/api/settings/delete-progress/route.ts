@@ -3,16 +3,16 @@ import { NextResponse } from 'next/server';
 
 export async function DELETE() {
   try {
-    // Önce kaç kayıt var kontrol et
+    // Check count first
     const { count } = await supabase
       .from('exercise_progress')
       .select('*', { count: 'exact', head: true });
 
-    // Tüm exercise progress kayıtlarını sil
+    // Delete all exercise progress records
     const { error } = await supabase
       .from('exercise_progress')
       .delete()
-      .neq('id', 0); // Tüm kayıtları sil (id != 0 her zaman true)
+      .neq('id', 0);
 
     if (error) throw error;
     
@@ -28,4 +28,8 @@ export async function DELETE() {
       { status: 500 }
     );
   }
+}
+
+export async function POST() {
+  return DELETE();
 }

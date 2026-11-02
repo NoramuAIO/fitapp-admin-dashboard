@@ -79,10 +79,12 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
       {/* Logout Button */}
       <button
         onClick={async () => {
-          if (confirm('Çıkış yapmak istediğinizden emin misiniz?')) {
+          try {
             await fetch('/api/admin/logout', { method: 'POST' });
-            window.location.href = '/login';
+          } catch (e) {
+            console.error('Logout error:', e);
           }
+          window.location.href = '/login';
         }}
         className="w-14 h-14 rounded-2xl flex items-center justify-center hover:bg-red-500/20 transition-all duration-300 relative z-10 group mt-2"
       >

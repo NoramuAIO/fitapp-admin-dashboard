@@ -16,6 +16,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState<UserModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [successToast, setSuccessToast] = useState<string | null>(null);
 
   useEffect(() => {
     fetchUsers();
@@ -36,14 +37,24 @@ export default function UsersPage() {
   };
 
   const deleteUser = async (id: number) => {
-    if (!confirm('Bu kullanıcıyı silmek istediğinizden emin misiniz?')) return;
+    const numericId = Number(id);
+    // Optimistic instant removal
+    setUsers((prev) => prev.filter((u) => u.id !== numericId));
+    setSuccessToast('Kullanıcı başarıyla silindi!');
+    setTimeout(() => setSuccessToast(null), 3000);
+
     try {
-      const response = await fetch(`/api/users?id=${id}`, { method: 'DELETE' });
-      if (response.ok) {
-        setUsers(users.filter(u => u.id !== id));
+      let res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id: numericId }),
+      });
+      if (!res.ok) {
+        res = await fetch(`/api/users?id=${numericId}`, { method: 'DELETE' });
       }
     } catch (error) {
       console.error('Error deleting user:', error);
+      fetchUsers();
     }
   };
 
@@ -79,6 +90,14 @@ export default function UsersPage() {
           />
         </div>
       </div>
+
+      {/* Success Feedback Toast */}
+      {successToast && (
+        <div className="mb-6 flex items-center gap-2 bg-[#5DD97C]/10 border border-[#5DD97C]/30 text-[#5DD97C] px-4 py-3 rounded-xl text-sm font-medium">
+          <UserCheck size={18} />
+          <span>{successToast}</span>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -174,7 +193,7 @@ export default function UsersPage() {
                     <td className="p-4 text-right">
                       <button
                         onClick={() => deleteUser(user.id)}
-                        className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors opacity-70 group-hover:opacity-100 focus:opacity-100"
                         title="Sil"
                       >
                         <Trash2 size={18} />

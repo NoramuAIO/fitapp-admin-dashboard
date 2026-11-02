@@ -28,6 +28,22 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+
+    // Check for delete action via POST
+    if (body.action === 'delete') {
+      const targetId = parseInt(String(body.id), 10);
+      if (isNaN(targetId)) {
+        return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+      }
+      const { error } = await supabase
+        .from('body_fat_logs')
+        .delete()
+        .eq('id', targetId);
+
+      if (error) throw error;
+      return NextResponse.json({ success: true });
+    }
+
     const { userId, date, fatPercent, weight, notes } = body;
 
     if (!userId || !date || fatPercent === undefined) {
@@ -77,10 +93,15 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'ID required' }, { status: 400 });
     }
 
+    const numericId = parseInt(id, 10);
+    if (isNaN(numericId)) {
+      return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+    }
+
     const { error } = await supabase
       .from('body_fat_logs')
       .delete()
-      .eq('id', id);
+      .eq('id', numericId);
 
     if (error) throw error;
 

@@ -9,8 +9,6 @@ export async function GET() {
       .select('*')
       .order('id', { ascending: false });
 
-    console.log('Users query result:', { users, error });
-
     if (error) throw error;
 
     // Get workout counts for each user
@@ -34,7 +32,6 @@ export async function GET() {
       })
     );
 
-    console.log('Users with stats:', usersWithStats.length);
     return NextResponse.json(usersWithStats);
   } catch (error) {
     console.error('Error fetching users:', error);
@@ -45,7 +42,7 @@ export async function GET() {
   }
 }
 
-// Delete user
+// Delete user with safe cascading cleanup
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -58,10 +55,27 @@ export async function DELETE(request: Request) {
       );
     }
 
+    const numericId = parseInt(id, 10);
+    if (isNaN(numericId)) {
+      return NextResponse.json({ error: 'Invalid user ID' }, { status: 400 });
+    }
+
+    // 1. Cascading cleanup of all child records belonging to this user
+    await Promise.allSettled([
+      supabase.from('exercise_completions').delete().eq('userId', numericId),
+      supabase.from('workout_sessions').delete().eq('userId', numericId),
+      supabase.from('user_programs').delete().eq('userId', numericId),
+      supabase.from('goals').delete().eq('userId', numericId),
+      supabase.from('weight_logs').delete().eq('userId', numericId),
+      supabase.from('body_fat_logs').delete().eq('userId', numericId),
+      supabase.from('custom_widgets').delete().eq('userId', numericId),
+    ]);
+
+    // 2. Delete user record
     const { error } = await supabase
       .from('users')
       .delete()
-      .eq('id', id);
+      .eq('id', numericId);
 
     if (error) throw error;
 
@@ -70,6 +84,45 @@ export async function DELETE(request: Request) {
     console.error('Error deleting user:', error);
     return NextResponse.json(
       { error: 'Failed to delete user: ' + (error as Error).message },
+      { status: 500 }
+    );
+  }
+}
+
+// POST support for environments where DELETE method is restricted
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    if (body.action === 'delete') {
+      const numericId = parseInt(String(body.id), 10);
+      if (isNaN(numericId)) {
+        return NextResponse.json({ error: 'Invalid user ID' }, { status: 400 });
+      }
+
+      await Promise.allSettled([
+        supabase.from('exercise_completions').delete().eq('userId', numericId),
+        supabase.from('workout_sessions').delete().eq('userId', numericId),
+        supabase.from('user_programs').delete().eq('userId', numericId),
+        supabase.from('goals').delete().eq('userId', numericId),
+        supabase.from('weight_logs').delete().eq('userId', numericId),
+        supabase.from('body_fat_logs').delete().eq('userId', numericId),
+        supabase.from('custom_widgets').delete().eq('userId', numericId),
+      ]);
+
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', numericId);
+
+      if (error) throw error;
+      return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json({ error: 'Unsupported action' }, { status: 400 });
+  } catch (error) {
+    console.error('Error in user POST:', error);
+    return NextResponse.json(
+      { error: (error as Error).message },
       { status: 500 }
     );
   }

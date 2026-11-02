@@ -35,10 +35,12 @@ export default function FloatingSidebar() {
   ];
 
   const handleLogout = async () => {
-    if (confirm('Çıkış yapmak istediğinizden emin misiniz?')) {
+    try {
       await fetch('/api/admin/logout', { method: 'POST' });
-      window.location.href = '/login';
+    } catch (e) {
+      console.error('Logout error:', e);
     }
+    window.location.href = '/login';
   };
 
   return (

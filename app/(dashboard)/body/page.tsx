@@ -54,6 +54,7 @@ export default function BodyAdminPage() {
   const [fatLogs, setFatLogs] = useState<BodyFatLog[]>([]);
   const [activeTab, setActiveTab] = useState<'kilo' | 'yag'>('kilo');
   const [loading, setLoading] = useState(false);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
 
   // Modal State for adding new weight log
   const [showAddWeightModal, setShowAddWeightModal] = useState(false);
@@ -102,15 +103,47 @@ export default function BodyAdminPage() {
   };
 
   const handleDeleteWeight = async (id: number) => {
-    if (!confirm('Bu kaydı silmek istiyor musunuz?')) return;
-    await fetch(`/api/weight-logs?id=${id}`, { method: 'DELETE' });
-    if (selectedUserId) loadData(selectedUserId);
+    const numericId = Number(id);
+    // Optimistic instant UI removal
+    setWeightLogs(prev => prev.filter(w => Number(w.id) !== numericId));
+    setSuccessToast('Kilo kaydı başarıyla silindi!');
+    setTimeout(() => setSuccessToast(null), 3000);
+
+    try {
+      let res = await fetch('/api/weight-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id: numericId }),
+      });
+      if (!res.ok) {
+        res = await fetch(`/api/weight-logs?id=${numericId}`, { method: 'DELETE' });
+      }
+    } catch (err) {
+      console.error('Delete weight log error:', err);
+      if (selectedUserId) loadData(selectedUserId);
+    }
   };
 
   const handleDeleteFat = async (id: number) => {
-    if (!confirm('Bu kaydı silmek istiyor musunuz?')) return;
-    await fetch(`/api/body-fat-logs?id=${id}`, { method: 'DELETE' });
-    if (selectedUserId) loadData(selectedUserId);
+    const numericId = Number(id);
+    // Optimistic instant UI removal
+    setFatLogs(prev => prev.filter(f => Number(f.id) !== numericId));
+    setSuccessToast('Yağ oranı kaydı başarıyla silindi!');
+    setTimeout(() => setSuccessToast(null), 3000);
+
+    try {
+      let res = await fetch('/api/body-fat-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id: numericId }),
+      });
+      if (!res.ok) {
+        res = await fetch(`/api/body-fat-logs?id=${numericId}`, { method: 'DELETE' });
+      }
+    } catch (err) {
+      console.error('Delete fat log error:', err);
+      if (selectedUserId) loadData(selectedUserId);
+    }
   };
 
   const handleCreateWeightLog = async (e: React.FormEvent) => {
@@ -293,6 +326,13 @@ export default function BodyAdminPage() {
           </select>
         </div>
       </div>
+
+      {/* Success Notification */}
+      {successToast && (
+        <div className="mb-6 flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-4 py-3 rounded-xl text-sm font-medium animate-fadeIn">
+          <span>✓ {successToast}</span>
+        </div>
+      )}
 
       {!selectedUserId ? (
         <div className="flex flex-col items-center justify-center py-32 text-center">

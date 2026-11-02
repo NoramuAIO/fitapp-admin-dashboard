@@ -122,17 +122,22 @@ export default function ExercisesPage() {
   };
 
   const handleDelete = async (id: number) => {
+    const numericId = Number(id);
+    // Optimistic instant UI removal
+    setExercises((prev) => prev.filter((e) => Number(e.id) !== numericId));
+
     try {
-      const response = await fetch(`/api/exercises/${id}`, { method: 'DELETE' });
-      
-      if (response.ok) {
-        await loadData();
-      } else {
-        const errorData = await response.json();
-        alert('Silme işlemi başarısız oldu');
+      let response = await fetch(`/api/exercises/${numericId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete' }),
+      });
+      if (!response.ok) {
+        response = await fetch(`/api/exercises/${numericId}`, { method: 'DELETE' });
       }
     } catch (error) {
-      alert('Silme işlemi sırasında hata oluştu');
+      console.error('Error deleting exercise:', error);
+      loadData();
     }
   };
 
@@ -269,28 +274,27 @@ export default function ExercisesPage() {
       return;
     }
 
-    setLoading(true);
-    let deleted = 0;
-    let failed = 0;
-
-    for (const id of selectedExerciseIds) {
-      try {
-        const response = await fetch(`/api/exercises/${id}`, { method: 'DELETE' });
-        
-        if (response.ok) {
-          deleted++;
-        } else {
-          failed++;
-        }
-      } catch (error) {
-        failed++;
-      }
-    }
-
-    alert(`${deleted} hareket silindi${failed > 0 ? `, ${failed} başarısız` : ''}`);
+    const idsToDelete = [...selectedExerciseIds];
+    // Optimistic removal
+    setExercises((prev) => prev.filter((e) => !idsToDelete.includes(e.id)));
     setSelectedExerciseIds([]);
-    await loadData();
-    setLoading(false);
+
+    await Promise.allSettled(
+      idsToDelete.map(async (id) => {
+        try {
+          let res = await fetch(`/api/exercises/${id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'delete' }),
+          });
+          if (!res.ok) {
+            await fetch(`/api/exercises/${id}`, { method: 'DELETE' });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      })
+    );
   };
 
   const handleDeleteAll = async () => {
@@ -299,28 +303,27 @@ export default function ExercisesPage() {
       return;
     }
 
-    setLoading(true);
-    let deleted = 0;
-    let failed = 0;
-
-    for (const exercise of filteredExercises) {
-      try {
-        const response = await fetch(`/api/exercises/${exercise.id}`, { method: 'DELETE' });
-        
-        if (response.ok) {
-          deleted++;
-        } else {
-          failed++;
-        }
-      } catch (error) {
-        failed++;
-      }
-    }
-
-    alert(`${deleted} hareket silindi${failed > 0 ? `, ${failed} başarısız` : ''}`);
+    const idsToDelete = filteredExercises.map((e) => e.id);
+    // Optimistic removal
+    setExercises((prev) => prev.filter((e) => !idsToDelete.includes(e.id)));
     setSelectedExerciseIds([]);
-    await loadData();
-    setLoading(false);
+
+    await Promise.allSettled(
+      idsToDelete.map(async (id) => {
+        try {
+          let res = await fetch(`/api/exercises/${id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'delete' }),
+          });
+          if (!res.ok) {
+            await fetch(`/api/exercises/${id}`, { method: 'DELETE' });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      })
+    );
   };
 
   const filteredExercises = exercises.filter(exercise => {

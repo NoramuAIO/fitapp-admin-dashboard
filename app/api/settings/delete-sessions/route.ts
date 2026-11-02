@@ -3,20 +3,24 @@ import { NextResponse } from 'next/server';
 
 export async function DELETE() {
   try {
-    // Önce kaç kayıt var kontrol et
+    // Check count first
     const { count } = await supabase
       .from('workout_sessions')
       .select('*', { count: 'exact', head: true });
 
-    // Tüm workout session'ları sil
+    // Also delete any exercise completions referencing these sessions
+    await supabase
+      .from('exercise_completions')
+      .delete()
+      .neq('id', 0);
+
+    // Delete all workout sessions
     const { error } = await supabase
       .from('workout_sessions')
       .delete()
-      .neq('id', 0); // Tüm kayıtları sil (id != 0 her zaman true)
+      .neq('id', 0);
 
     if (error) throw error;
-
-    // İlgili exercise_progress kayıtları da silinir (CASCADE)
     
     return NextResponse.json({ 
       success: true, 
@@ -30,4 +34,8 @@ export async function DELETE() {
       { status: 500 }
     );
   }
+}
+
+export async function POST() {
+  return DELETE();
 }
