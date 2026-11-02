@@ -158,10 +158,24 @@ export async function GET() {
   }
 }
 
-// POST: Add new rank or reset defaults
+// POST: Add new rank, delete, or reset defaults
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+
+    // Support delete via POST
+    if (body.action === 'delete' && body.id !== undefined) {
+      const numericId = Number(body.id);
+      if (isNaN(numericId)) {
+        return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+      }
+      const { error } = await supabase.from('custom_widgets').delete().eq('id', numericId);
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      inMemoryRanks = inMemoryRanks.filter(r => Number(r.id) !== numericId);
+      return NextResponse.json({ success: true, deletedId: numericId });
+    }
 
     // Reset defaults action
     if (body.action === 'reset_defaults') {

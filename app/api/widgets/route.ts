@@ -123,6 +123,31 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+
+    // Support delete via POST to avoid any browser/proxy DELETE method restrictions
+    if (body.action === 'delete' && body.id !== undefined) {
+      const numericId = Number(body.id);
+      if (isNaN(numericId)) {
+        return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+      }
+      const { data: deletedRows, error: dbError } = await supabase
+        .from('custom_widgets')
+        .delete()
+        .eq('id', numericId)
+        .select();
+
+      if (dbError) {
+        console.error('Supabase POST-delete widget error:', dbError);
+        return NextResponse.json({ error: dbError.message }, { status: 500 });
+      }
+      fallbackWidgets = fallbackWidgets.filter((w) => Number(w.id) !== numericId);
+      return NextResponse.json({
+        success: true,
+        deletedId: numericId,
+        deletedRows: deletedRows?.length || 0,
+      });
+    }
+
     const { title, widget_type, target_time, custom_content, is_active, display_order, userId } = body;
 
     if (!title || !widget_type) {

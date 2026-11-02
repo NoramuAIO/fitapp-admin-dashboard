@@ -239,7 +239,6 @@ export default function WidgetsAdminPage() {
   };
 
   const handleDeleteWidget = async (id: number) => {
-    if (!confirm('Bu widget kartını silmek istediğinize emin misiniz?')) return;
     try {
       const numericId = Number(id);
       // Optimistic instant UI removal with guaranteed type comparison
@@ -249,11 +248,18 @@ export default function WidgetsAdminPage() {
         setEditingWidget(null);
       }
 
-      const res = await fetch(`/api/widgets?id=${numericId}`, {
-        method: 'DELETE',
+      // Use POST with action: 'delete' (and fallback to DELETE) so no browser/proxy blocks DELETE
+      let res = await fetch('/api/widgets', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: numericId }),
+        body: JSON.stringify({ action: 'delete', id: numericId }),
       });
+
+      if (!res.ok) {
+        res = await fetch(`/api/widgets?id=${numericId}`, {
+          method: 'DELETE',
+        });
+      }
 
       const data = await res.json().catch(() => ({}));
 
@@ -430,7 +436,12 @@ export default function WidgetsAdminPage() {
                       </button>
 
                       <button
-                        onClick={() => handleOpenModal(widget)}
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleOpenModal(widget);
+                        }}
                         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
                         title="Düzenle"
                       >
@@ -438,11 +449,17 @@ export default function WidgetsAdminPage() {
                       </button>
 
                       <button
-                        onClick={() => handleDeleteWidget(widget.id)}
-                        className="p-2 text-gray-500 hover:text-red-400 rounded-lg hover:bg-white/5 transition-colors"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleDeleteWidget(widget.id);
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-xl transition-colors"
                         title="Sil"
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={14} />
+                        <span>Sil</span>
                       </button>
                     </div>
                   </div>

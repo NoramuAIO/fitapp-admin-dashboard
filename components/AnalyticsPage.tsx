@@ -191,15 +191,19 @@ export default function AnalyticsPage() {
   };
 
   const handleDeleteRank = async (id: number) => {
-    if (!confirm('Bu seviyeyi silmek istediğinizden emin misiniz?')) return;
     try {
       const numericId = Number(id);
       setRanks((prev) => prev.filter((r) => Number(r.id) !== numericId));
-      const res = await fetch(`/api/athlete-ranks?id=${numericId}`, {
-        method: 'DELETE',
+      let res = await fetch('/api/athlete-ranks', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: numericId }),
+        body: JSON.stringify({ action: 'delete', id: numericId }),
       });
+      if (!res.ok) {
+        res = await fetch(`/api/athlete-ranks?id=${numericId}`, {
+          method: 'DELETE',
+        });
+      }
       if (!res.ok) {
         await loadRanks();
       }
@@ -209,7 +213,6 @@ export default function AnalyticsPage() {
   };
 
   const handleResetDefaultRanks = async () => {
-    if (!confirm('Tüm seviyeler önerilen standart sporcu seviyelerine sıfırlanacak. Onaylıyor musunuz?')) return;
     try {
       await fetch('/api/athlete-ranks', {
         method: 'POST',
