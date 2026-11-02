@@ -38,7 +38,7 @@ export async function PUT(
     const { data, error } = await supabase
       .from('exercises')
       .update(updateData)
-      .eq('id', parseInt(id))
+      .eq('id', parseInt(id, 10))
       .select()
       .single()
 
@@ -57,17 +57,38 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
+    const numericId = parseInt(id, 10);
 
-    const { error } = await supabase
+    // 1. Delete any completion logs referencing this exercise
+    await supabase.from('exercise_completions').delete().eq('exerciseId', numericId);
+
+    // 2. Delete the exercise
+    const { data, error } = await supabase
       .from('exercises')
       .delete()
-      .eq('id', parseInt(id))
+      .eq('id', numericId)
+      .select();
 
     if (error) throw error
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, deleted: data?.length || 0 })
   } catch (error) {
     console.error('Error deleting exercise:', error)
-    return NextResponse.json({ error: 'Failed to delete exercise' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to delete exercise: ' + (error as Error).message }, { status: 500 })
+  }
+}
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const body = await request.json();
+    if (body.action === 'delete') {
+      return DELETE(request, { params });
+    }
+    return NextResponse.json({ error: 'Unsupported action' }, { status: 400 });
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }
 }

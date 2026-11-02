@@ -30,6 +30,7 @@ export default function ExerciseItem({
 }: ExerciseItemProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [isDraggable, setIsDraggable] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [editData, setEditData] = useState({
         name: exercise.name,
         sets: exercise.sets,
@@ -56,11 +57,16 @@ export default function ExerciseItem({
         }
     };
 
-    const handleDelete = async () => {
-        if (!confirm(`"${exercise.name}" hareketini silmek istediğinizden emin misiniz?`)) {
-            return;
+    const handleDelete = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isDeleting) return;
+        setIsDeleting(true);
+        try {
+            await onDelete();
+        } finally {
+            setIsDeleting(false);
         }
-        await onDelete();
     };
 
     if (isEditing) {
@@ -104,13 +110,43 @@ export default function ExerciseItem({
                             value={editData.reps}
                             onChange={(e) => setEditData({ ...editData, reps: parseInt(e.target.value) || 0 })}
                             className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
-                            placeholder="12"
+                            placeholder="10"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Süre</label>
+                        <input
+                            type="text"
+                            value={editData.duration}
+                            onChange={(e) => setEditData({ ...editData, duration: e.target.value })}
+                            className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
+                            placeholder="Örn: 60 saniye"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Açıklama</label>
+                        <input
+                            type="text"
+                            value={editData.description}
+                            onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                            className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
+                            placeholder="Notlar veya açıklama"
                         />
                     </div>
                 </div>
-                <div className="flex space-x-2">
-                    <button onClick={handleSave} className="flex-1 bg-[#6366F1] hover:bg-[#5558DD] text-white py-2 rounded-lg text-sm font-medium transition-colors">Kaydet</button>
-                    <button onClick={() => setIsEditing(false)} className="flex-1 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white py-2 rounded-lg text-sm font-medium transition-colors">İptal</button>
+                <div className="flex justify-end gap-2">
+                    <button
+                        onClick={() => setIsEditing(false)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-white bg-[#2A2A2A] hover:bg-[#333]"
+                    >
+                        İptal
+                    </button>
+                    <button
+                        onClick={handleSave}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#6366F1] hover:bg-[#5558DD]"
+                    >
+                        Kaydet
+                    </button>
                 </div>
             </div>
         );
@@ -118,37 +154,60 @@ export default function ExerciseItem({
 
     return (
         <div
-            draggable={isDraggable && !!onDragStart}
-            onDragStart={onDragStart ? () => onDragStart(workoutId || exercise.programId || 0, exercise.id) : undefined}
-            onDragOver={onDragOver ? (e) => onDragOver(e, workoutId || exercise.programId || 0, exercise.id) : undefined}
+            draggable={isDraggable}
+            onDragStart={() => workoutId && onDragStart?.(workoutId, exercise.id)}
+            onDragOver={(e) => workoutId && onDragOver?.(e, workoutId, exercise.id)}
             onDragEnd={onDragEnd}
-            onDrop={onDrop ? (e) => onDrop(e, workoutId || exercise.programId || 0, exercise.id) : undefined}
-            className={`bg-[#0F0F0F] rounded-xl p-3 mb-2 flex items-center justify-between transition-all hover:bg-white/[0.02] ${isDragOver ? 'border-2 border-[#6366F1] border-dashed' : 'border border-[#2A2A2A]'} ${isDragged ? 'opacity-50' : ''}`}
+            onDrop={(e) => workoutId && onDrop?.(e, workoutId, exercise.id)}
+            className={`flex items-center justify-between p-3 rounded-xl bg-[#222222] border transition-all ${isDragOver ? 'border-[#6366F1]' : 'border-[#2E2E2E]'} hover:border-[#3E3E3E] ${isDragged ? 'opacity-40' : ''}`}
         >
-            <div className="flex items-center space-x-3">
-                <div 
-                    className="text-gray-500 cursor-grab active:cursor-grabbing hover:text-white transition-colors p-1"
+            <div className="flex items-center gap-3">
+                <div
+                    className="text-gray-600 hover:text-gray-400 cursor-grab active:cursor-grabbing p-1"
                     onMouseEnter={() => setIsDraggable(true)}
                     onMouseLeave={() => setIsDraggable(false)}
                     onMouseUp={() => setIsDraggable(false)}
                 >
-                    <GripVertical size={18} />
+                    <GripVertical size={16} />
                 </div>
                 <div>
-                    <div className="text-white text-sm font-bold mb-0.5">{exercise.name}</div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-semibold bg-[#6366F1]/10 text-[#6366F1] px-2 py-0.5 rounded-md">{exercise.sets} set × {exercise.reps} tekrar</span>
-                        {exercise.duration && <span className="text-xs text-gray-500">{exercise.duration}</span>}
-                        {exercise.muscleGroup && <span className="text-xs font-medium text-gray-400 bg-[#2A2A2A] px-2 py-0.5 rounded-md">{exercise.muscleGroup}</span>}
+                    <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm text-white">{exercise.name}</span>
+                        {exercise.muscleGroup && (
+                            <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-0.5 rounded border border-white/5">
+                                {exercise.muscleGroup}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
+                        <span>{exercise.sets} set</span>
+                        <span>•</span>
+                        <span>{exercise.reps} tekrar</span>
+                        {exercise.duration && (
+                            <>
+                                <span>•</span>
+                                <span>{exercise.duration}</span>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>
-            <div className="flex items-center space-x-1">
-                <button onClick={() => setIsEditing(true)} className="text-gray-500 hover:text-white hover:bg-[#2A2A2A] p-2 rounded-lg transition-colors">
-                    <Edit2 size={16} />
+
+            <div className="flex items-center gap-1">
+                <button
+                    onClick={() => setIsEditing(true)}
+                    className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
+                    title="Düzenle"
+                >
+                    <Edit2 size={14} />
                 </button>
-                <button onClick={handleDelete} className="text-gray-500 hover:text-red-500 hover:bg-red-500/10 p-2 rounded-lg transition-colors">
-                    <Trash2 size={16} />
+                <button
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    className="p-1.5 text-red-400 hover:text-red-300 rounded-lg hover:bg-red-500/10 transition-colors"
+                    title="Sil"
+                >
+                    <Trash2 size={14} />
                 </button>
             </div>
         </div>

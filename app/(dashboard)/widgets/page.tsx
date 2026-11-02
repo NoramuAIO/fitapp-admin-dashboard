@@ -99,6 +99,7 @@ export default function WidgetsAdminPage() {
   const [title, setTitle] = useState('');
   const [widgetType, setWidgetType] = useState<CustomWidget['widget_type']>('countdown');
   const [targetTime, setTargetTime] = useState('18:00:00');
+  const [targetWeight, setTargetWeight] = useState('70');
   const [specialDay, setSpecialDay] = useState(1);
   const [specialDayTime, setSpecialDayTime] = useState('18:00');
   const [customContent, setCustomContent] = useState('');
@@ -171,6 +172,11 @@ export default function WidgetsAdminPage() {
       setTitle(widget.title);
       setWidgetType(widget.widget_type);
       setTargetTime(widget.target_time || '18:00:00');
+      if (widget.widget_type === 'weight_goal') {
+        setTargetWeight(widget.target_time || '70');
+      } else {
+        setTargetWeight('70');
+      }
       if (widget.widget_type === 'special_day' && widget.target_time) {
         const parts = widget.target_time.split('|');
         setSpecialDay(parseInt(parts[0], 10) || 1);
@@ -188,6 +194,7 @@ export default function WidgetsAdminPage() {
       setTitle('');
       setWidgetType('countdown');
       setTargetTime('18:00:00');
+      setTargetWeight('70');
       setSpecialDay(1);
       setSpecialDayTime('18:00');
       setCustomContent('');
@@ -213,6 +220,8 @@ export default function WidgetsAdminPage() {
       formattedTargetTime = targetTime ? (targetTime.length === 5 ? targetTime + ':00' : targetTime) : '18:00:00';
     } else if (widgetType === 'special_day') {
       formattedTargetTime = `${specialDay}|${specialDayTime || ''}`;
+    } else if (widgetType === 'weight_goal') {
+      formattedTargetTime = targetWeight ? targetWeight.trim() : '70';
     }
 
     const payload = {
@@ -485,7 +494,10 @@ export default function WidgetsAdminPage() {
                         {widget.widget_type === 'weight_goal' && (
                           <div className="mt-2.5 flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/20 w-fit">
                             <Scale size={14} />
-                            <span>Mobil Kilo Hedefi Barı & İlerleme Kartı</span>
+                            <span>Hedef Kilo: <strong>{widget.target_time ? `${widget.target_time} kg` : 'Kullanıcı Hedefi'}</strong></span>
+                            {widget.custom_content && (
+                              <span className="text-gray-400 text-[11px] font-normal">• &quot;{widget.custom_content}&quot;</span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -702,15 +714,20 @@ export default function WidgetsAdminPage() {
                           key={pw.id || idx}
                           className="bg-[#141E18] border border-[#234030] rounded-2xl p-4 shadow-md"
                         >
-                          <div className="flex items-center gap-2 mb-2">
-                            <Scale size={15} className="text-emerald-400" />
-                            <span className="text-xs font-bold text-white">{pw.title}</span>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Scale size={15} className="text-emerald-400" />
+                              <span className="text-xs font-bold text-white">{pw.title}</span>
+                            </div>
+                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full">
+                              Hedef: {pw.target_time || targetWeight || '70'} kg
+                            </span>
                           </div>
                           <div className="w-full bg-[#0D1610] rounded-full h-2.5 my-2.5 border border-emerald-900/40 overflow-hidden">
                             <div className="bg-emerald-400 h-full rounded-full w-2/3" />
                           </div>
                           <p className="text-xs text-emerald-400/90 mt-1">
-                            {pw.custom_content || 'Kilo hedefi ilerleme takibi ve rozeti'}
+                            {pw.custom_content || 'Kullanıcının güncel kilosu ile hedef kilo farkı'}
                           </p>
                         </div>
                       );
@@ -858,6 +875,37 @@ export default function WidgetsAdminPage() {
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
                     Sayaç her gün bu saate kadar saniyesi saniyesine canlı geri sayacaktır.
+                  </p>
+                </div>
+              )}
+
+              {/* Target Weight (if weight_goal) */}
+              {widgetType === 'weight_goal' && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1.5 flex items-center justify-between">
+                    <span>Hedef Kilo (kg) *</span>
+                    <span className="text-[10px] text-emerald-400 font-mono font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      Kullanıcı Kilo Hedefi
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.1"
+                      required
+                      placeholder="Örn: 72.5"
+                      value={targetWeight}
+                      onChange={(e) => setTargetWeight(e.target.value)}
+                      className="w-full bg-[#222] border border-[#333] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-400 font-mono"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-bold">
+                      kg
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    {targetUserId
+                      ? `Seçilen kullanıcının (${users.find(u => u.id === targetUserId)?.name || `ID #${targetUserId}`}) hedeflenen kilosu olarak mobil arayüze ve ilerleme barına yansıtılır.`
+                      : 'Tüm kullanıcıların mobil ana ekranındaki hedef kilo rozetinde varsayılan hedef olarak gösterilir.'}
                   </p>
                 </div>
               )}

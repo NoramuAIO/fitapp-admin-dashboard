@@ -55,6 +55,36 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
+
+    // Support deletion via POST
+    if (body.action === 'delete' && body.id !== undefined) {
+      const numericId = parseInt(String(body.id), 10);
+      if (isNaN(numericId)) {
+        return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+      }
+
+      await supabase.from('user_programs').delete().eq('programId', numericId);
+
+      const { data: days } = await supabase.from('program_days').select('id').eq('programId', numericId);
+      const dayIds = (days || []).map((d: any) => d.id);
+
+      if (dayIds.length > 0) {
+        await supabase.from('exercises').delete().in('dayId', dayIds);
+      }
+      await supabase.from('exercises').delete().eq('programId', numericId);
+      await supabase.from('program_days').delete().eq('programId', numericId);
+
+      const { data: delData, error: delError } = await supabase
+        .from('programs')
+        .delete()
+        .eq('id', numericId)
+        .select();
+
+      if (delError) throw delError;
+
+      return NextResponse.json({ success: true, deleted: delData?.length || 0 });
+    }
+
     const { name, isPrimary, userId } = body
 
     // If this is primary, unset all other primary programs
@@ -79,8 +109,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(data, { status: 201 })
   } catch (error) {
-    console.error('Error creating program:', error)
-    return NextResponse.json({ error: 'Failed to create program' }, { status: 500 })
+    console.error('Error in programs POST:', error)
+    return NextResponse.json({ error: 'Failed to process program: ' + (error as Error).message }, { status: 500 })
   }
 }
-

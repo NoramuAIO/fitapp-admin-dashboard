@@ -13,7 +13,7 @@ export async function GET(request: Request) {
       .order('orderIndex', { ascending: true })
 
     if (programId) {
-      query = query.eq('programId', parseInt(programId))
+      query = query.eq('programId', parseInt(programId, 10))
     }
 
     const { data, error } = await query
@@ -34,10 +34,33 @@ export async function GET(request: Request) {
   }
 }
 
-// POST: Yeni antreman oluştur
+// POST: Yeni antreman oluştur veya sil
 export async function POST(request: Request) {
   try {
     const body = await request.json()
+
+    // Support deletion via POST
+    if (body.action === 'delete' && body.id !== undefined) {
+      const numericId = parseInt(String(body.id), 10);
+      if (isNaN(numericId)) {
+        return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+      }
+
+      // 1. Delete exercises referencing this workout
+      await supabase.from('exercises').delete().eq('dayId', numericId);
+
+      // 2. Delete program_days
+      const { data, error } = await supabase
+        .from('program_days')
+        .delete()
+        .eq('id', numericId)
+        .select();
+
+      if (error) throw error;
+
+      return NextResponse.json({ success: true, deleted: data?.length || 0 });
+    }
+
     const { programId, name, dayNumber, orderIndex = 0 } = body
 
     if (!programId || !name) {
@@ -47,7 +70,7 @@ export async function POST(request: Request) {
     const { data, error } = await supabase
       .from('program_days')
       .insert([{
-        programId,
+        programId: parseInt(String(programId), 10),
         name,
         dayNumber: dayNumber || null,
         orderIndex
@@ -59,8 +82,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json(data, { status: 201 })
   } catch (error) {
-    console.error('Error creating workout:', error)
-    return NextResponse.json({ error: 'Failed to create workout' }, { status: 500 })
+    console.error('Error in workouts POST:', error)
+    return NextResponse.json({ error: 'Failed to process workout: ' + (error as Error).message }, { status: 500 })
   }
 }
 
@@ -82,7 +105,7 @@ export async function PUT(request: Request) {
     const { data, error } = await supabase
       .from('program_days')
       .update(updateData)
-      .eq('id', id)
+      .eq('id', parseInt(String(id), 10))
       .select()
       .single()
 
@@ -99,22 +122,29 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const id = searchParams.get('id')
+    const idParam = searchParams.get('id')
 
-    if (!id) {
+    if (!idParam) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
     }
 
-    const { error } = await supabase
+    const numericId = parseInt(idParam, 10);
+
+    // 1. Delete exercises of this workout
+    await supabase.from('exercises').delete().eq('dayId', numericId);
+
+    // 2. Delete program_days
+    const { data, error } = await supabase
       .from('program_days')
       .delete()
-      .eq('id', parseInt(id))
+      .eq('id', numericId)
+      .select();
 
     if (error) throw error
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, deleted: data?.length || 0 })
   } catch (error) {
     console.error('Error deleting workout:', error)
-    return NextResponse.json({ error: 'Failed to delete workout' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to delete workout: ' + (error as Error).message }, { status: 500 })
   }
 }

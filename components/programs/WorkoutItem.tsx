@@ -31,6 +31,7 @@ export default function WorkoutItem({
 }: WorkoutItemProps) {
     const [isDragOver, setIsDragOver] = useState(false);
     const [localShowAdd, setLocalShowAdd] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const isAddFormVisible = showAddExercise || localShowAdd;
 
@@ -52,6 +53,18 @@ export default function WorkoutItem({
             onToggleCollapse();
         }
         onOpenExerciseSelector?.();
+    };
+
+    const handleDelete = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isDeleting) return;
+        setIsDeleting(true);
+        try {
+            await onDelete();
+        } finally {
+            setIsDeleting(false);
+        }
     };
 
     return (
@@ -112,8 +125,9 @@ export default function WorkoutItem({
 
                     {/* Sil Butonu */}
                     <button
-                        onClick={onDelete}
-                        className="flex items-center gap-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border border-transparent hover:border-red-500/20"
+                        onClick={handleDelete}
+                        disabled={isDeleting}
+                        className="flex items-center gap-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border border-transparent hover:border-red-500/20 disabled:opacity-50"
                     >
                         <Trash2 size={14} /> Sil
                     </button>

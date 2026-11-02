@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Download, Upload, Plus } from 'lucide-react'
+import { Download, Upload, Plus, CheckCircle2 } from 'lucide-react'
 import AddProgramModal from './programs/AddProgramModal'
 import ExerciseSelectorModal, { Exercise, Program } from './programs/ExerciseSelectorModal'
 import ImportModal from './programs/ImportModal'
@@ -13,6 +13,7 @@ export default function ProgramList() {
   const [users, setUsers] = useState<any[]>([])
   const [allExercises, setAllExercises] = useState<Exercise[]>([])
   const [collapsedPrograms, setCollapsedPrograms] = useState<Set<number>>(new Set())
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
 
   // Modals state
   const [showAddProgram, setShowAddProgram] = useState(false)
@@ -37,7 +38,7 @@ export default function ProgramList() {
     try {
       const response = await fetch('/api/users')
       const data = await response.json()
-      setUsers(data)
+      setUsers(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Error fetching users:', error)
     }
@@ -46,20 +47,22 @@ export default function ProgramList() {
   const fetchPrograms = async () => {
     try {
       // Get selected user ID from local storage
-      const selectedUserId = localStorage.getItem('selectedUserId')
+      const selectedUserId = typeof window !== 'undefined' ? localStorage.getItem('selectedUserId') : null
       const queryParams = selectedUserId ? `?userId=${selectedUserId}` : ''
       
       // First fetch programs for this user (or global if null)
       const programsResponse = await fetch(`/api/programs${queryParams}`)
       const programsData = await programsResponse.json()
 
+      const pList = Array.isArray(programsData) ? programsData : []
+
       // Then fetch workouts for each program
       const programsWithWorkouts = await Promise.all(
-        programsData.map(async (program: Program) => {
+        pList.map(async (program: Program) => {
           try {
             const workoutsResponse = await fetch(`/api/workouts?programId=${program.id}`)
             const workouts = await workoutsResponse.json()
-            return { ...program, workouts: workouts || [] }
+            return { ...program, workouts: Array.isArray(workouts) ? workouts : [] }
           } catch (error) {
             console.error('Error fetching workouts for program:', program.id, error)
             return { ...program, workouts: [] }
@@ -79,100 +82,156 @@ export default function ProgramList() {
     try {
       const response = await fetch('/api/exercises')
       const data = await response.json()
-      setAllExercises(data)
+      setAllExercises(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Error fetching exercises:', error)
     }
   }
 
+  // --- Program Delete (Optimistic UI + Safe Cascade) ---
   const handleDeleteProgram = async (id: number) => {
-    if (!confirm('Bu programı silmek istediğinizden emin misiniz?')) return
+    const numericId = Number(id)
+    // Instant optimistic removal from UI
+    setPrograms((prev) => prev.filter((p) => Number(p.id) !== numericId))
 
     try {
-      const response = await fetch(`/api/programs/${id}`, { method: 'DELETE' })
-      if (response.ok) {
-        setPrograms(programs.filter(p => p.id !== id))
+      let response = await fetch(`/api/programs/${numericId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        response = await fetch('/api/programs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete', id: numericId }),
+        })
       }
+      if (!response.ok) {
+        throw new Error('Program silinemedi')
+      }
+      setSuccessMsg('Antrenman programı başarıyla silindi!')
+      setTimeout(() => setSuccessMsg(null), 3000)
     } catch (error) {
       console.error('Error deleting program:', error)
+      fetchPrograms()
     }
   }
 
+  // --- Workout Delete (Optimistic UI + Safe Cascade) ---
   const handleDeleteWorkout = async (workoutId: number) => {
-    if (!confirm('Bu antremanı ve içindeki tüm hareketleri silmek istediğinizden emin misiniz?')) return
+    const numericId = Number(workoutId)
+    // Instant optimistic removal from UI
+    setPrograms((prev) =>
+      prev.map((p) => ({
+        ...p,
+        workouts: (p.workouts || []).filter((w) => Number(w.id) !== numericId),
+      }))
+    )
 
     try {
-      const response = await fetch(`/api/workouts?id=${workoutId}`, { method: 'DELETE' })
-      if (response.ok) {
-        await fetchPrograms()
+      let response = await fetch(`/api/workouts?id=${numericId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        response = await fetch('/api/workouts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete', id: numericId }),
+        })
       }
+      if (!response.ok) {
+        throw new Error('Antrenman günü silinemedi')
+      }
+      setSuccessMsg('Antrenman günü başarıyla silindi!')
+      setTimeout(() => setSuccessMsg(null), 3000)
     } catch (error) {
       console.error('Error deleting workout:', error)
+      fetchPrograms()
     }
   }
 
+  // --- Exercise Delete (Optimistic UI) ---
   const handleDeleteExercise = async (workoutId: number, exerciseId: number) => {
-    if (!confirm('Bu hareketi silmek istediğinizden emin misiniz?')) return
+    const wId = Number(workoutId)
+    const exId = Number(exerciseId)
+    // Instant optimistic removal from UI
+    setPrograms((prev) =>
+      prev.map((p) => ({
+        ...p,
+        workouts: (p.workouts || []).map((w) => {
+          if (Number(w.id) !== wId) return w
+          return {
+            ...w,
+            exercises: (w.exercises || []).filter((e) => Number(e.id) !== exId),
+          }
+        }),
+      }))
+    )
 
     try {
-      const response = await fetch(`/api/exercises/${exerciseId}`, { method: 'DELETE' })
-      if (response.ok) {
-        await fetchPrograms()
+      let response = await fetch(`/api/exercises/${exId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        response = await fetch(`/api/exercises/${exId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete' }),
+        })
       }
+      if (!response.ok) {
+        throw new Error('Hareket silinemedi')
+      }
+      setSuccessMsg('Egzersiz hareketi başarıyla silindi!')
+      setTimeout(() => setSuccessMsg(null), 3000)
     } catch (error) {
       console.error('Error deleting exercise:', error)
+      fetchPrograms()
     }
   }
 
   const handleExport = async (format: 'json' | 'csv', type: 'all' | 'programs' | 'exercises' | 'workouts') => {
     try {
-      const response = await fetch(`/api/export?format=${format}&type=${type}`);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `fitness-data-${Date.now()}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      const response = await fetch(`/api/export?format=${format}&type=${type}`)
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `fitness-data-${Date.now()}.${format}`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
     } catch (error) {
-      console.error('Export error:', error);
-      alert('Dışa aktarma başarısız oldu');
+      console.error('Export error:', error)
+      alert('Dışa aktarma başarısız oldu')
     }
   }
 
   // --- Program Drag & Drop ---
   const handleProgramDragStart = (programId: number) => {
-    setDraggedProgram(programId);
+    setDraggedProgram(programId)
   }
 
   const handleProgramDragOver = (e: React.DragEvent, programId: number) => {
-    e.preventDefault();
-    setDragOverProgram(programId);
+    e.preventDefault()
+    setDragOverProgram(programId)
   }
 
   const handleProgramDragEnd = () => {
-    setDraggedProgram(null);
-    setDragOverProgram(null);
+    setDraggedProgram(null)
+    setDragOverProgram(null)
   }
 
   const handleProgramDrop = async (e: React.DragEvent, targetProgramId: number) => {
-    e.preventDefault();
+    e.preventDefault()
 
-    if (!draggedProgram) return;
-    if (draggedProgram === targetProgramId) return;
+    if (!draggedProgram) return
+    if (draggedProgram === targetProgramId) return
 
-    const draggedIndex = programs.findIndex(p => p.id === draggedProgram);
-    const targetIndex = programs.findIndex(p => p.id === targetProgramId);
+    const draggedIndex = programs.findIndex((p) => p.id === draggedProgram)
+    const targetIndex = programs.findIndex((p) => p.id === targetProgramId)
 
-    if (draggedIndex === -1 || targetIndex === -1) return;
+    if (draggedIndex === -1 || targetIndex === -1) return
 
-    const newPrograms = [...programs];
-    const [removed] = newPrograms.splice(draggedIndex, 1);
-    newPrograms.splice(targetIndex, 0, removed);
+    const newPrograms = [...programs]
+    const [removed] = newPrograms.splice(draggedIndex, 1)
+    newPrograms.splice(targetIndex, 0, removed)
 
-    setPrograms(newPrograms);
+    setPrograms(newPrograms)
 
     try {
       for (let i = 0; i < newPrograms.length; i++) {
@@ -183,27 +242,27 @@ export default function ProgramList() {
             ...newPrograms[i],
             orderIndex: i,
           }),
-        });
+        })
       }
     } catch (error) {
-      console.error('Error updating program order:', error);
-      await fetchPrograms();
+      console.error('Error updating program order:', error)
+      await fetchPrograms()
     }
 
-    setDraggedProgram(null);
-    setDragOverProgram(null);
+    setDraggedProgram(null)
+    setDragOverProgram(null)
   }
 
   const toggleProgramCollapse = (programId: number) => {
-    setCollapsedPrograms(prev => {
-      const newSet = new Set(prev);
+    setCollapsedPrograms((prev) => {
+      const newSet = new Set(prev)
       if (newSet.has(programId)) {
-        newSet.delete(programId);
+        newSet.delete(programId)
       } else {
-        newSet.add(programId);
+        newSet.add(programId)
       }
-      return newSet;
-    });
+      return newSet
+    })
   }
 
   if (loading) {
@@ -215,7 +274,15 @@ export default function ProgramList() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      {/* Toast */}
+      {successMsg && (
+        <div className="fixed top-6 right-6 z-50 flex items-center gap-2 bg-[#5DD97C] text-gray-950 font-bold px-5 py-3 rounded-2xl shadow-2xl transition-all animate-bounce">
+          <CheckCircle2 size={18} />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -251,7 +318,6 @@ export default function ProgramList() {
           >
             <Upload size={18} /> İçe Aktar
           </button>
-
           <button
             onClick={() => setShowAddProgram(true)}
             className="flex items-center gap-2 bg-[#6366F1] hover:bg-[#5558DD] text-white px-5 py-2.5 rounded-xl font-medium transition-colors text-sm"
@@ -261,59 +327,72 @@ export default function ProgramList() {
         </div>
       </div>
 
-      <ImportModal
-        isOpen={showImportModal}
-        onClose={() => setShowImportModal(false)}
-        onSuccess={fetchPrograms}
-      />
-
-      <AddProgramModal
-        isOpen={showAddProgram}
-        onClose={() => setShowAddProgram(false)}
-        onSuccess={fetchPrograms}
-        users={users}
-      />
-
-      {/* Programs Grid */}
-      <div className="grid grid-cols-1 gap-6">
-        {programs.map((program) => (
-          <ProgramItem
-            key={program.id}
-            program={program}
-            isCollapsed={collapsedPrograms.has(program.id)}
-            onToggleCollapse={() => toggleProgramCollapse(program.id)}
-            onDelete={() => handleDeleteProgram(program.id)}
-            onUpdate={fetchPrograms}
-            onDeleteWorkout={handleDeleteWorkout}
-            onDeleteExercise={handleDeleteExercise}
-            onOpenExerciseSelector={(workoutId) => {
-              setSelectedProgramId(program.id);
-              setSelectedWorkoutId(workoutId);
-              setShowExerciseSelector(true);
-            }}
-            onDragStart={() => handleProgramDragStart(program.id)}
-            onDragOver={(e) => handleProgramDragOver(e, program.id)}
-            onDragEnd={handleProgramDragEnd}
-            onDrop={(e) => handleProgramDrop(e, program.id)}
-            isDragged={draggedProgram === program.id}
-            isDragOverTarget={dragOverProgram === program.id}
-          />
-        ))}
+      {/* Program List */}
+      <div className="space-y-4">
+        {programs.length === 0 ? (
+          <div className="text-center py-12 text-gray-400 bg-[#141414] rounded-2xl border border-[#2A2A2A]">
+            Henüz antrenman programı bulunmuyor. Yeni bir program oluşturarak başlayın.
+          </div>
+        ) : (
+          programs.map((program) => (
+            <ProgramItem
+              key={program.id}
+              program={program}
+              isCollapsed={collapsedPrograms.has(program.id)}
+              onToggleCollapse={() => toggleProgramCollapse(program.id)}
+              onDelete={() => handleDeleteProgram(program.id)}
+              onUpdate={fetchPrograms}
+              onDeleteWorkout={handleDeleteWorkout}
+              onDeleteExercise={handleDeleteExercise}
+              onOpenExerciseSelector={(workoutId) => {
+                setSelectedProgramId(program.id)
+                setSelectedWorkoutId(workoutId)
+                setShowExerciseSelector(true)
+              }}
+              onDragStart={() => handleProgramDragStart(program.id)}
+              onDragOver={(e) => handleProgramDragOver(e, program.id)}
+              onDragEnd={handleProgramDragEnd}
+              onDrop={(e) => handleProgramDrop(e, program.id)}
+              isDragged={draggedProgram === program.id}
+              isDragOverTarget={dragOverProgram === program.id}
+            />
+          ))
+        )}
       </div>
 
-      <ExerciseSelectorModal
-        isOpen={showExerciseSelector}
-        onClose={() => {
-          setShowExerciseSelector(false);
-          setSelectedProgramId(null);
-          setSelectedWorkoutId(null);
-        }}
-        programId={selectedProgramId}
-        workoutId={selectedWorkoutId}
-        programs={programs}
-        allExercises={allExercises}
-        onSuccess={fetchPrograms}
-      />
+      {/* Modals */}
+      {showAddProgram && (
+        <AddProgramModal
+          isOpen={showAddProgram}
+          onClose={() => setShowAddProgram(false)}
+          onSuccess={fetchPrograms}
+          users={users}
+        />
+      )}
+
+      {showImportModal && (
+        <ImportModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onSuccess={fetchPrograms}
+        />
+      )}
+
+      {showExerciseSelector && selectedProgramId && selectedWorkoutId && (
+        <ExerciseSelectorModal
+          isOpen={showExerciseSelector}
+          onClose={() => {
+            setShowExerciseSelector(false)
+            setSelectedProgramId(null)
+            setSelectedWorkoutId(null)
+          }}
+          onSuccess={fetchPrograms}
+          programId={selectedProgramId}
+          workoutId={selectedWorkoutId}
+          programs={programs}
+          allExercises={allExercises}
+        />
+      )}
     </div>
   )
 }

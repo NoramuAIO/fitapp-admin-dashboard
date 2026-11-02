@@ -41,6 +41,7 @@ export default function ProgramItem({
     const [expandedWorkouts, setExpandedWorkouts] = useState<Set<number>>(new Set());
     const [activeAddWorkoutId, setActiveAddWorkoutId] = useState<number | null>(null);
     const [isDraggable, setIsDraggable] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const toggleWorkout = (workoutId: number) => {
         const newExpanded = new Set(expandedWorkouts);
@@ -50,6 +51,18 @@ export default function ProgramItem({
             newExpanded.add(workoutId);
         }
         setExpandedWorkouts(newExpanded);
+    };
+
+    const handleDelete = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isDeleting) return;
+        setIsDeleting(true);
+        try {
+            await onDelete();
+        } finally {
+            setIsDeleting(false);
+        }
     };
 
     const workoutCount = program.workouts?.length || 0;
@@ -114,8 +127,9 @@ export default function ProgramItem({
                             <Plus size={16} /> Antrenman Ekle
                         </button>
                         <button
-                            onClick={onDelete}
-                            className="flex items-center gap-2 bg-[#FF6B4A]/10 hover:bg-[#FF6B4A]/20 text-[#FF6B4A] px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                            onClick={handleDelete}
+                            disabled={isDeleting}
+                            className="flex items-center gap-2 bg-[#FF6B4A]/10 hover:bg-[#FF6B4A]/20 text-[#FF6B4A] px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
                         >
                             <Trash2 size={16} /> Sil
                         </button>

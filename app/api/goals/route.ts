@@ -75,6 +75,23 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     
+    // Support delete via POST
+    if (body.action === 'delete' && body.id !== undefined) {
+      const numericId = Number(body.id);
+      const { data, error } = await supabase
+        .from('goals')
+        .delete()
+        .eq('id', numericId)
+        .select();
+      
+      if (error) throw error;
+      
+      return NextResponse.json({
+        success: true,
+        deleted: data?.length || 0,
+      });
+    }
+
     // Check if this is a bulk delete request
     if (body.action === 'bulkDelete' && body.names) {
       const { data, error } = await supabase
