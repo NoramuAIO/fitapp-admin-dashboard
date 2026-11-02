@@ -34,42 +34,8 @@ function parseWidgetUser(item: any): CustomWidget {
   };
 }
 
-// Fallback in-memory store in case table hasn't been created in Supabase SQL editor yet
-let fallbackWidgets: CustomWidget[] = [
-  {
-    id: 1,
-    title: '⏱️ Antrenmana Ne Kadar Kaldı?',
-    widget_type: 'countdown',
-    target_time: '18:00:00', // Today at 18:00
-    custom_content: 'Günün antrenmanı seni bekliyor!',
-    userId: null,
-    is_active: true,
-    display_order: 1,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 2,
-    title: '💬 Günün Motivasyon Sözü',
-    widget_type: 'custom_text',
-    target_time: null,
-    custom_content: '«Disiplin; ne istediğin ile şu an ne istediğin arasındaki bilinçli tercihtir.»',
-    userId: null,
-    is_active: true,
-    display_order: 2,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 3,
-    title: '🎯 Kilo Hedefi Takibi',
-    widget_type: 'weight_goal',
-    target_time: null,
-    custom_content: 'Hedefe giden yolda kararlı adımlarla ilerle!',
-    userId: null,
-    is_active: true,
-    display_order: 3,
-    createdAt: new Date().toISOString(),
-  },
-];
+// Fallback in-memory store (empty by default so deleted widgets never resurrect)
+let fallbackWidgets: CustomWidget[] = [];
 
 export async function GET(request: Request) {
   try {

@@ -478,62 +478,131 @@ export default function WidgetsAdminPage() {
 
           <div className="bg-[#141414] border border-[#262626] rounded-3xl p-6 shadow-xl sticky top-8">
             <div className="text-xs text-gray-500 mb-4 text-center">
-              Telefon ana ekranında çalışan canlı widget kartı
+              Telefon ana ekranında çalışan canlı widget kartları
             </div>
 
-            {/* Countdown Widget Live Card */}
-            <div className="bg-gradient-to-br from-[#18232C] via-[#141A20] to-[#12161A] border border-[#233544] rounded-2xl p-5 shadow-2xl relative overflow-hidden mb-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-[#4ECDC4]/20 flex items-center justify-center text-[#4ECDC4]">
-                    <Clock size={16} />
+            {(() => {
+              const previewWidgets: CustomWidget[] = showModal
+                ? [
+                    {
+                      id: editingWidget?.id || -1,
+                      title: title.trim() || 'Yeni Widget',
+                      widget_type: widgetType,
+                      target_time: targetTime,
+                      custom_content: customContent,
+                      is_active: isActive,
+                      display_order: 1,
+                      userId: targetUserId,
+                    },
+                  ]
+                : displayedWidgets.filter((w) => w.is_active);
+
+              if (previewWidgets.length === 0) {
+                return (
+                  <div className="py-12 px-4 text-center text-gray-500 rounded-2xl border border-dashed border-[#262626]">
+                    <LayoutGrid size={32} className="mx-auto mb-2.5 text-gray-600" />
+                    <p className="text-sm font-semibold text-gray-300">Canlıda Aktif Widget Yok</p>
+                    <p className="text-xs text-gray-500 mt-1 max-w-[240px] mx-auto">
+                      Eklediğiniz veya aktif ettiğiniz widget kartları burada telefon ekranı formatında canlı olarak önizlenecektir.
+                    </p>
                   </div>
-                  <span className="text-xs font-bold text-white tracking-wide">
-                    {title || '⏱️ Antrenmana Ne Kadar Kaldı?'}
-                  </span>
-                </div>
-                <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-md bg-[#4ECDC4]/15 text-[#4ECDC4] border border-[#4ECDC4]/30 animate-pulse">
-                  CANLI SAYAÇ
-                </span>
-              </div>
+                );
+              }
 
-              {/* Ticking Numbers */}
-              <div className="grid grid-cols-3 gap-2 my-2 text-center">
-                <div className="bg-[#0C1217] border border-[#1E2C37] rounded-xl p-2">
-                  <span className="text-2xl font-black font-mono text-white">
-                    {formatTwoDigits(timeRemaining.hours)}
-                  </span>
-                  <span className="text-[10px] text-gray-400 block font-medium">SAAT</span>
-                </div>
-                <div className="bg-[#0C1217] border border-[#1E2C37] rounded-xl p-2">
-                  <span className="text-2xl font-black font-mono text-[#4ECDC4]">
-                    {formatTwoDigits(timeRemaining.minutes)}
-                  </span>
-                  <span className="text-[10px] text-gray-400 block font-medium">DAKİKA</span>
-                </div>
-                <div className="bg-[#0C1217] border border-[#1E2C37] rounded-xl p-2">
-                  <span className="text-2xl font-black font-mono text-emerald-400">
-                    {formatTwoDigits(timeRemaining.seconds)}
-                  </span>
-                  <span className="text-[10px] text-gray-400 block font-medium">SANİYE</span>
-                </div>
-              </div>
+              return (
+                <div className="space-y-4">
+                  {previewWidgets.map((pw, idx) => {
+                    if (pw.widget_type === 'countdown') {
+                      return (
+                        <div
+                          key={pw.id || idx}
+                          className="bg-gradient-to-br from-[#18232C] via-[#141A20] to-[#12161A] border border-[#233544] rounded-2xl p-5 shadow-2xl relative overflow-hidden"
+                        >
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-[#4ECDC4]/20 flex items-center justify-center text-[#4ECDC4]">
+                                <Clock size={16} />
+                              </div>
+                              <span className="text-xs font-bold text-white tracking-wide">
+                                {pw.title}
+                              </span>
+                            </div>
+                            <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-md bg-[#4ECDC4]/15 text-[#4ECDC4] border border-[#4ECDC4]/30 animate-pulse">
+                              CANLI SAYAÇ
+                            </span>
+                          </div>
 
-              <p className="text-xs text-gray-400 mt-3 text-center">
-                {customContent || 'Hedef Saat: ' + targetTime + ' • Günün antrenmanı seni bekliyor!'}
-              </p>
-            </div>
+                          {/* Ticking Numbers */}
+                          <div className="grid grid-cols-3 gap-2 my-2 text-center">
+                            <div className="bg-[#0C1217] border border-[#1E2C37] rounded-xl p-2">
+                              <span className="text-2xl font-black font-mono text-white">
+                                {formatTwoDigits(timeRemaining.hours)}
+                              </span>
+                              <span className="text-[10px] text-gray-400 block font-medium">SAAT</span>
+                            </div>
+                            <div className="bg-[#0C1217] border border-[#1E2C37] rounded-xl p-2">
+                              <span className="text-2xl font-black font-mono text-[#4ECDC4]">
+                                {formatTwoDigits(timeRemaining.minutes)}
+                              </span>
+                              <span className="text-[10px] text-gray-400 block font-medium">DAKİKA</span>
+                            </div>
+                            <div className="bg-[#0C1217] border border-[#1E2C37] rounded-xl p-2">
+                              <span className="text-2xl font-black font-mono text-emerald-400">
+                                {formatTwoDigits(timeRemaining.seconds)}
+                              </span>
+                              <span className="text-[10px] text-gray-400 block font-medium">SANİYE</span>
+                            </div>
+                          </div>
 
-            {/* Motivation Quote Widget Card */}
-            <div className="bg-[#181818] border border-[#2A2A2A] rounded-2xl p-4 shadow-md">
-              <div className="flex items-center gap-2 mb-1.5">
-                <MessageSquare size={14} className="text-[#F59E0B]" />
-                <span className="text-xs font-bold text-white">Günün Motivasyon Sözü</span>
-              </div>
-              <p className="text-xs text-gray-300 italic leading-relaxed">
-                «Disiplin; ne istediğin ile şu an ne istediğin arasındaki bilinçli tercihtir.»
-              </p>
-            </div>
+                          <p className="text-xs text-gray-400 mt-3 text-center">
+                            {pw.custom_content || (pw.target_time ? 'Hedef Saat: ' + pw.target_time : 'Günün antrenmanı seni bekliyor!')}
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    if (pw.widget_type === 'custom_text') {
+                      return (
+                        <div
+                          key={pw.id || idx}
+                          className="bg-[#181818] border border-[#2A2A2A] rounded-2xl p-4 shadow-md"
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <MessageSquare size={15} className="text-[#F59E0B]" />
+                            <span className="text-xs font-bold text-white">{pw.title}</span>
+                          </div>
+                          <p className="text-xs text-gray-300 italic leading-relaxed">
+                            {pw.custom_content ? `«${pw.custom_content}»` : 'Özel metin veya motivasyon sözü'}
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    if (pw.widget_type === 'weight_goal') {
+                      return (
+                        <div
+                          key={pw.id || idx}
+                          className="bg-[#141E18] border border-[#234030] rounded-2xl p-4 shadow-md"
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <Scale size={15} className="text-emerald-400" />
+                            <span className="text-xs font-bold text-white">{pw.title}</span>
+                          </div>
+                          <div className="w-full bg-[#0D1610] rounded-full h-2.5 my-2.5 border border-emerald-900/40 overflow-hidden">
+                            <div className="bg-emerald-400 h-full rounded-full w-2/3" />
+                          </div>
+                          <p className="text-xs text-emerald-400/90 mt-1">
+                            {pw.custom_content || 'Kilo hedefi ilerleme takibi ve rozeti'}
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
