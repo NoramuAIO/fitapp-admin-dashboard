@@ -69,6 +69,7 @@ export default function NotificationAdminPage() {
   const [voiceScript, setVoiceScript] = useState('');
   const [isPlayingVoice, setIsPlayingVoice] = useState(false);
   const [testSuccess, setTestSuccess] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
     loadRules();
@@ -169,11 +170,36 @@ export default function NotificationAdminPage() {
   };
 
   const handleDeleteRule = async (id: number) => {
-    if (!confirm('Bu bildirim kuralını silmek istediğinize emin misiniz?')) return;
     try {
-      await fetch(`/api/notifications/rules?id=${id}`, { method: 'DELETE' });
-      setRules((prev) => prev.filter((r) => r.id !== id));
-    } catch {}
+      const numericId = Number(id);
+      // Optimistic instant UI removal
+      setRules((prev) => prev.filter((r) => Number(r.id) !== numericId));
+      if (editingRule && Number(editingRule.id) === numericId) {
+        setShowModal(false);
+        setEditingRule(null);
+      }
+
+      let res = await fetch('/api/notifications/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id: numericId }),
+      });
+
+      if (!res.ok) {
+        res = await fetch(`/api/notifications/rules?id=${numericId}`, {
+          method: 'DELETE',
+        });
+      }
+
+      if (!res.ok) {
+        throw new Error('Bildirim kuralı silinemedi');
+      }
+
+      setSuccessMsg('Bildirim kuralı başarıyla silindi!');
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      loadRules();
+    }
   };
 
   // Browser Speech Synthesis for Previewing Turkish Voice Coach
@@ -259,6 +285,14 @@ export default function NotificationAdminPage() {
           <span>Yeni Bildirim Kuralı</span>
         </button>
       </div>
+
+      {/* Top Floating Success Toast */}
+      {successMsg && (
+        <div className="fixed top-6 right-6 z-50 flex items-center gap-2 bg-[#4ECDC4] text-gray-950 font-bold px-5 py-3 rounded-2xl shadow-2xl transition-all animate-bounce">
+          <CheckCircle2 size={18} />
+          <span>{successMsg}</span>
+        </div>
+      )}
 
       {testSuccess && (
         <div className="mb-6 p-4 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 flex items-center gap-3">
@@ -408,11 +442,17 @@ export default function NotificationAdminPage() {
                       </button>
 
                       <button
-                        onClick={() => handleDeleteRule(rule.id)}
-                        className="p-2 text-gray-500 hover:text-red-400 rounded-lg hover:bg-white/5 transition-colors"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleDeleteRule(rule.id);
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-xl transition-colors"
                         title="Sil"
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={14} />
+                        <span>Sil</span>
                       </button>
                     </div>
                   </div>
@@ -685,21 +725,34 @@ export default function NotificationAdminPage() {
                 )}
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors"
-                >
-                  İptal
-                </button>
-                <button
-                  type="submit"
-                  disabled={!title || !message || !scheduledTime}
-                  className="bg-[#4ECDC4] hover:bg-[#45B8B0] disabled:opacity-40 text-gray-950 font-bold px-6 py-2.5 rounded-xl text-sm transition-all"
-                >
-                  {editingRule ? 'Güncelle' : 'Kaydet'}
-                </button>
+              <div className="flex items-center justify-between gap-3 pt-3">
+                {editingRule ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteRule(editingRule.id)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl border border-red-500/20 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                    <span>Kuralı Sil</span>
+                  </button>
+                ) : <div />}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowModal(false)}
+                    className="px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors"
+                  >
+                    İptal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!title || !message || !scheduledTime}
+                    className="bg-[#4ECDC4] hover:bg-[#45B8B0] disabled:opacity-40 text-gray-950 font-bold px-6 py-2.5 rounded-xl text-sm transition-all"
+                  >
+                    {editingRule ? 'Güncelle' : 'Kaydet'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

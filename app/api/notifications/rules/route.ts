@@ -18,61 +18,8 @@ export interface NotificationRule {
   createdAt?: string;
 }
 
-// Fallback in-memory store in case table hasn't been created in Supabase SQL editor yet
-let fallbackRules: NotificationRule[] = [
-  {
-    id: 1,
-    title: '🏋️‍♂️ Antrenman Zamanı!',
-    subtitle: 'Günün Hedefi',
-    message: 'Bugün üst vücut antrenmanın var. Ayakkabılarını bağla ve salona doğru yola çık!',
-    category: 'antrenman',
-    scheduled_time: '18:00',
-    days_of_week: '1,2,3,4,5',
-    voice_enabled: true,
-    voice_script: 'Günün en verimli anı geldi! Bugün antrenmanında sınırlarını zorlama zamanı. Unutma, şampiyonlar pes etmeyenlerdir.',
-    is_active: true,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 2,
-    title: '🔥 Sabah Motivasyonu',
-    subtitle: 'Güne Başlarken',
-    message: 'Her yeni gün yeni bir şans. Bugün kendin için bir iyilik yap ve hedefine odaklan.',
-    category: 'motivasyon',
-    scheduled_time: '09:00',
-    days_of_week: '0,1,2,3,4,5,6',
-    voice_enabled: true,
-    voice_script: 'Günaydın şampiyon! Bugün yapacağın her tekrar, içeceğin her bardak su seni hedefine bir adım daha yaklaştıracak.',
-    is_active: true,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 3,
-    title: '🪥 Diş Fırçalama Hatırlatıcısı',
-    subtitle: 'Gece Rutini',
-    message: 'Günü bitirmeden önce dişlerini fırçalamayı unutma! Sağlıklı bir gülüş her şeydir.',
-    category: 'dis_fircalama',
-    scheduled_time: '23:00',
-    days_of_week: '0,1,2,3,4,5,6',
-    voice_enabled: false,
-    voice_script: null,
-    is_active: true,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 4,
-    title: '🚶‍♂️ Temiz Hava Yürüyüşü',
-    subtitle: 'Adım Hedefi',
-    message: 'Akşam yürüyüşü için harika bir hava var. 20 dakikalık bir yürüyüşle zihnini boşalt.',
-    category: 'yuruyus',
-    scheduled_time: '20:00',
-    days_of_week: '1,3,5',
-    voice_enabled: true,
-    voice_script: 'Temiz hava ve hafif bir yürüyüş günün yorgunluğunu silip atacak. Kulaklığını tak ve adımlarını say.',
-    is_active: true,
-    createdAt: new Date().toISOString(),
-  },
-];
+// Fallback in-memory store (empty by default so deleted rules never resurrect)
+let fallbackRules: NotificationRule[] = [];
 
 export async function GET() {
   try {
@@ -81,13 +28,14 @@ export async function GET() {
       .select('*')
       .order('id', { ascending: true });
 
-    if (error || !data) {
-      // Fallback
+    if (error) {
+      console.error('Error fetching notification rules:', error);
       return NextResponse.json(fallbackRules);
     }
 
-    return NextResponse.json(data);
-  } catch {
+    return NextResponse.json(data || []);
+  } catch (err) {
+    console.error('Catch fetching notification rules:', err);
     return NextResponse.json(fallbackRules);
   }
 }
@@ -95,6 +43,30 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+
+    // Support delete via POST
+    if (body.action === 'delete' && body.id !== undefined) {
+      const numericId = Number(body.id);
+      if (isNaN(numericId)) {
+        return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+      }
+      const { data: deletedRows, error: dbError } = await supabase
+        .from('notification_rules')
+        .delete()
+        .eq('id', numericId)
+        .select();
+
+      if (dbError) {
+        console.error('Supabase DELETE notification_rule error:', dbError);
+        return NextResponse.json({ error: dbError.message }, { status: 500 });
+      }
+      fallbackRules = fallbackRules.filter((r) => Number(r.id) !== numericId);
+      return NextResponse.json({
+        success: true,
+        deletedId: numericId,
+        deletedRows: deletedRows?.length || 0,
+      });
+    }
     const {
       title,
       subtitle,
@@ -183,18 +155,41 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
+    let rawId = searchParams.get('id');
 
-    if (!id) {
+    if (!rawId) {
+      try {
+        const body = await request.json();
+        rawId = body?.id;
+      } catch {}
+    }
+
+    if (!rawId) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });
     }
 
-    try {
-      await supabase.from('notification_rules').delete().eq('id', id);
-    } catch {}
+    const numericId = Number(rawId);
+    if (isNaN(numericId)) {
+      return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+    }
 
-    fallbackRules = fallbackRules.filter((r) => r.id !== Number(id));
-    return NextResponse.json({ success: true });
+    const { data: deletedRows, error: dbError } = await supabase
+      .from('notification_rules')
+      .delete()
+      .eq('id', numericId)
+      .select();
+
+    if (dbError) {
+      console.error('Supabase DELETE notification_rule error:', dbError);
+      return NextResponse.json({ error: dbError.message }, { status: 500 });
+    }
+
+    fallbackRules = fallbackRules.filter((r) => Number(r.id) !== numericId);
+    return NextResponse.json({
+      success: true,
+      deletedId: numericId,
+      deletedRows: deletedRows?.length || 0,
+    });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete rule' }, { status: 500 });
   }

@@ -14,13 +14,14 @@ import {
   Sparkles,
   ArrowUpDown,
   Flame,
-  Target
+  Target,
+  Calendar,
 } from 'lucide-react';
 
 interface CustomWidget {
   id: number;
   title: string;
-  widget_type: 'countdown' | 'custom_text' | 'weight_goal';
+  widget_type: 'countdown' | 'custom_text' | 'weight_goal' | 'special_day';
   target_time?: string | null;
   custom_content?: string | null;
   userId?: number | null;
@@ -37,6 +38,13 @@ const WIDGET_TYPES = [
     desc: 'Belirli bir saate veya güne canlı geri sayım sayacı',
   },
   {
+    id: 'special_day',
+    label: 'Özel Gün (Haftalık)',
+    icon: Calendar,
+    color: '#EC4899',
+    desc: 'Haftanın belirli bir gününe özel etkinlik, motivasyon veya antrenman',
+  },
+  {
     id: 'custom_text',
     label: 'Özel Metin / Motivasyon',
     icon: MessageSquare,
@@ -51,6 +59,28 @@ const WIDGET_TYPES = [
     desc: 'Kullanıcının hedef kilosu ve kalan fark ilerlemesi',
   },
 ];
+
+const DAYS_OF_WEEK = [
+  { value: 1, label: 'Pazartesi', short: 'Pzt' },
+  { value: 2, label: 'Salı', short: 'Sal' },
+  { value: 3, label: 'Çarşamba', short: 'Çar' },
+  { value: 4, label: 'Perşembe', short: 'Per' },
+  { value: 5, label: 'Cuma', short: 'Cum' },
+  { value: 6, label: 'Cumartesi', short: 'Cmt' },
+  { value: 0, label: 'Pazar', short: 'Paz' },
+];
+
+function getSpecialDayInfo(targetTimeStr?: string | null) {
+  if (!targetTimeStr) return { dayIndex: 1, dayName: 'Pazartesi', time: '', isToday: false, daysLeft: 0 };
+  const parts = targetTimeStr.split('|');
+  const dayIndex = parseInt(parts[0], 10);
+  const time = parts[1] || '';
+  const dayObj = DAYS_OF_WEEK.find((d) => d.value === dayIndex) || DAYS_OF_WEEK[0];
+  const todayIndex = new Date().getDay(); // 0 is Sunday
+  const isToday = todayIndex === dayObj.value;
+  const daysLeft = (dayObj.value - todayIndex + 7) % 7;
+  return { dayIndex: dayObj.value, dayName: dayObj.label, time, isToday, daysLeft };
+}
 
 export default function WidgetsAdminPage() {
   const [widgets, setWidgets] = useState<CustomWidget[]>([]);
@@ -69,6 +99,8 @@ export default function WidgetsAdminPage() {
   const [title, setTitle] = useState('');
   const [widgetType, setWidgetType] = useState<CustomWidget['widget_type']>('countdown');
   const [targetTime, setTargetTime] = useState('18:00:00');
+  const [specialDay, setSpecialDay] = useState(1);
+  const [specialDayTime, setSpecialDayTime] = useState('18:00');
   const [customContent, setCustomContent] = useState('');
   const [displayOrder, setDisplayOrder] = useState(1);
   const [isActive, setIsActive] = useState(true);
@@ -139,6 +171,14 @@ export default function WidgetsAdminPage() {
       setTitle(widget.title);
       setWidgetType(widget.widget_type);
       setTargetTime(widget.target_time || '18:00:00');
+      if (widget.widget_type === 'special_day' && widget.target_time) {
+        const parts = widget.target_time.split('|');
+        setSpecialDay(parseInt(parts[0], 10) || 1);
+        setSpecialDayTime(parts[1] || '18:00');
+      } else {
+        setSpecialDay(1);
+        setSpecialDayTime('18:00');
+      }
       setCustomContent(widget.custom_content || '');
       setTargetUserId(widget.userId !== undefined && widget.userId !== null ? Number(widget.userId) : null);
       setDisplayOrder(widget.display_order);
@@ -148,6 +188,8 @@ export default function WidgetsAdminPage() {
       setTitle('');
       setWidgetType('countdown');
       setTargetTime('18:00:00');
+      setSpecialDay(1);
+      setSpecialDayTime('18:00');
       setCustomContent('');
       setTargetUserId(null);
       setDisplayOrder(widgets.length + 1);
@@ -166,9 +208,12 @@ export default function WidgetsAdminPage() {
     setIsSaving(true);
     setErrorMsg(null);
 
-    const formattedTargetTime = widgetType === 'countdown'
-      ? (targetTime ? (targetTime.length === 5 ? targetTime + ':00' : targetTime) : '18:00:00')
-      : null;
+    let formattedTargetTime: string | null = null;
+    if (widgetType === 'countdown') {
+      formattedTargetTime = targetTime ? (targetTime.length === 5 ? targetTime + ':00' : targetTime) : '18:00:00';
+    } else if (widgetType === 'special_day') {
+      formattedTargetTime = `${specialDay}|${specialDayTime || ''}`;
+    }
 
     const payload = {
       title: title.trim(),
@@ -413,6 +458,30 @@ export default function WidgetsAdminPage() {
                           </div>
                         )}
 
+                        {widget.widget_type === 'special_day' && (
+                          <div className="mt-3 flex items-center gap-2.5 flex-wrap">
+                            <div className="flex items-center gap-2 bg-[#1B1B1B] border border-[#2E2E2E] px-3.5 py-1.5 rounded-xl text-sm text-[#EC4899] font-bold">
+                              <Calendar size={14} />
+                              <span>{getSpecialDayInfo(widget.target_time).dayName}</span>
+                              {getSpecialDayInfo(widget.target_time).time && (
+                                <span className="text-gray-400 font-mono text-xs">({getSpecialDayInfo(widget.target_time).time})</span>
+                              )}
+                            </div>
+                            {getSpecialDayInfo(widget.target_time).isToday ? (
+                              <span className="text-[11px] font-black px-2.5 py-0.5 rounded-md bg-[#EC4899]/20 text-[#EC4899] border border-[#EC4899]/40 animate-pulse">
+                                🔥 BUGÜN ÖZEL GÜN!
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-semibold text-gray-400 bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                                {getSpecialDayInfo(widget.target_time).daysLeft} gün kaldı
+                              </span>
+                            )}
+                            {widget.custom_content && (
+                              <p className="text-xs text-gray-400 italic truncate max-w-xs">&quot;{widget.custom_content}&quot;</p>
+                            )}
+                          </div>
+                        )}
+
                         {widget.widget_type === 'weight_goal' && (
                           <div className="mt-2.5 flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/20 w-fit">
                             <Scale size={14} />
@@ -578,6 +647,55 @@ export default function WidgetsAdminPage() {
                       );
                     }
 
+                    if (pw.widget_type === 'special_day') {
+                      const dayInfo = getSpecialDayInfo(pw.target_time);
+                      return (
+                        <div
+                          key={pw.id || idx}
+                          className={`rounded-2xl p-5 shadow-2xl relative overflow-hidden border transition-all ${
+                            dayInfo.isToday
+                              ? 'bg-gradient-to-br from-[#2D1222] via-[#1F0D17] to-[#14080F] border-[#EC4899]/50 shadow-[#EC4899]/10'
+                              : 'bg-[#181818] border-[#2A2A2A]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-[#EC4899]/20 flex items-center justify-center text-[#EC4899]">
+                                <Calendar size={16} />
+                              </div>
+                              <span className="text-xs font-bold text-white tracking-wide">{pw.title}</span>
+                            </div>
+                            {dayInfo.isToday ? (
+                              <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-md bg-[#EC4899]/20 text-[#EC4899] border border-[#EC4899]/40 animate-pulse">
+                                🔥 BUGÜN ÖZEL GÜN!
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/5 text-gray-400 border border-white/10">
+                                {dayInfo.daysLeft} GÜN KALDI
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="my-2.5 p-3 rounded-xl bg-black/40 border border-white/5 flex items-center justify-between">
+                            <div>
+                              <span className="text-[11px] text-gray-400 block font-medium">Haftanın Günü</span>
+                              <span className="text-base font-black text-[#EC4899]">{dayInfo.dayName}</span>
+                            </div>
+                            {dayInfo.time && (
+                              <div className="text-right">
+                                <span className="text-[11px] text-gray-400 block font-medium">Saat</span>
+                                <span className="text-sm font-bold font-mono text-white">{dayInfo.time}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <p className="text-xs text-gray-300 mt-2 text-center italic">
+                            {pw.custom_content || 'Haftalık özel gün motivasyonu veya antrenmanı'}
+                          </p>
+                        </div>
+                      );
+                    }
+
                     if (pw.widget_type === 'weight_goal') {
                       return (
                         <div
@@ -638,7 +756,7 @@ export default function WidgetsAdminPage() {
               {/* Widget Type Selection */}
               <div>
                 <label className="block text-xs font-semibold text-gray-400 mb-1.5">Widget Tipi *</label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {WIDGET_TYPES.map((t) => {
                     const isSelected = widgetType === t.id;
                     const Icon = t.icon;
@@ -667,12 +785,60 @@ export default function WidgetsAdminPage() {
                 <input
                   type="text"
                   required
-                  placeholder="Örn: ⏱️ Antrenmana Ne Kadar Kaldı?"
+                  placeholder={
+                    widgetType === 'special_day'
+                      ? 'Örn: 🏆 Leg Day (Bacak Günü)'
+                      : widgetType === 'countdown'
+                      ? 'Örn: ⏱️ Antrenmana Ne Kadar Kaldı?'
+                      : widgetType === 'weight_goal'
+                      ? 'Örn: 🎯 75 kg Hedefi'
+                      : 'Örn: 💬 Günün Motivasyon Sözü'
+                  }
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="w-full bg-[#222] border border-[#333] rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#4ECDC4]"
                 />
               </div>
+
+              {/* Special Day Selector (if special_day) */}
+              {widgetType === 'special_day' && (
+                <div className="space-y-3 p-3.5 bg-[#1C1C1C] border border-[#2A2A2A] rounded-xl">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#EC4899] mb-1.5 flex items-center gap-1.5">
+                      <Calendar size={14} />
+                      <span>Haftanın Özel Günü *</span>
+                    </label>
+                    <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                      {DAYS_OF_WEEK.map((d) => (
+                        <button
+                          key={d.value}
+                          type="button"
+                          onClick={() => setSpecialDay(d.value)}
+                          className={`py-2 px-1 text-center rounded-lg text-xs font-bold transition-all border ${
+                            specialDay === d.value
+                              ? 'bg-[#EC4899] text-white border-[#EC4899] shadow-md shadow-[#EC4899]/30'
+                              : 'bg-[#262626] text-gray-400 border-[#333] hover:text-white'
+                          }`}
+                        >
+                          <span className="block">{d.short}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1">
+                      Özel Gün Saati (Opsiyonel)
+                    </label>
+                    <input
+                      type="time"
+                      value={specialDayTime}
+                      onChange={(e) => setSpecialDayTime(e.target.value)}
+                      className="w-full bg-[#262626] border border-[#333] rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-[#EC4899]"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Target Time (if countdown) */}
               {widgetType === 'countdown' && (
