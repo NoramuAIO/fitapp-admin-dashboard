@@ -193,8 +193,13 @@ export default function AnalyticsPage() {
   const handleDeleteRank = async (id: number) => {
     if (!confirm('Bu seviyeyi silmek istediğinizden emin misiniz?')) return;
     try {
-      setRanks((prev) => prev.filter((r) => r.id !== id));
-      const res = await fetch(`/api/athlete-ranks?id=${id}`, { method: 'DELETE' });
+      const numericId = Number(id);
+      setRanks((prev) => prev.filter((r) => Number(r.id) !== numericId));
+      const res = await fetch(`/api/athlete-ranks?id=${numericId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: numericId }),
+      });
       if (!res.ok) {
         await loadRanks();
       }

@@ -241,16 +241,23 @@ export default function WidgetsAdminPage() {
   const handleDeleteWidget = async (id: number) => {
     if (!confirm('Bu widget kartını silmek istediğinize emin misiniz?')) return;
     try {
-      // Optimistic instant UI removal
-      setWidgets((prev) => prev.filter((w) => w.id !== id));
-      if (editingWidget?.id === id) {
+      const numericId = Number(id);
+      // Optimistic instant UI removal with guaranteed type comparison
+      setWidgets((prev) => prev.filter((w) => Number(w.id) !== numericId));
+      if (editingWidget && Number(editingWidget.id) === numericId) {
         setShowModal(false);
         setEditingWidget(null);
       }
 
-      const res = await fetch(`/api/widgets?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/widgets?id=${numericId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: numericId }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Widget silinemedi');
       }
 

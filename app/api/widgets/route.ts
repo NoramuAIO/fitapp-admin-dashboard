@@ -270,14 +270,23 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
     }
 
-    const { error: dbError } = await supabase.from('custom_widgets').delete().eq('id', numericId);
+    const { data: deletedRows, error: dbError } = await supabase
+      .from('custom_widgets')
+      .delete()
+      .eq('id', numericId)
+      .select();
+
     if (dbError) {
       console.error('Supabase DELETE widget error:', dbError);
       return NextResponse.json({ error: dbError.message }, { status: 500 });
     }
 
-    fallbackWidgets = fallbackWidgets.filter((w) => w.id !== numericId);
-    return NextResponse.json({ success: true });
+    fallbackWidgets = fallbackWidgets.filter((w) => Number(w.id) !== numericId);
+    return NextResponse.json({
+      success: true,
+      deletedId: numericId,
+      deletedRows: deletedRows?.length || 0,
+    });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete widget' }, { status: 500 });
   }
