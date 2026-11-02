@@ -116,6 +116,41 @@ export async function GET() {
       return NextResponse.json(parsedRanks);
     }
 
+    // Auto-seed DEFAULT_RANKS if table has no ranks yet
+    if (!error && (!data || data.length === 0)) {
+      try {
+        const seedRows = DEFAULT_RANKS.map((r, i) => ({
+          title: r.title,
+          widget_type: 'athlete_rank',
+          target_time: JSON.stringify({ icon: r.icon, color: r.color }),
+          custom_content: JSON.stringify({ min_volume_kg: r.min_volume_kg, max_volume_kg: r.max_volume_kg, description: r.description }),
+          is_active: true,
+          display_order: i + 1,
+        }));
+        const { data: seeded } = await supabase.from('custom_widgets').insert(seedRows).select();
+        if (seeded && seeded.length > 0) {
+          const seededRanks: AthleteRank[] = seeded.map((item) => {
+            let meta = { icon: '⚡', color: '#5DD97C' };
+            let content = { min_volume_kg: 0, max_volume_kg: 1000, description: '' };
+            try { if (item.target_time) meta = JSON.parse(item.target_time); } catch {}
+            try { if (item.custom_content) content = JSON.parse(item.custom_content); } catch {}
+            return {
+              id: item.id,
+              title: item.title,
+              icon: meta.icon || '⚡',
+              color: meta.color || '#5DD97C',
+              min_volume_kg: content.min_volume_kg || 0,
+              max_volume_kg: content.max_volume_kg || 1000,
+              description: content.description || '',
+            };
+          }).sort((a, b) => a.min_volume_kg - b.min_volume_kg);
+          return NextResponse.json(seededRanks);
+        }
+      } catch (seedErr) {
+        console.error('Auto-seed athlete ranks failed:', seedErr);
+      }
+    }
+
     return NextResponse.json(inMemoryRanks);
   } catch (err) {
     console.error('Error fetching athlete ranks:', err);
@@ -253,11 +288,29 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
+    let id = searchParams.get('id');
+
+    if (!id) {
+      try {
+        const body = await request.json();
+        id = body?.id;
+      } catch {}
+    }
+
     if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
-    await supabase.from('custom_widgets').delete().eq('id', Number(id));
-    inMemoryRanks = inMemoryRanks.filter(r => r.id !== Number(id));
+    const numericId = Number(id);
+    if (isNaN(numericId)) {
+      return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+    }
+
+    const { error } = await supabase.from('custom_widgets').delete().eq('id', numericId);
+    if (error) {
+      console.error('Supabase DELETE athlete rank error:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    inMemoryRanks = inMemoryRanks.filter(r => r.id !== numericId);
     return NextResponse.json({ success: true });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

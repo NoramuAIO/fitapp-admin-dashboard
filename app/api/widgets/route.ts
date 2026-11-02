@@ -90,7 +90,7 @@ export async function GET(request: Request) {
     const { data, error } = await query;
 
     let rawList: any[] = [];
-    if (!error && data && data.length > 0) {
+    if (!error && data) {
       rawList = data;
     } else {
       rawList = fallbackWidgets.filter(w => w.widget_type !== ('athlete_rank' as any));
@@ -252,18 +252,28 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
+    let id = searchParams.get('id');
+
+    if (!id) {
+      try {
+        const body = await request.json();
+        id = body?.id;
+      } catch {}
+    }
 
     if (!id) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });
     }
 
     const numericId = Number(id);
+    if (isNaN(numericId)) {
+      return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+    }
 
-    try {
-      await supabase.from('custom_widgets').delete().eq('id', numericId);
-    } catch (err) {
-      console.error('Supabase DELETE widget error:', err);
+    const { error: dbError } = await supabase.from('custom_widgets').delete().eq('id', numericId);
+    if (dbError) {
+      console.error('Supabase DELETE widget error:', dbError);
+      return NextResponse.json({ error: dbError.message }, { status: 500 });
     }
 
     fallbackWidgets = fallbackWidgets.filter((w) => w.id !== numericId);

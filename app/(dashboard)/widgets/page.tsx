@@ -241,9 +241,25 @@ export default function WidgetsAdminPage() {
   const handleDeleteWidget = async (id: number) => {
     if (!confirm('Bu widget kartını silmek istediğinize emin misiniz?')) return;
     try {
-      await fetch(`/api/widgets?id=${id}`, { method: 'DELETE' });
+      // Optimistic instant UI removal
       setWidgets((prev) => prev.filter((w) => w.id !== id));
-    } catch {}
+      if (editingWidget?.id === id) {
+        setShowModal(false);
+        setEditingWidget(null);
+      }
+
+      const res = await fetch(`/api/widgets?id=${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Widget silinemedi');
+      }
+
+      setSuccessMsg('Widget kartı başarıyla silindi!');
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Widget silinirken bir hata oluştu.');
+      loadWidgets();
+    }
   };
 
   const formatTwoDigits = (num: number) => String(num).padStart(2, '0');
@@ -657,29 +673,43 @@ export default function WidgetsAdminPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  disabled={isSaving}
-                  className="px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors"
-                >
-                  İptal
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSaving || !title.trim()}
-                  className="flex items-center gap-2 bg-[#4ECDC4] hover:bg-[#45B8B0] disabled:opacity-40 text-gray-950 font-bold px-6 py-2.5 rounded-xl text-sm transition-all shadow-md shadow-[#4ECDC4]/20"
-                >
-                  {isSaving ? (
-                    <>
-                      <div className="w-3.5 h-3.5 border-2 border-gray-950 border-t-transparent rounded-full animate-spin" />
-                      <span>{editingWidget ? 'Güncelleniyor...' : 'Kaydediliyor...'}</span>
-                    </>
-                  ) : (
-                    <span>{editingWidget ? 'Güncelle' : 'Kaydet'}</span>
-                  )}
-                </button>
+              <div className="flex items-center justify-between gap-3 pt-3">
+                {editingWidget ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteWidget(editingWidget.id)}
+                    disabled={isSaving}
+                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl border border-red-500/20 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                    <span>Widget'ı Sil</span>
+                  </button>
+                ) : <div />}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowModal(false)}
+                    disabled={isSaving}
+                    className="px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors"
+                  >
+                    İptal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSaving || !title.trim()}
+                    className="flex items-center gap-2 bg-[#4ECDC4] hover:bg-[#45B8B0] disabled:opacity-40 text-gray-950 font-bold px-6 py-2.5 rounded-xl text-sm transition-all shadow-md shadow-[#4ECDC4]/20"
+                  >
+                    {isSaving ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-gray-950 border-t-transparent rounded-full animate-spin" />
+                        <span>{editingWidget ? 'Güncelleniyor...' : 'Kaydediliyor...'}</span>
+                      </>
+                    ) : (
+                      <span>{editingWidget ? 'Güncelle' : 'Kaydet'}</span>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
