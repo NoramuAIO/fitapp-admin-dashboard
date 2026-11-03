@@ -428,13 +428,16 @@ export default function GoalsPage() {
                 </div>
               )}
 
-              {editingGoal && (
+              {(editingGoal || formData.unit === 'kg') && (
                 <div>
-                  <label className="block text-xs font-semibold text-gray-400 mb-1">Mevcut Değer</label>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1">
+                    {formData.unit === 'kg' ? 'Mevcut / Başlangıç Kilosu (kg)' : 'Mevcut Değer'}
+                  </label>
                   <input
-                    type="number" required min="0" step="any"
-                    value={formData.currentValue}
-                    onChange={(e) => setFormData({...formData, currentValue: Number(e.target.value)})}
+                    type="number" min="0" step="any"
+                    value={formData.currentValue || ''}
+                    placeholder={formData.unit === 'kg' ? 'Örn: 80 (Boş bırakılırsa son kilo kaydından alınır)' : '0'}
+                    onChange={(e) => setFormData({...formData, currentValue: Number(e.target.value) || 0})}
                     className="w-full bg-[#1A1A1A] border border-[#2A2A2A] text-white rounded-xl px-4 py-2.5 text-sm focus:border-[#6366F1] focus:outline-none font-mono"
                   />
                 </div>

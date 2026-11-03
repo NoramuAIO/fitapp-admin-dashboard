@@ -4,7 +4,10 @@ import { NextResponse } from 'next/server';
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
+    const rawUserId = searchParams.get('userId');
+    const numericUserId = rawUserId && rawUserId !== 'all' && rawUserId !== 'undefined' && rawUserId !== 'null'
+      ? parseInt(rawUserId, 10)
+      : null;
     
     let query = supabase
       .from('goals')
@@ -16,8 +19,8 @@ export async function GET(request: Request) {
       `)
       .order('createdAt', { ascending: false });
 
-    if (userId) {
-      query = query.eq('userId', userId);
+    if (numericUserId && !isNaN(numericUserId)) {
+      query = query.eq('userId', numericUserId);
     }
 
     const { data, error } = await query;
