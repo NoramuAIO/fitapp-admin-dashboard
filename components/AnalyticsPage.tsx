@@ -326,6 +326,7 @@ export default function AnalyticsPage() {
 
   // Total sets calculated directly from completed exercise sets (consistent with mobile)
   const totalSets = filteredCompletions.reduce((sum, c) => sum + (Number(c.sets) || 1), 0);
+  const totalReps = filteredCompletions.reduce((sum, c) => sum + ((Number(c.sets) || 1) * (Number(c.reps) || 10)), 0);
 
   // Total Volume Lifted (Tonaj Hesabı): weight * reps * sets
   const totalVolumeKg = filteredCompletions.reduce((sum, c) => {
@@ -575,8 +576,8 @@ export default function AnalyticsPage() {
                 </div>
                 <span className="text-xs text-gray-400 font-medium">Tamamlanan Set</span>
               </div>
-              <p className="text-3xl font-extrabold text-white">{totalSets}</p>
-              <p className="text-xs text-gray-500 mt-1">{totalExercises} hareket tamamlandı</p>
+              <p className="text-3xl font-extrabold text-white">{totalSets} Set</p>
+              <p className="text-xs text-gray-500 mt-1">Toplam {totalReps.toLocaleString('tr-TR')} tekrar</p>
             </div>
 
             {/* 5. Vücut Ağırlığı / Kilo */}

@@ -63,38 +63,36 @@ export async function GET(request: Request) {
 
     // Format the response
     const formattedSessions = rawSessions.map(session => {
-      const isManualTimer = !session.programId || ['duration', 'set', 'timer'].includes(session.category);
+      const isManualTimer = ['duration', 'timer', 'manual'].includes(session.category);
       
-      let completedExercises = 0;
-      let totalReps = 0;
-      let totalSets = 0;
+      let completedExercises = session.completed_exercises || 0;
+      let totalReps = session.total_reps || 0;
+      let totalSets = session.total_sets || 0;
 
-      if (!isManualTimer && session.programs) {
-        const completions = completionsBySession[session.id];
-        if (completions && completions.length > 0) {
-          completedExercises = completions.length;
-          totalSets = completions.reduce((sum: number, c: any) => sum + (c.sets || 3), 0);
-          totalReps = completions.reduce((sum: number, c: any) => sum + ((c.sets || 3) * (c.reps || 10)), 0);
-        } else {
-          // Calculate from program structure
-          const programDays = session.programs.program_days || [];
-          const allExercises = programDays.flatMap((day: any) => day.exercises || []);
+      const completions = completionsBySession[session.id];
+      if (completions && completions.length > 0) {
+        completedExercises = completions.length;
+        totalSets = completions.reduce((sum: number, c: any) => sum + (c.sets || 3), 0);
+        totalReps = completions.reduce((sum: number, c: any) => sum + ((c.sets || 3) * (c.reps || 10)), 0);
+      } else if (!isManualTimer && session.programs && completedExercises === 0) {
+        // Calculate from program structure as fallback
+        const programDays = session.programs.program_days || [];
+        const allExercises = programDays.flatMap((day: any) => day.exercises || []);
+        
+        if (allExercises.length > 0) {
+          // If multiple days, a single workout session corresponds to 1 day's exercises
+          completedExercises = programDays.length > 1
+            ? Math.max(1, Math.round(allExercises.length / programDays.length))
+            : allExercises.length;
           
-          if (allExercises.length > 0) {
-            // If multiple days, a single workout session corresponds to 1 day's exercises
-            completedExercises = programDays.length > 1
-              ? Math.max(1, Math.round(allExercises.length / programDays.length))
-              : allExercises.length;
-            
-            const avgSets = allExercises.reduce((sum: number, ex: any) => sum + (ex.sets || 3), 0) / allExercises.length;
-            const avgReps = allExercises.reduce((sum: number, ex: any) => sum + (ex.reps || 10), 0) / allExercises.length;
-            totalSets = Math.round(completedExercises * avgSets);
-            totalReps = Math.round(completedExercises * avgSets * avgReps);
-          } else {
-            completedExercises = 5;
-            totalSets = 15;
-            totalReps = 150;
-          }
+          const avgSets = allExercises.reduce((sum: number, ex: any) => sum + (ex.sets || 3), 0) / allExercises.length;
+          const avgReps = allExercises.reduce((sum: number, ex: any) => sum + (ex.reps || 10), 0) / allExercises.length;
+          totalSets = Math.round(completedExercises * avgSets);
+          totalReps = Math.round(completedExercises * avgSets * avgReps);
+        } else {
+          completedExercises = 1;
+          totalSets = 3;
+          totalReps = 30;
         }
       }
 
@@ -170,7 +168,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const isManual = !validProgramId || ['duration', 'set', 'timer'].includes(category);
+    const isManual = ['duration', 'timer', 'manual'].includes(category);
 
     const insertPayload: any = {
       userId: userId ? parseInt(userId) : null,
