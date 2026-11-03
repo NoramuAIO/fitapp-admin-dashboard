@@ -70,8 +70,9 @@ export default function Dashboard() {
         } catch {}
       }
 
+      const programsUrl = userId ? `/api/programs?userId=${userId}` : '/api/programs';
       const [programsRes, usersRes, sessionsRes, goalsRes, exercisesRes] = await Promise.all([
-        fetch('/api/programs').catch(() => null),
+        fetch(programsUrl).catch(() => null),
         fetch('/api/users').catch(() => null),
         fetch(userId ? `/api/workout-sessions?userId=${userId}` : '/api/workout-sessions').catch(() => null),
         fetch(userId ? `/api/goals?userId=${userId}` : '/api/goals').catch(() => null),
@@ -84,14 +85,27 @@ export default function Dashboard() {
       const goals = goalsRes?.ok ? await goalsRes.json() : [];
       const exercises = exercisesRes?.ok ? await exercisesRes.json() : [];
 
-      const today = new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const todayDateStr = now.toLocaleDateString('en-CA');
+
+      const isWorkoutSession = (s: any) => {
+        if (s.is_manual_timer) return false;
+        if (['duration', 'timer', 'manual', 'set'].includes(s.category)) return false;
+        return true;
+      };
+
       const todaySessions = Array.isArray(sessions)
-        ? sessions.filter((s: any) => s.startTime?.startsWith(today) && !s.is_manual_timer && s.programId != null).length
+        ? sessions.filter((s: any) => {
+            if (!isWorkoutSession(s)) return false;
+            if (!s.startTime) return false;
+            const sDate = new Date(s.startTime).toLocaleDateString('en-CA');
+            return sDate === todayDateStr;
+          }).length
         : 0;
 
       const totalExercises = Array.isArray(exercises) ? exercises.length : 0;
       const actualWorkoutSessions = Array.isArray(sessions)
-        ? sessions.filter((s: any) => !s.is_manual_timer && s.programId != null)
+        ? sessions.filter(isWorkoutSession)
         : [];
 
       setStats({
@@ -196,7 +210,7 @@ export default function Dashboard() {
               ) : (
                 <div className="divide-y divide-[#2A2A2A]">
                   {recentSessions.map((s) => {
-                    const isManual = s.is_manual_timer || !s.programId;
+                    const isManual = s.is_manual_timer ?? ['duration', 'timer', 'manual', 'set'].includes(s.category);
                     return (
                       <div key={s.id} className="flex items-center gap-4 px-6 py-3.5 hover:bg-white/[0.02] transition-colors">
                         <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
