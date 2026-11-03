@@ -29,6 +29,7 @@ export interface Program {
     isPrimary: boolean;
     workouts?: Workout[];
     userId?: number | null;
+    userName?: string | null;
 }
 
 interface ExerciseSelectorModalProps {

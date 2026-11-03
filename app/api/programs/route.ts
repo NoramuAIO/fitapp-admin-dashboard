@@ -6,7 +6,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
 
-    // Fetch all programs — no userId column assumption
+    // Fetch all programs
     const { data: programs, error: programsError } = await supabase
       .from('programs')
       .select('*')
@@ -15,37 +15,36 @@ export async function GET(request: Request) {
 
     if (programsError) throw programsError
 
-    // Filter on server side if userId provided
-    // Programs assigned to this user via user_programs, or unassigned (global) ones
-    if (userId) {
-      const uId = parseInt(userId)
-      const { data: userPrograms } = await supabase
-        .from('user_programs')
-        .select('programId')
-        .eq('userId', uId)
+    // Fetch all user assignments with user details
+    const { data: allUserPrograms } = await supabase
+      .from('user_programs')
+      .select('programId, userId, users (id, name, email)')
 
-      const assignedIds = new Set((userPrograms || []).map((r: any) => r.programId))
+    const userProgramMap = new Map<number, { userId: number; userName: string }>()
+    ;(allUserPrograms || []).forEach((up: any) => {
+      userProgramMap.set(up.programId, {
+        userId: up.userId,
+        userName: up.users?.name || up.users?.email || `Kullanıcı #${up.userId}`,
+      })
+    })
 
-      // Also get programIds assigned to ANY user (to exclude them if not this user's)
-      const { data: allAssigned } = await supabase
-        .from('user_programs')
-        .select('programId')
-
-      const allAssignedIds = new Set((allAssigned || []).map((r: any) => r.programId))
-
-      const filtered = (programs || []).filter(p => {
-        if (assignedIds.has(p.id)) return true          // Assigned to this user
-        if (!allAssignedIds.has(p.id)) return true       // Not assigned to anyone = global
-        return false                                      // Assigned to someone else
-      }).map(p => ({
+    const enriched = (programs || []).map((p: any) => {
+      const assignment = userProgramMap.get(p.id)
+      return {
         ...p,
-        userId: assignedIds.has(p.id) ? uId : null
-      }))
+        userId: assignment ? assignment.userId : null,
+        userName: assignment ? assignment.userName : null,
+      }
+    })
 
+    if (userId) {
+      const uId = parseInt(userId, 10)
+      // Include programs assigned to this specific user OR unassigned (global) programs
+      const filtered = enriched.filter((p: any) => p.userId === uId || p.userId === null)
       return NextResponse.json(filtered)
     }
 
-    return NextResponse.json(programs || [])
+    return NextResponse.json(enriched)
   } catch (error) {
     console.error('Error fetching programs:', error)
     return NextResponse.json([], { status: 200 }) // Return empty array, never error object

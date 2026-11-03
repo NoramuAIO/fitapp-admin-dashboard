@@ -545,22 +545,24 @@ export default function AnalyticsPage() {
               )}
             </div>
 
-            {/* 3. Kaldırılan Hacim (Tonaj) */}
+            {/* 3. En Yüksek Ağırlık & Hacim */}
             <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A] hover:border-[#4ECDC4]/30 transition-colors">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#4ECDC4]/10 border border-[#4ECDC4]/20">
-                  <Zap size={18} className="text-[#4ECDC4]" />
+                  <Dumbbell size={18} className="text-[#4ECDC4]" />
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-xs text-gray-400 font-medium">Toplam Hacim (Tonaj)</span>
-                  <span className="text-[10px] text-gray-500">Kaldırılan Toplam İş Yükü</span>
+                  <span className="text-xs text-gray-400 font-medium">En Yüksek Ağırlık (PR)</span>
+                  <span className="text-[10px] text-[#4ECDC4] font-medium">
+                    {prList.length > 0 ? prList[0].exerciseName : 'Kişisel Rekor'}
+                  </span>
                 </div>
               </div>
               <p className="text-3xl font-extrabold text-[#4ECDC4]">
-                {totalVolumeKg > 0 ? `${totalVolumeKg.toLocaleString('tr-TR')} kg` : '0 kg'}
+                {prList.length > 0 ? `${prList[0].maxWeight} kg` : '0 kg'}
               </p>
-              <p className="text-xs text-gray-500 mt-1">
-                {avgVolumePerWorkout > 0 ? `Ort. ${avgVolumePerWorkout.toLocaleString('tr-TR')} kg / seans (Set × Tekrar × Kg)` : 'Set × Tekrar × Ağırlık'}
+              <p className="text-xs text-gray-400 mt-1">
+                Toplam İş: <strong className="text-white">{(totalVolumeKg / 1000).toFixed(2)} ton</strong> ({totalVolumeKg.toLocaleString('tr-TR')} kg)
               </p>
             </div>
 

@@ -8,14 +8,15 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, isPrimary, orderIndex } = body;
+    const { name, isPrimary, orderIndex, userId } = body;
+    const numericId = parseInt(id, 10);
 
     // If this is primary, unset other primary programs
     if (isPrimary) {
       await supabase
         .from('programs')
         .update({ isPrimary: false })
-        .neq('id', id);
+        .neq('id', numericId);
     }
 
     const updateData: any = {
@@ -31,11 +32,23 @@ export async function PUT(
     const { data, error } = await supabase
       .from('programs')
       .update(updateData)
-      .eq('id', id)
+      .eq('id', numericId)
       .select()
       .single();
 
     if (error) throw error;
+
+    // Handle user assignment if specified
+    if (userId !== undefined) {
+      await supabase.from('user_programs').delete().eq('programId', numericId);
+      if (userId) {
+        await supabase.from('user_programs').insert([{
+          userId: parseInt(String(userId), 10),
+          programId: numericId,
+          isActive: true
+        }]);
+      }
+    }
 
     return NextResponse.json(data);
   } catch (error) {

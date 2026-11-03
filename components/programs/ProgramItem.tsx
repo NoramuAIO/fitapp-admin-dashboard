@@ -102,9 +102,17 @@ export default function ProgramItem({
                                         <Star size={12} className="fill-[#5DD97C]" /> Birincil
                                     </span>
                                 )}
-                                {program.userId && (
-                                    <span className="flex items-center gap-1 bg-[#6366F1]/10 text-[#6366F1] px-2.5 py-1 rounded-lg text-xs font-bold">
-                                        <User size={12} /> Kişiye Özel
+                                {program.userName ? (
+                                    <span className="flex items-center gap-1.5 bg-[#6366F1]/15 text-[#818CF8] border border-[#6366F1]/30 px-2.5 py-1 rounded-lg text-xs font-bold shadow-sm">
+                                        <User size={13} className="text-[#818CF8]" /> {program.userName}
+                                    </span>
+                                ) : program.userId ? (
+                                    <span className="flex items-center gap-1.5 bg-[#6366F1]/15 text-[#818CF8] border border-[#6366F1]/30 px-2.5 py-1 rounded-lg text-xs font-bold shadow-sm">
+                                        <User size={13} className="text-[#818CF8]" /> Kullanıcı #{program.userId}
+                                    </span>
+                                ) : (
+                                    <span className="flex items-center gap-1.5 bg-white/5 text-gray-400 border border-white/10 px-2.5 py-1 rounded-lg text-xs font-medium">
+                                        Genel Program
                                     </span>
                                 )}
                             </div>
