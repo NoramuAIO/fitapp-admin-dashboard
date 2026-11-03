@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { User, Mail, Calendar, Activity, Dumbbell, Trash2, Search, UserCheck } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { User, Mail, Calendar, Activity, Dumbbell, Trash2, Search, UserCheck, BarChart2 } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
 
 interface UserModel {
@@ -14,6 +15,7 @@ interface UserModel {
 }
 
 export default function UsersPage() {
+  const router = useRouter();
   const { confirm } = useConfirm();
   const [users, setUsers] = useState<UserModel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -200,13 +202,26 @@ export default function UsersPage() {
                       </div>
                     </td>
                     <td className="p-4 text-right">
-                      <button
-                        onClick={() => deleteUser(user.id)}
-                        className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors opacity-70 group-hover:opacity-100 focus:opacity-100"
-                        title="Sil"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => {
+                            localStorage.setItem('selectedUserId', user.id.toString());
+                            router.push(`/analytics?userId=${user.id}`);
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#6366F1]/10 hover:bg-[#6366F1]/20 text-[#6366F1] border border-[#6366F1]/30 rounded-lg text-xs font-semibold transition-colors"
+                          title="Kullanıcı Analizlerini Gör"
+                        >
+                          <BarChart2 size={13} />
+                          <span>Analizler</span>
+                        </button>
+                        <button
+                          onClick={() => deleteUser(user.id)}
+                          className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors opacity-70 group-hover:opacity-100 focus:opacity-100"
+                          title="Sil"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

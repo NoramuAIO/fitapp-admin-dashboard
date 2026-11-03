@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   BarChart2,
   Activity,
@@ -118,12 +119,23 @@ export default function AnalyticsPage() {
   const [rankDesc, setRankDesc] = useState('');
   const [isSavingRank, setIsSavingRank] = useState(false);
 
+  const searchParams = useSearchParams();
+  const urlUserId = searchParams.get('userId');
+
   useEffect(() => {
     fetchUsers();
     loadRanks();
+    if (urlUserId) {
+      const parsed = parseInt(urlUserId, 10);
+      if (!isNaN(parsed)) {
+        setSelectedUserId(parsed);
+        localStorage.setItem('selectedUserId', parsed.toString());
+        return;
+      }
+    }
     const saved = localStorage.getItem('selectedUserId');
-    if (saved) setSelectedUserId(parseInt(saved));
-  }, []);
+    if (saved) setSelectedUserId(parseInt(saved, 10));
+  }, [urlUserId]);
 
   const loadRanks = async () => {
     try {
@@ -302,29 +314,18 @@ export default function AnalyticsPage() {
 
   // Separate real workout sessions from manual timer logs
   const workoutSessions = filteredSessions.filter(
-    s => !s.is_manual_timer && s.programId != null
+    s => !s.is_manual_timer
   );
   const durationSessions = filteredSessions.filter(
-    s => s.is_manual_timer || s.programId == null
+    s => s.is_manual_timer
   );
 
   // Key Stats
   const totalWorkouts = workoutSessions.length;
   const totalExercises = workoutSessions.reduce((sum, s) => sum + (s.completed_exercises || 0), 0);
 
-  let totalSets = 0;
-  workoutSessions.forEach(session => {
-    if (session.total_sets && session.total_sets > 0) {
-      totalSets += session.total_sets;
-    } else {
-      const program = programs.find(p => p.id === session.programId);
-      const avgSets = program?.exercises?.length
-        ? program.exercises.reduce((sum: number, ex: any) => sum + (ex.sets || 0), 0) / program.exercises.length
-        : 3;
-      totalSets += (session.completed_exercises || 0) * avgSets;
-    }
-  });
-  totalSets = Math.round(totalSets);
+  // Total sets calculated directly from completed exercise sets (consistent with mobile)
+  const totalSets = filteredCompletions.reduce((sum, c) => sum + (Number(c.sets) || 1), 0);
 
   // Total Volume Lifted (Tonaj Hesabı): weight * reps * sets
   const totalVolumeKg = filteredCompletions.reduce((sum, c) => {
@@ -365,7 +366,7 @@ export default function AnalyticsPage() {
 
   const dailyWorkouts = daysList.map(date => {
     const daySessions = workoutSessions.filter(s => s.startTime && s.startTime.split('T')[0] === date);
-    const dayCompletions = completions.filter(c => c.completedAt && c.completedAt.split('T')[0] === date);
+    const dayCompletions = filteredCompletions.filter(c => c.completedAt && c.completedAt.split('T')[0] === date);
     const dayVolume = dayCompletions.reduce((sum, c) => {
       const w = Number(c.weight) || 0;
       const r = Number(c.reps) || 10;
@@ -380,9 +381,9 @@ export default function AnalyticsPage() {
   });
   const maxDailyCount = Math.max(...dailyWorkouts.map(d => d.count), 1);
 
-  // Personal Records (PRs): Best weight lifted for each exercise
+  // Personal Records (PRs): Best weight lifted for each exercise in selected period
   const prMap: Record<string, { exerciseName: string; maxWeight: number; reps: number; date: string; userName: string; notes?: string | null }> = {};
-  completions.forEach(c => {
+  filteredCompletions.forEach(c => {
     const exName = c.exercises?.name || `Hareket #${c.exerciseId}`;
     const w = Number(c.weight) || 0;
     if (w > 0) {
