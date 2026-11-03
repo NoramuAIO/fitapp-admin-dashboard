@@ -156,8 +156,15 @@ export default function GoalsPage() {
     setShowForm(true);
   };
 
-  const calculateProgress = (current: number, target: number) => {
+  const calculateProgress = (current: number, target: number, unit?: string) => {
     if (!target) return 0;
+    if (unit === 'kg') {
+      if (!current) return 0;
+      const diff = Math.abs(current - target);
+      if (diff <= 0.2) return 100;
+      const proximity = Math.max(0, 1 - diff / Math.max(target, 1));
+      return Math.min(100, Math.round(proximity * 100));
+    }
     return Math.min(Math.round((current / target) * 100), 100);
   };
 
@@ -254,7 +261,7 @@ export default function GoalsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {goals.map((goal) => {
-            const progress = calculateProgress(goal.currentValue, goal.targetValue);
+            const progress = calculateProgress(goal.currentValue, goal.targetValue, goal.unit);
             const isCompleted = goal.status === 'completed';
             const user = users.find(u => u.id === goal.userId);
             const isKg = goal.unit === 'kg';
