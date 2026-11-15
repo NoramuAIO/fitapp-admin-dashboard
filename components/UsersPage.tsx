@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { User, Mail, Calendar, Activity, Dumbbell, Trash2, Search, UserCheck, BarChart2 } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
+import { apiFetch } from '@/lib/clientCache';
 
 interface UserModel {
   id: number;
@@ -28,7 +29,7 @@ export default function UsersPage() {
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch('/api/users');
+      const response = await apiFetch('/api/users');
       if (!response.ok) throw new Error('Failed to fetch users');
       const data = await response.json();
       setUsers(Array.isArray(data) ? data : []);
@@ -55,13 +56,13 @@ export default function UsersPage() {
     setTimeout(() => setSuccessToast(null), 3000);
 
     try {
-      let res = await fetch('/api/users', {
+      let res = await apiFetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete', id: numericId }),
       });
       if (!res.ok) {
-        res = await fetch(`/api/users?id=${numericId}`, { method: 'DELETE' });
+        res = await apiFetch(`/api/users?id=${numericId}`, { method: 'DELETE' });
       }
     } catch (error) {
       console.error('Error deleting user:', error);

@@ -7,6 +7,7 @@ import ExerciseSelectorModal, { Exercise, Program } from './programs/ExerciseSel
 import ImportModal from './programs/ImportModal'
 import ProgramItem from './programs/ProgramItem'
 import { useConfirm } from '@/components/ConfirmModal'
+import { apiFetch, invalidateApiCache } from '@/lib/clientCache'
 
 export default function ProgramList() {
   const { confirm } = useConfirm()
@@ -38,7 +39,7 @@ export default function ProgramList() {
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch('/api/users')
+      const response = await apiFetch('/api/users?lite=1')
       const data = await response.json()
       setUsers(Array.isArray(data) ? data : [])
     } catch (error) {
@@ -46,31 +47,36 @@ export default function ProgramList() {
     }
   }
 
-  const fetchPrograms = async () => {
+  const fetchPrograms = async (forceRefresh = false) => {
     try {
       // Get selected user ID from local storage
       const selectedUserId = typeof window !== 'undefined' ? localStorage.getItem('selectedUserId') : null
       const queryParams = selectedUserId ? `?userId=${selectedUserId}` : ''
       
-      // First fetch programs for this user (or global if null)
-      const programsResponse = await fetch(`/api/programs${queryParams}`)
-      const programsData = await programsResponse.json()
+      // Fetch programs and all workouts in parallel (eliminates N+1 workout requests)
+      const [programsResponse, workoutsResponse] = await Promise.all([
+        apiFetch(`/api/programs${queryParams}`, { forceRefresh }),
+        apiFetch('/api/workouts', { forceRefresh }),
+      ])
+      const [programsData, allWorkoutsData] = await Promise.all([
+        programsResponse.json(),
+        workoutsResponse.json(),
+      ])
 
       const pList = Array.isArray(programsData) ? programsData : []
+      const wList = Array.isArray(allWorkoutsData) ? allWorkoutsData : []
 
-      // Then fetch workouts for each program
-      const programsWithWorkouts = await Promise.all(
-        pList.map(async (program: Program) => {
-          try {
-            const workoutsResponse = await fetch(`/api/workouts?programId=${program.id}`)
-            const workouts = await workoutsResponse.json()
-            return { ...program, workouts: Array.isArray(workouts) ? workouts : [] }
-          } catch (error) {
-            console.error('Error fetching workouts for program:', program.id, error)
-            return { ...program, workouts: [] }
-          }
-        })
-      )
+      const workoutsByProgram = new Map<number, any[]>()
+      for (const workout of wList) {
+        const pid = Number(workout.programId)
+        if (!workoutsByProgram.has(pid)) workoutsByProgram.set(pid, [])
+        workoutsByProgram.get(pid)!.push(workout)
+      }
+
+      const programsWithWorkouts = pList.map((program: Program) => ({
+        ...program,
+        workouts: workoutsByProgram.get(Number(program.id)) || [],
+      }))
 
       setPrograms(programsWithWorkouts)
     } catch (error) {
@@ -82,7 +88,7 @@ export default function ProgramList() {
 
   const fetchAllExercises = async () => {
     try {
-      const response = await fetch('/api/exercises')
+      const response = await apiFetch('/api/exercises')
       const data = await response.json()
       setAllExercises(Array.isArray(data) ? data : [])
     } catch (error) {
@@ -104,9 +110,9 @@ export default function ProgramList() {
     setPrograms((prev) => prev.filter((p) => Number(p.id) !== numericId))
 
     try {
-      let response = await fetch(`/api/programs/${numericId}`, { method: 'DELETE' })
+      let response = await apiFetch(`/api/programs/${numericId}`, { method: 'DELETE' })
       if (!response.ok) {
-        response = await fetch('/api/programs', {
+        response = await apiFetch('/api/programs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'delete', id: numericId }),
@@ -142,9 +148,9 @@ export default function ProgramList() {
     )
 
     try {
-      let response = await fetch(`/api/workouts?id=${numericId}`, { method: 'DELETE' })
+      let response = await apiFetch(`/api/workouts?id=${numericId}`, { method: 'DELETE' })
       if (!response.ok) {
-        response = await fetch('/api/workouts', {
+        response = await apiFetch('/api/workouts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'delete', id: numericId }),
@@ -187,9 +193,9 @@ export default function ProgramList() {
     )
 
     try {
-      let response = await fetch(`/api/exercises/${exId}`, { method: 'DELETE' })
+      let response = await apiFetch(`/api/exercises/${exId}`, { method: 'DELETE' })
       if (!response.ok) {
-        response = await fetch(`/api/exercises/${exId}`, {
+        response = await apiFetch(`/api/exercises/${exId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'delete' }),
@@ -257,23 +263,30 @@ export default function ProgramList() {
     setPrograms(newPrograms)
 
     try {
-      for (let i = 0; i < newPrograms.length; i++) {
-        await fetch(`/api/programs/${newPrograms[i].id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...newPrograms[i],
-            orderIndex: i,
-          }),
-        })
-      }
+      await Promise.all(
+        newPrograms.map((prog, idx) =>
+          apiFetch(`/api/programs/${prog.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...prog,
+              orderIndex: idx,
+            }),
+          })
+        )
+      )
     } catch (error) {
       console.error('Error updating program order:', error)
-      await fetchPrograms()
+      await fetchPrograms(true)
     }
 
     setDraggedProgram(null)
     setDragOverProgram(null)
+  }
+
+  const refreshPrograms = async () => {
+    invalidateApiCache()
+    await fetchPrograms(true)
   }
 
   const toggleProgramCollapse = (programId: number) => {
@@ -364,7 +377,7 @@ export default function ProgramList() {
               isCollapsed={collapsedPrograms.has(program.id)}
               onToggleCollapse={() => toggleProgramCollapse(program.id)}
               onDelete={() => handleDeleteProgram(program.id)}
-              onUpdate={fetchPrograms}
+              onUpdate={refreshPrograms}
               onDeleteWorkout={handleDeleteWorkout}
               onDeleteExercise={handleDeleteExercise}
               onOpenExerciseSelector={(workoutId) => {
@@ -388,7 +401,7 @@ export default function ProgramList() {
         <AddProgramModal
           isOpen={showAddProgram}
           onClose={() => setShowAddProgram(false)}
-          onSuccess={fetchPrograms}
+          onSuccess={refreshPrograms}
           users={users}
         />
       )}
@@ -397,7 +410,7 @@ export default function ProgramList() {
         <ImportModal
           isOpen={showImportModal}
           onClose={() => setShowImportModal(false)}
-          onSuccess={fetchPrograms}
+          onSuccess={refreshPrograms}
         />
       )}
 
@@ -409,7 +422,7 @@ export default function ProgramList() {
             setSelectedProgramId(null)
             setSelectedWorkoutId(null)
           }}
-          onSuccess={fetchPrograms}
+          onSuccess={refreshPrograms}
           programId={selectedProgramId}
           workoutId={selectedWorkoutId}
           programs={programs}

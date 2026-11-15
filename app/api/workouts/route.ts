@@ -6,10 +6,11 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const programId = searchParams.get('programId')
+    const lite = searchParams.get('lite') === '1'
 
     let query = supabase
       .from('program_days')
-      .select('*, exercises(*)')
+      .select(lite ? 'id, programId, name, dayName, dayNumber, orderIndex' : '*, exercises(*)')
       .order('orderIndex', { ascending: true })
 
     if (programId) {
@@ -21,10 +22,10 @@ export async function GET(request: Request) {
     if (error) throw error
 
     // Her antremanın hareketlerini orderIndex'e göre sırala ve name field'ını ekle
-    const workouts = (data || []).map(workout => ({
+    const workouts = (data || []).map((workout: any) => ({
       ...workout,
       name: workout.name || workout.dayName, // Fallback to dayName if name doesn't exist
-      exercises: (workout.exercises || []).sort((a: any, b: any) => a.orderIndex - b.orderIndex)
+      exercises: lite ? [] : (workout.exercises || []).sort((a: any, b: any) => a.orderIndex - b.orderIndex)
     }))
 
     return NextResponse.json(workouts)

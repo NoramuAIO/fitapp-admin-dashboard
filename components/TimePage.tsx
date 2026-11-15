@@ -9,6 +9,7 @@ import {
   extractLocalTimeString,
   getLocalDateString,
 } from '@/lib/fitnessCalculations';
+import { apiFetch } from '@/lib/clientCache';
 
 interface WorkoutSession {
   id: number;
@@ -34,7 +35,7 @@ interface UserModel {
 export default function TimePage() {
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [users, setUsers] = useState<UserModel[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<number | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'workout' | 'duration'>('all');
@@ -44,7 +45,8 @@ export default function TimePage() {
     fetchUsers();
     const syncSelectedUser = () => {
       const saved = localStorage.getItem('selectedUserId');
-      setSelectedUserId(saved ? parseInt(saved, 10) : null);
+      const parsed = saved ? parseInt(saved, 10) : NaN;
+      setSelectedUserId(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
     };
     syncSelectedUser();
     window.addEventListener('userSelected', syncSelectedUser);
@@ -52,12 +54,13 @@ export default function TimePage() {
   }, []);
 
   useEffect(() => {
+    if (selectedUserId === undefined) return;
     loadSessions();
   }, [selectedUserId]);
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/users');
+      const res = await apiFetch('/api/users?lite=1');
       const data = await res.json();
       setUsers(Array.isArray(data) ? data : []);
     } catch {}
@@ -67,7 +70,7 @@ export default function TimePage() {
     try {
       setLoading(true);
       const url = selectedUserId ? `/api/workout-sessions?userId=${selectedUserId}` : '/api/workout-sessions';
-      const response = await fetch(url);
+      const response = await apiFetch(url);
       const data = await response.json();
       setSessions(Array.isArray(data) ? data : []);
     } catch (error) {

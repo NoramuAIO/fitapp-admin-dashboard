@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { getLocalDateString } from '@/lib/fitnessCalculations';
+import { apiFetch } from '@/lib/clientCache';
 import {
   MONDAY_FIRST_DAYS,
   REST_DAY_LABEL,
@@ -120,10 +121,6 @@ export default function CalendarPage() {
   const loadData = useCallback(async (explicitUserId?: number | null) => {
     setLoading(true);
     try {
-      const usersRes = await fetch('/api/users').catch(() => null);
-      const usersList: UserItem[] = usersRes?.ok ? await usersRes.json() : [];
-      setUsers(Array.isArray(usersList) ? usersList : []);
-
       let targetId = explicitUserId ?? null;
       if (!targetId && typeof window !== 'undefined') {
         const stored = localStorage.getItem('selectedUserId');
@@ -132,28 +129,72 @@ export default function CalendarPage() {
           targetId = parsed;
         }
       }
-      if (!targetId && Array.isArray(usersList) && usersList.length > 0) {
+
+      if (targetId) {
+        setActiveUserId(targetId);
+        const userQuery = `?userId=${targetId}`;
+        const [usersRes, progRes, workoutsRes, sessionsRes, completionsRes, schedRes] =
+          await Promise.all([
+            apiFetch('/api/users?lite=1').catch(() => null),
+            apiFetch(`/api/programs${userQuery}`).catch(() => null),
+            apiFetch('/api/workouts?lite=1').catch(() => null),
+            apiFetch(`/api/workout-sessions${userQuery}`).catch(() => null),
+            apiFetch(`/api/exercise-completions${userQuery}&limit=300`).catch(() => null),
+            apiFetch(`/api/workout-schedules${userQuery}`).catch(() => null),
+          ]);
+
+        const [usersList, progData, workoutsData, sessionsData, completionsData, schedData] =
+          await Promise.all([
+            usersRes?.ok ? usersRes.json() : [],
+            progRes?.ok ? progRes.json() : [],
+            workoutsRes?.ok ? workoutsRes.json() : [],
+            sessionsRes?.ok ? sessionsRes.json() : [],
+            completionsRes?.ok ? completionsRes.json() : [],
+            schedRes?.ok ? schedRes.json() : null,
+          ]);
+
+        setUsers(Array.isArray(usersList) ? usersList : []);
+        setPrograms(Array.isArray(progData) ? progData : []);
+        setWorkouts(Array.isArray(workoutsData) ? workoutsData : []);
+        setSessions(Array.isArray(sessionsData) ? sessionsData : []);
+        setCompletions(Array.isArray(completionsData) ? completionsData : []);
+        setSchedule(normalizeUserSchedule(schedData, targetId));
+        return;
+      }
+
+      const [usersRes, workoutsRes] = await Promise.all([
+        apiFetch('/api/users?lite=1').catch(() => null),
+        apiFetch('/api/workouts?lite=1').catch(() => null),
+      ]);
+      const usersList: UserItem[] = usersRes?.ok ? await usersRes.json() : [];
+      const workoutsData = workoutsRes?.ok ? await workoutsRes.json() : [];
+      setUsers(Array.isArray(usersList) ? usersList : []);
+      setWorkouts(Array.isArray(workoutsData) ? workoutsData : []);
+
+      if (Array.isArray(usersList) && usersList.length > 0) {
         targetId = usersList[0].id;
       }
       setActiveUserId(targetId);
 
       const userQuery = targetId ? `?userId=${targetId}` : '';
-      const [progRes, workoutsRes, sessionsRes, completionsRes, schedRes] = await Promise.all([
-        fetch(`/api/programs${userQuery}`).catch(() => null),
-        fetch('/api/workouts').catch(() => null),
-        fetch(`/api/workout-sessions${userQuery}`).catch(() => null),
-        fetch(`/api/exercise-completions${userQuery}`).catch(() => null),
-        fetch(`/api/workout-schedules${userQuery}`).catch(() => null),
+      const completionsQuery = targetId
+        ? `?userId=${targetId}&limit=300`
+        : '?limit=300';
+      const [progRes, sessionsRes, completionsRes, schedRes] = await Promise.all([
+        apiFetch(`/api/programs${userQuery}`).catch(() => null),
+        apiFetch(`/api/workout-sessions${userQuery}`).catch(() => null),
+        apiFetch(`/api/exercise-completions${completionsQuery}`).catch(() => null),
+        apiFetch(`/api/workout-schedules${userQuery}`).catch(() => null),
       ]);
 
-      const progData = progRes?.ok ? await progRes.json() : [];
-      const workoutsData = workoutsRes?.ok ? await workoutsRes.json() : [];
-      const sessionsData = sessionsRes?.ok ? await sessionsRes.json() : [];
-      const completionsData = completionsRes?.ok ? await completionsRes.json() : [];
-      const schedData = schedRes?.ok ? await schedRes.json() : null;
+      const [progData, sessionsData, completionsData, schedData] = await Promise.all([
+        progRes?.ok ? progRes.json() : [],
+        sessionsRes?.ok ? sessionsRes.json() : [],
+        completionsRes?.ok ? completionsRes.json() : [],
+        schedRes?.ok ? schedRes.json() : null,
+      ]);
 
       setPrograms(Array.isArray(progData) ? progData : []);
-      setWorkouts(Array.isArray(workoutsData) ? workoutsData : []);
       setSessions(Array.isArray(sessionsData) ? sessionsData : []);
       setCompletions(Array.isArray(completionsData) ? completionsData : []);
       setSchedule(normalizeUserSchedule(schedData, targetId));
@@ -269,7 +310,7 @@ export default function CalendarPage() {
     }
     setSaving(true);
     try {
-      const res = await fetch('/api/workout-schedules', {
+      const res = await apiFetch('/api/workout-schedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -312,7 +353,7 @@ export default function CalendarPage() {
         return;
       }
 
-      const res = await fetch('/api/workout-schedules', {
+      const res = await apiFetch('/api/workout-schedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -349,7 +390,7 @@ export default function CalendarPage() {
     if (!selectedDay || !activeUserId) return;
     setSaving(true);
     try {
-      const res = await fetch('/api/workout-schedules', {
+      const res = await apiFetch('/api/workout-schedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

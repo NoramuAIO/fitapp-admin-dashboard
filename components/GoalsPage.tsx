@@ -8,6 +8,7 @@ import {
   calculateGoalProgressPercent,
   getLocalDateString,
 } from '@/lib/fitnessCalculations';
+import { apiFetch } from '@/lib/clientCache';
 
 interface Goal {
   id: number;
@@ -35,7 +36,7 @@ export default function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [weightLogs, setWeightLogs] = useState<any[]>([]);
   const [users, setUsers] = useState<UserModel[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<number | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   
@@ -59,7 +60,8 @@ export default function GoalsPage() {
     const syncSelectedUser = () => {
       if (typeof window === 'undefined') return;
       const saved = localStorage.getItem('selectedUserId');
-      setSelectedUserId(saved ? parseInt(saved, 10) : null);
+      const parsed = saved ? parseInt(saved, 10) : NaN;
+      setSelectedUserId(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
     };
     syncSelectedUser();
     window.addEventListener('userSelected', syncSelectedUser);
@@ -67,12 +69,13 @@ export default function GoalsPage() {
   }, []);
 
   useEffect(() => {
+    if (selectedUserId === undefined) return;
     loadGoals();
   }, [selectedUserId]);
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/users');
+      const res = await apiFetch('/api/users?lite=1');
       const data = await res.json();
       setUsers(Array.isArray(data) ? data : []);
     } catch {}
@@ -84,8 +87,8 @@ export default function GoalsPage() {
       const goalsUrl = selectedUserId ? `/api/goals?userId=${selectedUserId}` : '/api/goals';
       const weightUrl = selectedUserId ? `/api/weight-logs?userId=${selectedUserId}` : '/api/weight-logs';
       const [goalsRes, weightRes] = await Promise.all([
-        fetch(goalsUrl),
-        fetch(weightUrl).catch(() => null),
+        apiFetch(goalsUrl),
+        apiFetch(weightUrl).catch(() => null),
       ]);
       const data = await goalsRes.json();
       const weightData = weightRes?.ok ? await weightRes.json() : [];
@@ -107,7 +110,7 @@ export default function GoalsPage() {
       const method = editingGoal ? 'PUT' : 'POST';
       
       const payload = { ...formData, userId: effectiveUserId };
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -138,9 +141,9 @@ export default function GoalsPage() {
     setGoals((prev) => prev.filter((g) => Number(g.id) !== numericId));
 
     try {
-      let response = await fetch(`/api/goals/${numericId}`, { method: 'DELETE' });
+      let response = await apiFetch(`/api/goals/${numericId}`, { method: 'DELETE' });
       if (!response.ok) {
-        response = await fetch('/api/goals', {
+        response = await apiFetch('/api/goals', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'delete', id: numericId }),

@@ -6,6 +6,8 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
+    const rawLimit = Number(searchParams.get('limit'));
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 500) : 100;
     
     let query = supabase
       .from('workout_sessions')
@@ -13,24 +15,14 @@ export async function GET(request: Request) {
         *,
         programs (
           id,
-          name,
-          program_days (
-            id,
-            name,
-            exercises (
-              id,
-              name,
-              sets,
-              reps
-            )
-          )
+          name
         ),
         users (
           name
         )
       `)
       .order('createdAt', { ascending: false })
-      .limit(100);
+      .limit(limit);
 
     if (userId) {
       query = query.eq('userId', parseInt(userId));
@@ -168,15 +160,7 @@ export async function POST(request: Request) {
       *,
       programs (
         id,
-        name,
-        program_days (
-          id,
-          exercises (
-            id,
-            sets,
-            reps
-          )
-        )
+        name
       ),
       users (
         name

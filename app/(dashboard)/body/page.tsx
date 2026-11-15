@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Scale, TrendingDown, TrendingUp, Trash2, BarChart3, Plus, X, Calendar, Activity, Coffee, Utensils } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
 import { getLocalDateString } from '@/lib/fitnessCalculations';
+import { apiFetch } from '@/lib/clientCache';
 
 interface WeightLog {
   id: number;
@@ -89,7 +90,7 @@ export default function BodyAdminPage() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/users');
+      const res = await apiFetch('/api/users?lite=1');
       const data = await res.json();
       setUsers(Array.isArray(data) ? data : []);
     } catch { setUsers([]); }
@@ -99,8 +100,8 @@ export default function BodyAdminPage() {
     setLoading(true);
     try {
       const [wRes, fRes] = await Promise.all([
-        fetch(`/api/weight-logs?userId=${userId}`),
-        fetch(`/api/body-fat-logs?userId=${userId}`),
+        apiFetch(`/api/weight-logs?userId=${userId}`),
+        apiFetch(`/api/body-fat-logs?userId=${userId}`),
       ]);
       const wData = await wRes.json();
       const fData = await fRes.json();
@@ -125,13 +126,13 @@ export default function BodyAdminPage() {
     setTimeout(() => setSuccessToast(null), 3000);
 
     try {
-      let res = await fetch('/api/weight-logs', {
+      let res = await apiFetch('/api/weight-logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete', id: numericId }),
       });
       if (!res.ok) {
-        res = await fetch(`/api/weight-logs?id=${numericId}`, { method: 'DELETE' });
+        res = await apiFetch(`/api/weight-logs?id=${numericId}`, { method: 'DELETE' });
       }
     } catch (err) {
       console.error('Delete weight log error:', err);
@@ -154,13 +155,13 @@ export default function BodyAdminPage() {
     setTimeout(() => setSuccessToast(null), 3000);
 
     try {
-      let res = await fetch('/api/body-fat-logs', {
+      let res = await apiFetch('/api/body-fat-logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete', id: numericId }),
       });
       if (!res.ok) {
-        res = await fetch(`/api/body-fat-logs?id=${numericId}`, { method: 'DELETE' });
+        res = await apiFetch(`/api/body-fat-logs?id=${numericId}`, { method: 'DELETE' });
       }
     } catch (err) {
       console.error('Delete fat log error:', err);
@@ -181,7 +182,7 @@ export default function BodyAdminPage() {
     }
 
     try {
-      const res = await fetch('/api/weight-logs', {
+      const res = await apiFetch('/api/weight-logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

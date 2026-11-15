@@ -6,19 +6,22 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
 
-    // Fetch all programs
-    const { data: programs, error: programsError } = await supabase
-      .from('programs')
-      .select('*')
-      .order('isPrimary', { ascending: false })
-      .order('createdAt', { ascending: false })
+    // Fetch all programs and user assignments in parallel
+    const [
+      { data: programs, error: programsError },
+      { data: allUserPrograms },
+    ] = await Promise.all([
+      supabase
+        .from('programs')
+        .select('*')
+        .order('isPrimary', { ascending: false })
+        .order('createdAt', { ascending: false }),
+      supabase
+        .from('user_programs')
+        .select('programId, userId, users (id, name, email)'),
+    ])
 
     if (programsError) throw programsError
-
-    // Fetch all user assignments with user details
-    const { data: allUserPrograms } = await supabase
-      .from('user_programs')
-      .select('programId, userId, users (id, name, email)')
 
     const userProgramMap = new Map<number, { userId: number; userName: string }>()
     ;(allUserPrograms || []).forEach((up: any) => {

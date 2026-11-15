@@ -3,34 +3,64 @@ import { NextResponse } from 'next/server';
 import { hashPassword } from '@/lib/auth';
 
 // Get all users (never expose password hashes or plaintext passwords)
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const { data: users, error } = await supabase
-      .from('users')
-      .select('id, name, email, createdAt')
-      .order('id', { ascending: false });
+    const { searchParams } = new URL(request.url);
+    const lite = searchParams.get('lite') === '1';
+
+    if (lite) {
+      const { data: users, error } = await supabase
+        .from('users')
+        .select('id, name, email, createdAt')
+        .order('id', { ascending: false });
+
+      if (error) throw error;
+
+      const liteUsers = (users || []).map((user) => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        createdAt: user.createdAt,
+        created_at: user.createdAt,
+        total_workouts: 0,
+        total_programs: 0,
+      }));
+
+      return NextResponse.json(liteUsers);
+    }
+
+    const [
+      { data: users, error },
+      { data: sessions },
+    ] = await Promise.all([
+      supabase
+        .from('users')
+        .select('id, name, email, createdAt')
+        .order('id', { ascending: false }),
+      supabase
+        .from('workout_sessions')
+        .select('userId'),
+    ]);
 
     if (error) throw error;
 
-    // Get workout counts for each user
-    const usersWithStats = await Promise.all(
-      (users || []).map(async (user) => {
-        const { count } = await supabase
-          .from('workout_sessions')
-          .select('*', { count: 'exact', head: true })
-          .eq('userId', user.id);
+    const workoutCountByUser = new Map<number, number>();
+    for (const row of sessions || []) {
+      const uid = Number(row.userId);
+      if (Number.isFinite(uid) && uid > 0) {
+        workoutCountByUser.set(uid, (workoutCountByUser.get(uid) || 0) + 1);
+      }
+    }
 
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          createdAt: user.createdAt,
-          created_at: user.createdAt,
-          total_workouts: count || 0,
-          total_programs: 0
-        };
-      })
-    );
+    const usersWithStats = (users || []).map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      createdAt: user.createdAt,
+      created_at: user.createdAt,
+      total_workouts: workoutCountByUser.get(Number(user.id)) || 0,
+      total_programs: 0,
+    }));
 
     return NextResponse.json(usersWithStats);
   } catch (error) {

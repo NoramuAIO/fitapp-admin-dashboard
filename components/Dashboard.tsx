@@ -7,6 +7,7 @@ import {
   Sparkles, RefreshCw, Coffee,
 } from 'lucide-react';
 import Link from 'next/link';
+import { apiFetch } from '@/lib/clientCache';
 import {
   isRealWorkoutSession,
   isManualTimerSession,
@@ -87,15 +88,50 @@ export default function Dashboard() {
   const loadAll = async () => {
     try {
       const userId = typeof window !== 'undefined' ? localStorage.getItem('selectedUserId') : null;
-      let loadedUsers: any[] = [];
-      try {
-        const usersRes = await fetch('/api/users');
-        const parsedUsers = await usersRes.json();
-        loadedUsers = Array.isArray(parsedUsers) ? parsedUsers : [];
-      } catch {}
+      const parsedUserId = userId ? parseInt(userId, 10) : NaN;
+      const selectedId = Number.isFinite(parsedUserId) && parsedUserId > 0 ? parsedUserId : null;
 
-      const selectedUserObj = userId
-        ? loadedUsers.find((x: any) => x.id === parseInt(userId, 10))
+      const programsUrl = selectedId ? `/api/programs?userId=${selectedId}` : '/api/programs';
+      const sessionsUrl = selectedId ? `/api/workout-sessions?userId=${selectedId}` : '/api/workout-sessions';
+      const goalsUrl = selectedId ? `/api/goals?userId=${selectedId}` : '/api/goals';
+      const completionsUrl = selectedId
+        ? `/api/exercise-completions?userId=${selectedId}&limit=300`
+        : '/api/exercise-completions?limit=300';
+
+      const [
+        usersRes,
+        programsRes,
+        sessionsRes,
+        goalsRes,
+        exercisesRes,
+        workoutsRes,
+        completionsRes,
+        scheduleRes,
+        wRes,
+        fRes,
+      ] = await Promise.all([
+        apiFetch('/api/users?lite=1').catch(() => null),
+        apiFetch(programsUrl).catch(() => null),
+        apiFetch(sessionsUrl).catch(() => null),
+        apiFetch(goalsUrl).catch(() => null),
+        apiFetch('/api/exercises').catch(() => null),
+        apiFetch('/api/workouts?lite=1').catch(() => null),
+        apiFetch(completionsUrl).catch(() => null),
+        selectedId
+          ? apiFetch(`/api/workout-schedules?userId=${selectedId}`).catch(() => null)
+          : Promise.resolve(null),
+        selectedId
+          ? apiFetch(`/api/weight-logs?userId=${selectedId}`).catch(() => null)
+          : Promise.resolve(null),
+        selectedId
+          ? apiFetch(`/api/body-fat-logs?userId=${selectedId}`).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+
+      const parsedUsers = usersRes?.ok ? await usersRes.json() : [];
+      const loadedUsers: any[] = Array.isArray(parsedUsers) ? parsedUsers : [];
+      const selectedUserObj = selectedId
+        ? loadedUsers.find((x: any) => Number(x.id) === selectedId)
         : null;
       if (selectedUserObj) {
         setUserName(selectedUserObj.name);
@@ -106,40 +142,45 @@ export default function Dashboard() {
       const scheduleUserId = selectedUserObj?.id ?? loadedUsers[0]?.id ?? null;
       setScheduleOwnerName(selectedUserObj?.name || loadedUsers[0]?.name || '');
 
-      const programsUrl = userId ? `/api/programs?userId=${userId}` : '/api/programs';
       const [
-        programsRes,
-        sessionsRes,
-        goalsRes,
-        exercisesRes,
-        workoutsRes,
-        scheduleRes,
-        completionsRes,
+        programs,
+        sessions,
+        goals,
+        exercises,
+        workoutsList,
+        initialScheduleData,
+        initialCompletionsData,
+        wData,
+        fData,
       ] = await Promise.all([
-        fetch(programsUrl).catch(() => null),
-        fetch(userId ? `/api/workout-sessions?userId=${userId}` : '/api/workout-sessions').catch(() => null),
-        fetch(userId ? `/api/goals?userId=${userId}` : '/api/goals').catch(() => null),
-        fetch('/api/exercises').catch(() => null),
-        fetch('/api/workouts').catch(() => null),
-        scheduleUserId
-          ? fetch(`/api/workout-schedules?userId=${scheduleUserId}`).catch(() => null)
-          : Promise.resolve(null),
-        fetch(
-          scheduleUserId
-            ? `/api/exercise-completions?userId=${scheduleUserId}`
-            : '/api/exercise-completions'
-        ).catch(() => null),
+        programsRes?.ok ? programsRes.json() : [],
+        sessionsRes?.ok ? sessionsRes.json() : [],
+        goalsRes?.ok ? goalsRes.json() : [],
+        exercisesRes?.ok ? exercisesRes.json() : [],
+        workoutsRes?.ok ? workoutsRes.json() : [],
+        scheduleRes?.ok ? scheduleRes.json() : null,
+        completionsRes?.ok ? completionsRes.json() : [],
+        wRes?.ok ? wRes.json() : [],
+        fRes?.ok ? fRes.json() : [],
       ]);
 
-      const programs = programsRes?.ok ? await programsRes.json() : [];
-      const users = loadedUsers;
-      const sessions = sessionsRes?.ok ? await sessionsRes.json() : [];
-      const goals = goalsRes?.ok ? await goalsRes.json() : [];
-      const exercises = exercisesRes?.ok ? await exercisesRes.json() : [];
-      const workoutsList = workoutsRes?.ok ? await workoutsRes.json() : [];
-      const scheduleData = scheduleRes?.ok ? await scheduleRes.json() : null;
-      const completionsData = completionsRes?.ok ? await completionsRes.json() : [];
+      let scheduleData = initialScheduleData;
+      let completionsData = initialCompletionsData;
 
+      if (!selectedId && scheduleUserId) {
+        const [fallbackSchedRes, fallbackCompRes] = await Promise.all([
+          apiFetch(`/api/workout-schedules?userId=${scheduleUserId}`).catch(() => null),
+          apiFetch(`/api/exercise-completions?userId=${scheduleUserId}&limit=300`).catch(() => null),
+        ]);
+        if (fallbackSchedRes?.ok) {
+          scheduleData = await fallbackSchedRes.json();
+        }
+        if (fallbackCompRes?.ok) {
+          completionsData = await fallbackCompRes.json();
+        }
+      }
+
+      const users = loadedUsers;
       const safePrograms = Array.isArray(programs) ? programs : [];
       const safeWorkouts = Array.isArray(workoutsList) ? workoutsList : [];
       const safeSessions = Array.isArray(sessions) ? sessions : [];
@@ -183,13 +224,7 @@ export default function Dashboard() {
       setRecentSessions(Array.isArray(sessions) ? sessions.slice(0, 5) : []);
 
       // Body stats
-      if (userId) {
-        const [wRes, fRes] = await Promise.all([
-          fetch(`/api/weight-logs?userId=${userId}`).catch(() => null),
-          fetch(`/api/body-fat-logs?userId=${userId}`).catch(() => null),
-        ]);
-        const wData = wRes?.ok ? await wRes.json() : [];
-        const fData = fRes?.ok ? await fRes.json() : [];
+      if (selectedId) {
         setWeightLogs(Array.isArray(wData) ? wData.slice(0, 5) : []);
         setFatLogs(Array.isArray(fData) ? fData.slice(0, 5) : []);
       }

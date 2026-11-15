@@ -13,6 +13,19 @@ export const revalidate = 0;
 
 const SCHEDULE_WIDGET_TYPE = 'workout_schedule_data';
 const inMemorySchedules = new Map<number, UserWorkoutSchedule>();
+let primaryTableAvailable = true;
+
+function isMissingScheduleTableError(error: any): boolean {
+  if (!error) return false;
+  const code = String(error.code || '');
+  const message = String(error.message || '');
+  return (
+    code === '42P01' ||
+    code === 'PGRST205' ||
+    /workout_schedules/i.test(message) ||
+    /does not exist|schema cache/i.test(message)
+  );
+}
 
 function parsePositiveUserId(value: unknown): number | null {
   if (value === undefined || value === null || value === '' || value === 'all' || value === 'null' || value === 'undefined') {
@@ -58,20 +71,27 @@ async function authorizeScheduleRequest(
 
 async function loadScheduleFromStore(userId: number): Promise<UserWorkoutSchedule> {
   // 1. Primary table: workout_schedules
-  try {
-    const { data, error } = await supabase
-      .from('workout_schedules')
-      .select('*')
-      .eq('userId', userId)
-      .maybeSingle();
+  if (primaryTableAvailable) {
+    try {
+      const { data, error } = await supabase
+        .from('workout_schedules')
+        .select('*')
+        .eq('userId', userId)
+        .maybeSingle();
 
-    if (!error && data) {
-      const normalized = normalizeUserSchedule(data, userId);
-      inMemorySchedules.set(userId, normalized);
-      return normalized;
+      if (error && isMissingScheduleTableError(error)) {
+        primaryTableAvailable = false;
+      } else if (!error && data) {
+        const normalized = normalizeUserSchedule(data, userId);
+        inMemorySchedules.set(userId, normalized);
+        return normalized;
+      }
+    } catch (err) {
+      if (isMissingScheduleTableError(err)) {
+        primaryTableAvailable = false;
+      }
+      console.warn('workout_schedules table read fallback:', err);
     }
-  } catch (err) {
-    console.warn('workout_schedules table read fallback:', err);
   }
 
   // 2. Fallback table: custom_widgets metadata row
@@ -113,54 +133,65 @@ async function persistScheduleToStore(
   inMemorySchedules.set(userId, normalized);
 
   // 1. Try primary table: workout_schedules
-  try {
-    const { data: existing, error: findErr } = await supabase
-      .from('workout_schedules')
-      .select('id')
-      .eq('userId', userId)
-      .maybeSingle();
+  if (primaryTableAvailable) {
+    try {
+      const { data: existing, error: findErr } = await supabase
+        .from('workout_schedules')
+        .select('id')
+        .eq('userId', userId)
+        .maybeSingle();
 
-    if (!findErr) {
-      if (existing?.id) {
-        const { data: updated, error: updateErr } = await supabase
-          .from('workout_schedules')
-          .update({
-            weeklySchedule: normalized.weeklySchedule,
-            overrides: normalized.overrides,
-            updatedAt: normalized.updatedAt,
-          })
-          .eq('id', existing.id)
-          .select()
-          .maybeSingle();
-
-        if (!updateErr && updated) {
-          const result = normalizeUserSchedule(updated, userId);
-          inMemorySchedules.set(userId, result);
-          return result;
-        }
-      } else {
-        const { data: inserted, error: insertErr } = await supabase
-          .from('workout_schedules')
-          .insert([
-            {
-              userId,
+      if (findErr && isMissingScheduleTableError(findErr)) {
+        primaryTableAvailable = false;
+      } else if (!findErr) {
+        if (existing?.id) {
+          const { data: updated, error: updateErr } = await supabase
+            .from('workout_schedules')
+            .update({
               weeklySchedule: normalized.weeklySchedule,
               overrides: normalized.overrides,
               updatedAt: normalized.updatedAt,
-            },
-          ])
-          .select()
-          .maybeSingle();
+            })
+            .eq('id', existing.id)
+            .select()
+            .maybeSingle();
 
-        if (!insertErr && inserted) {
-          const result = normalizeUserSchedule(inserted, userId);
-          inMemorySchedules.set(userId, result);
-          return result;
+          if (updateErr && isMissingScheduleTableError(updateErr)) {
+            primaryTableAvailable = false;
+          } else if (!updateErr && updated) {
+            const result = normalizeUserSchedule(updated, userId);
+            inMemorySchedules.set(userId, result);
+            return result;
+          }
+        } else {
+          const { data: inserted, error: insertErr } = await supabase
+            .from('workout_schedules')
+            .insert([
+              {
+                userId,
+                weeklySchedule: normalized.weeklySchedule,
+                overrides: normalized.overrides,
+                updatedAt: normalized.updatedAt,
+              },
+            ])
+            .select()
+            .maybeSingle();
+
+          if (insertErr && isMissingScheduleTableError(insertErr)) {
+            primaryTableAvailable = false;
+          } else if (!insertErr && inserted) {
+            const result = normalizeUserSchedule(inserted, userId);
+            inMemorySchedules.set(userId, result);
+            return result;
+          }
         }
       }
+    } catch (err) {
+      if (isMissingScheduleTableError(err)) {
+        primaryTableAvailable = false;
+      }
+      console.warn('workout_schedules write fallback:', err);
     }
-  } catch (err) {
-    console.warn('workout_schedules write fallback:', err);
   }
 
   // 2. Fallback table: custom_widgets

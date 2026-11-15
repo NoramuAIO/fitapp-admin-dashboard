@@ -29,6 +29,7 @@ import {
   Check
 } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
+import { apiFetch } from '@/lib/clientCache';
 import {
   isRealWorkoutSession,
   isManualTimerSession,
@@ -114,7 +115,7 @@ export default function AnalyticsPage() {
   const [completions, setCompletions] = useState<ExerciseCompletion[]>([]);
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
   const [users, setUsers] = useState<UserModel[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<number | null | undefined>(undefined);
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | 'all'>('7d');
   const [loading, setLoading] = useState(true);
 
@@ -146,12 +147,13 @@ export default function AnalyticsPage() {
       }
     }
     const saved = localStorage.getItem('selectedUserId');
-    if (saved) setSelectedUserId(parseInt(saved, 10));
+    const parsedSaved = saved ? parseInt(saved, 10) : NaN;
+    setSelectedUserId(Number.isFinite(parsedSaved) && parsedSaved > 0 ? parsedSaved : null);
   }, [urlUserId]);
 
   const loadRanks = async () => {
     try {
-      const res = await fetch('/api/athlete-ranks');
+      const res = await apiFetch('/api/athlete-ranks');
       const data = await res.json();
       if (Array.isArray(data)) setRanks(data);
     } catch {}
@@ -194,13 +196,13 @@ export default function AnalyticsPage() {
         description: rankDesc.trim(),
       };
       if (editingRank) {
-        await fetch('/api/athlete-ranks', {
+        await apiFetch('/api/athlete-ranks', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: editingRank.id, ...payload }),
         });
       } else {
-        await fetch('/api/athlete-ranks', {
+        await apiFetch('/api/athlete-ranks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -227,13 +229,13 @@ export default function AnalyticsPage() {
     try {
       const numericId = Number(id);
       setRanks((prev) => prev.filter((r) => Number(r.id) !== numericId));
-      let res = await fetch('/api/athlete-ranks', {
+      let res = await apiFetch('/api/athlete-ranks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete', id: numericId }),
       });
       if (!res.ok) {
-        res = await fetch(`/api/athlete-ranks?id=${numericId}`, {
+        res = await apiFetch(`/api/athlete-ranks?id=${numericId}`, {
           method: 'DELETE',
         });
       }
@@ -247,7 +249,7 @@ export default function AnalyticsPage() {
 
   const handleResetDefaultRanks = async () => {
     try {
-      await fetch('/api/athlete-ranks', {
+      await apiFetch('/api/athlete-ranks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'reset_defaults' }),
@@ -257,12 +259,13 @@ export default function AnalyticsPage() {
   };
 
   useEffect(() => {
+    if (selectedUserId === undefined) return;
     loadData();
   }, [selectedUserId]);
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/users');
+      const res = await apiFetch('/api/users?lite=1');
       const data = await res.json();
       setUsers(Array.isArray(data) ? data : []);
     } catch {}
@@ -272,14 +275,14 @@ export default function AnalyticsPage() {
     try {
       setLoading(true);
       const sessionUrl = selectedUserId ? `/api/workout-sessions?userId=${selectedUserId}` : '/api/workout-sessions';
-      const completionUrl = selectedUserId ? `/api/exercise-completions?userId=${selectedUserId}` : '/api/exercise-completions';
+      const completionUrl = selectedUserId ? `/api/exercise-completions?userId=${selectedUserId}&limit=500` : '/api/exercise-completions?limit=500';
       const weightUrl = selectedUserId ? `/api/weight-logs?userId=${selectedUserId}` : '/api/weight-logs';
 
       const [sessionsRes, programsRes, completionsRes, weightRes] = await Promise.all([
-        fetch(sessionUrl),
-        fetch('/api/programs'),
-        fetch(completionUrl),
-        fetch(weightUrl),
+        apiFetch(sessionUrl),
+        apiFetch('/api/programs'),
+        apiFetch(completionUrl),
+        apiFetch(weightUrl),
       ]);
 
       const sessionsData = await sessionsRes.json();

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Search, Filter, Trash2, Plus, Upload, Activity, Dumbbell, Edit2, History, X, Calendar, TrendingUp, User } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
+import { apiFetch } from '@/lib/clientCache';
 
 interface Exercise {
   id: number;
@@ -69,8 +70,8 @@ export default function ExercisesPage() {
     try {
       setLoading(true);
       const [exercisesRes, programsRes] = await Promise.all([
-        fetch('/api/exercises'),
-        fetch('/api/programs'),
+        apiFetch('/api/exercises'),
+        apiFetch('/api/programs'),
       ]);
       
       const exercisesData = await exercisesRes.json();
@@ -97,7 +98,7 @@ export default function ExercisesPage() {
       const url = editingExercise ? `/api/exercises/${editingExercise.id}` : '/api/exercises';
       const method = editingExercise ? 'PUT' : 'POST';
       
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -136,13 +137,13 @@ export default function ExercisesPage() {
     setExercises((prev) => prev.filter((e) => Number(e.id) !== numericId));
 
     try {
-      let response = await fetch(`/api/exercises/${numericId}`, {
+      let response = await apiFetch(`/api/exercises/${numericId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete' }),
       });
       if (!response.ok) {
-        response = await fetch(`/api/exercises/${numericId}`, { method: 'DELETE' });
+        response = await apiFetch(`/api/exercises/${numericId}`, { method: 'DELETE' });
       }
     } catch (error) {
       console.error('Error deleting exercise:', error);
@@ -168,7 +169,7 @@ export default function ExercisesPage() {
     setShowHistoryModal(true);
     setHistoryLoading(true);
     try {
-      const res = await fetch(`/api/exercise-completions?exerciseId=${exercise.id}`);
+      const res = await apiFetch(`/api/exercise-completions?exerciseId=${exercise.id}`);
       if (res.ok) {
         const data = await res.json();
         setExerciseHistory(Array.isArray(data) ? data : []);
@@ -206,7 +207,7 @@ export default function ExercisesPage() {
 
     try {
       setLoading(true);
-      const response = await fetch(apiEndpoint, {
+      const response = await apiFetch(apiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -295,13 +296,13 @@ export default function ExercisesPage() {
     await Promise.allSettled(
       idsToDelete.map(async (id) => {
         try {
-          let res = await fetch(`/api/exercises/${id}`, {
+          let res = await apiFetch(`/api/exercises/${id}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'delete' }),
           });
           if (!res.ok) {
-            await fetch(`/api/exercises/${id}`, { method: 'DELETE' });
+            await apiFetch(`/api/exercises/${id}`, { method: 'DELETE' });
           }
         } catch (e) {
           console.error(e);
@@ -328,13 +329,13 @@ export default function ExercisesPage() {
     await Promise.allSettled(
       idsToDelete.map(async (id) => {
         try {
-          let res = await fetch(`/api/exercises/${id}`, {
+          let res = await apiFetch(`/api/exercises/${id}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'delete' }),
           });
           if (!res.ok) {
-            await fetch(`/api/exercises/${id}`, { method: 'DELETE' });
+            await apiFetch(`/api/exercises/${id}`, { method: 'DELETE' });
           }
         } catch (e) {
           console.error(e);

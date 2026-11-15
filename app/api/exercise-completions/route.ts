@@ -8,6 +8,7 @@ export async function GET(request: Request) {
     const userId = searchParams.get('userId');
     const sessionId = searchParams.get('sessionId');
     const exerciseId = searchParams.get('exerciseId');
+    const rawLimit = Number(searchParams.get('limit'));
     
     let query = supabase
       .from('exercise_completions')
@@ -36,6 +37,12 @@ export async function GET(request: Request) {
 
     if (exerciseId) {
       query = query.eq('exerciseId', parseInt(exerciseId));
+    }
+
+    if (Number.isFinite(rawLimit) && rawLimit > 0) {
+      query = query.limit(Math.min(Math.floor(rawLimit), 2000));
+    } else if (!sessionId && !exerciseId) {
+      query = query.limit(500);
     }
 
     const { data, error } = await query;

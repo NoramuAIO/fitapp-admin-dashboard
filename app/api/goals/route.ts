@@ -27,16 +27,6 @@ export async function GET(request: Request) {
       `)
       .order('createdAt', { ascending: false });
 
-    if (numericUserId && !isNaN(numericUserId)) {
-      query = query.eq('userId', numericUserId);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-
-    const rawGoals = data || [];
-
-    // Fetch weight logs for decimal precision & startValue resolution
     let logsQuery = supabase
       .from('weight_logs')
       .select('id, userId, date, weight')
@@ -44,10 +34,18 @@ export async function GET(request: Request) {
       .order('id', { ascending: true });
 
     if (numericUserId && !isNaN(numericUserId)) {
+      query = query.eq('userId', numericUserId);
       logsQuery = logsQuery.eq('userId', numericUserId);
     }
 
-    const { data: allWeightLogs } = await logsQuery;
+    const [
+      { data, error },
+      { data: allWeightLogs },
+    ] = await Promise.all([query, logsQuery]);
+
+    if (error) throw error;
+
+    const rawGoals = data || [];
     const logsByUser = new Map<number, Array<{ id: number; date: string; weight: number }>>();
     for (const log of allWeightLogs || []) {
       const uid = Number(log.userId);

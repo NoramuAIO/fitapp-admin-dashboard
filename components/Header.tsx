@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Search, Clock } from 'lucide-react';
+import { apiFetch } from '@/lib/clientCache';
 
 interface User {
   id: number;
@@ -29,7 +30,7 @@ export default function Header() {
 
   const loadSelectedUser = async () => {
     try {
-      const res = await fetch('/api/users');
+      const res = await apiFetch('/api/users?lite=1');
       const allUsers = await res.json();
       if (Array.isArray(allUsers)) {
         setUsers(allUsers);
