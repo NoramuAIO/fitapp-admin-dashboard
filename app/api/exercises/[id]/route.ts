@@ -56,25 +56,42 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params
+    const { id } = await params;
     const numericId = parseInt(id, 10);
+    if (isNaN(numericId)) {
+      return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+    }
 
-    // 1. Delete any completion logs referencing this exercise
-    await supabase.from('exercise_completions').delete().eq('exerciseId', numericId);
+    // Preserve historical workout logs and PRs: never delete exercise_completions
+    const { count: completionCount } = await supabase
+      .from('exercise_completions')
+      .select('id', { count: 'exact', head: true })
+      .eq('exerciseId', numericId);
 
-    // 2. Delete the exercise
+    if ((completionCount || 0) > 0) {
+      // Detach from workout day and program so historical joins still resolve exercise name/muscleGroup
+      const { error: detachError } = await supabase
+        .from('exercises')
+        .update({ dayId: null, programId: null, orderIndex: -1 })
+        .eq('id', numericId);
+
+      if (detachError) throw detachError;
+
+      return NextResponse.json({ success: true, detached: true });
+    }
+
     const { data, error } = await supabase
       .from('exercises')
       .delete()
       .eq('id', numericId)
       .select();
 
-    if (error) throw error
+    if (error) throw error;
 
-    return NextResponse.json({ success: true, deleted: data?.length || 0 })
+    return NextResponse.json({ success: true, deleted: data?.length || 0 });
   } catch (error) {
-    console.error('Error deleting exercise:', error)
-    return NextResponse.json({ error: 'Failed to delete exercise: ' + (error as Error).message }, { status: 500 })
+    console.error('Error deleting exercise:', error);
+    return NextResponse.json({ error: 'Failed to delete exercise: ' + (error as Error).message }, { status: 500 });
   }
 }
 

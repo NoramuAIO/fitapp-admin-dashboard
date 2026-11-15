@@ -148,25 +148,25 @@ export async function POST(request: Request) {
             imported.workouts++;
           }
         } else if (currentSection === 'exercises' && (type === 'all' || type === 'exercises')) {
-          if (parts.length >= 8) {
-            let programId = parseInt(parts[1]);
-            let workoutId = parseInt(parts[9]) || null;
+          if (parts.length >= 6) {
+            let programId = parseInt(parts[1], 10) || null;
+            let workoutId = parseInt(parts[2], 10) || null;
 
             if (workoutId && workoutIdMap.has(workoutId)) workoutId = workoutIdMap.get(workoutId)!;
-            else if (programId && programIdMap.has(programId)) programId = programIdMap.get(programId)!;
+            if (programId && programIdMap.has(programId)) programId = programIdMap.get(programId)!;
 
             const { error } = await supabase
               .from('exercises')
               .insert({
                 dayId: workoutId || null,
                 programId: programId || null,
-                name: parts[2],
-                sets: parseInt(parts[3]),
-                reps: parseInt(parts[4]),
-                duration: parts[5] || null,
-                description: parts[6] || null,
-                orderIndex: parseInt(parts[7]) || i,
-                imageUrl: parts[8] || null,
+                name: parts[3],
+                sets: parseInt(parts[4], 10) || 3,
+                reps: parseInt(parts[5], 10) || 10,
+                duration: parts[6] || null,
+                description: parts[7] || null,
+                orderIndex: parseInt(parts[8], 10) || i,
+                imageUrl: parts[9] || null,
                 muscleGroup: parts[10] || null,
               });
 

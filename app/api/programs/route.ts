@@ -47,7 +47,7 @@ export async function GET(request: Request) {
     return NextResponse.json(enriched)
   } catch (error) {
     console.error('Error fetching programs:', error)
-    return NextResponse.json([], { status: 200 }) // Return empty array, never error object
+    return NextResponse.json({ error: 'Failed to fetch programs' }, { status: 500 })
   }
 }
 

@@ -20,6 +20,7 @@ import {
   MessageSquare,
   Sparkles,
   Trophy,
+  Flame,
   Plus,
   Trash2,
   Edit2,
@@ -28,6 +29,17 @@ import {
   Check
 } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
+import {
+  isRealWorkoutSession,
+  isManualTimerSession,
+  parseDurationToMinutes,
+  getLocalDateString,
+  calculateCompletionVolume,
+  calculateExercisePRs,
+  calculateWorkoutCalories,
+  calculateMuscleDistribution,
+  calculateAthleteRank,
+} from '@/lib/fitnessCalculations';
 
 interface WorkoutSession {
   id: number;
@@ -286,25 +298,17 @@ export default function AnalyticsPage() {
     }
   };
 
-  const parseDuration = (dur?: string) => {
-    if (!dur) return 0;
-    let mins = 0;
-    const hoursMatch = dur.match(/(\d+)s/);
-    const minsMatch = dur.match(/(\d+)dk/);
-    if (hoursMatch) mins += parseInt(hoursMatch[1]) * 60;
-    if (minsMatch) mins += parseInt(minsMatch[1]);
-    return mins;
-  };
-
-  // Date filtering helper
-  const now = new Date();
+  // Date filtering helper (Europe/Istanbul calendar day parity)
+  const todayStr = getLocalDateString(new Date());
+  const todayMid = new Date(`${todayStr}T12:00:00`).getTime();
   const filterByTime = (dateStr: string) => {
     if (timeRange === 'all') return true;
-    const itemDate = new Date(dateStr);
-    if (isNaN(itemDate.getTime())) return true;
-    const diffDays = (now.getTime() - itemDate.getTime()) / (1000 * 3600 * 24);
-    if (timeRange === '7d') return diffDays <= 7;
-    if (timeRange === '30d') return diffDays <= 30;
+    if (!dateStr) return false;
+    const itemMid = new Date(`${getLocalDateString(dateStr)}T12:00:00`).getTime();
+    if (Number.isNaN(itemMid)) return true;
+    const diffDays = (todayMid - itemMid) / (1000 * 3600 * 24);
+    if (timeRange === '7d') return diffDays >= 0 && diffDays <= 7;
+    if (timeRange === '30d') return diffDays >= 0 && diffDays <= 30;
     return true;
   };
 
@@ -313,37 +317,37 @@ export default function AnalyticsPage() {
   const filteredCompletions = completions.filter(c => filterByTime(c.completedAt));
 
   // Separate real workout sessions from manual timer logs
-  const workoutSessions = filteredSessions.filter(
-    s => !s.is_manual_timer
-  );
-  const durationSessions = filteredSessions.filter(
-    s => s.is_manual_timer
-  );
+  const workoutSessions = filteredSessions.filter(isRealWorkoutSession);
+  const durationSessions = filteredSessions.filter(isManualTimerSession);
 
   // Key Stats
   const totalWorkouts = workoutSessions.length;
   const totalExercises = workoutSessions.reduce((sum, s) => sum + (s.completed_exercises || 0), 0);
 
-  // Total sets calculated directly from completed exercise sets (consistent with mobile)
-  const totalSets = filteredCompletions.reduce((sum, c) => sum + (Number(c.sets) || 1), 0);
-  const totalReps = filteredCompletions.reduce((sum, c) => sum + ((Number(c.sets) || 1) * (Number(c.reps) || 10)), 0);
-
-  // Total Volume Lifted (Tonaj Hesabı): weight * reps * sets
-  const totalVolumeKg = filteredCompletions.reduce((sum, c) => {
-    const w = Number(c.weight) || 0;
-    const r = Number(c.reps) || 10;
-    const s = Number(c.sets) || 1;
-    return sum + (w * r * s);
-  }, 0);
+  // Total sets, reps and volume calculated identically to mobile (no fake || 10 reps)
+  const { totalSets, totalReps, totalVolumeKg } = filteredCompletions.reduce(
+    (acc, c) => {
+      const { sets, reps, volume } = calculateCompletionVolume(c);
+      const setCount = sets > 0 ? sets : 0;
+      const repCount = Array.isArray((c as any)?.setsDetail) && (c as any).setsDetail.length > 0
+        ? (c as any).setsDetail.reduce((rSum: number, s: any) => rSum + (Number(s?.reps) || 0), 0)
+        : setCount * reps;
+      acc.totalSets += setCount;
+      acc.totalReps += repCount;
+      acc.totalVolumeKg += volume;
+      return acc;
+    },
+    { totalSets: 0, totalReps: 0, totalVolumeKg: 0 }
+  );
 
   const avgVolumePerWorkout = totalWorkouts > 0 ? Math.round(totalVolumeKg / totalWorkouts) : 0;
 
   // Separated Durations: pure workout duration vs gym stay duration
-  const workoutMinutes = workoutSessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
+  const workoutMinutes = workoutSessions.reduce((sum, s) => sum + parseDurationToMinutes(s.duration), 0);
   const workoutHours = Math.floor(workoutMinutes / 60);
   const remainingWorkoutMinutes = workoutMinutes % 60;
 
-  const gymMinutes = durationSessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
+  const gymMinutes = durationSessions.reduce((sum, s) => sum + parseDurationToMinutes(s.duration), 0);
   const gymHours = Math.floor(gymMinutes / 60);
   const remainingGymMinutes = gymMinutes % 60;
 
@@ -357,23 +361,18 @@ export default function AnalyticsPage() {
   }, {});
   const mostUsedProgram = Object.entries(programCounts).sort((a: any, b: any) => b[1] - a[1])[0];
 
-  // Daily Activity Chart Bars (7 or 14 days depending on range)
+  // Daily Activity Chart Bars (7 or 14 Istanbul calendar days depending on range)
   const daysToShow = timeRange === '30d' ? 14 : 7;
   const daysList = Array.from({ length: daysToShow }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - (daysToShow - 1 - i));
-    return d.toISOString().split('T')[0];
+    return getLocalDateString(d);
   });
 
   const dailyWorkouts = daysList.map(date => {
-    const daySessions = workoutSessions.filter(s => s.startTime && s.startTime.split('T')[0] === date);
-    const dayCompletions = filteredCompletions.filter(c => c.completedAt && c.completedAt.split('T')[0] === date);
-    const dayVolume = dayCompletions.reduce((sum, c) => {
-      const w = Number(c.weight) || 0;
-      const r = Number(c.reps) || 10;
-      const s = Number(c.sets) || 1;
-      return sum + (w * r * s);
-    }, 0);
+    const daySessions = workoutSessions.filter(s => s.startTime && getLocalDateString(s.startTime) === date);
+    const dayCompletions = filteredCompletions.filter(c => c.completedAt && getLocalDateString(c.completedAt) === date);
+    const dayVolume = dayCompletions.reduce((sum, c) => sum + calculateCompletionVolume(c).volume, 0);
     return {
       date,
       count: daySessions.length,
@@ -382,37 +381,27 @@ export default function AnalyticsPage() {
   });
   const maxDailyCount = Math.max(...dailyWorkouts.map(d => d.count), 1);
 
-  // Personal Records (PRs): Best weight lifted for each exercise in selected period
-  const prMap: Record<string, { exerciseName: string; maxWeight: number; reps: number; date: string; userName: string; notes?: string | null }> = {};
+  // Personal Records (PRs) with Epley Estimated 1RM parity
+  const prNoteMap: Record<string, string> = {};
   filteredCompletions.forEach(c => {
-    const exName = c.exercises?.name || `Hareket #${c.exerciseId}`;
-    const w = Number(c.weight) || 0;
-    if (w > 0) {
-      if (!prMap[exName] || w > prMap[exName].maxWeight) {
-        prMap[exName] = {
-          exerciseName: exName,
-          maxWeight: w,
-          reps: c.reps,
-          date: c.completedAt,
-          userName: c.users?.name || 'Kullanıcı',
-          notes: c.notes || null,
-        };
-      }
+    if (c.notes) {
+      const key = String(c.exercises?.name || `Hareket #${c.exerciseId}`).trim().toLowerCase();
+      prNoteMap[`${key}|${Number(c.weight) || 0}`] = c.notes;
     }
   });
-  const prList = Object.values(prMap).sort((a, b) => b.maxWeight - a.maxWeight).slice(0, 6);
+  const prList = calculateExercisePRs(filteredCompletions).slice(0, 6);
 
   // Top Exercises by Volume
   const exerciseVolumeMap: Record<string, { name: string; volume: number; sets: number; maxWeight: number }> = {};
   filteredCompletions.forEach(c => {
     const name = c.exercises?.name || `Hareket #${c.exerciseId}`;
-    const vol = (Number(c.weight) || 0) * (Number(c.reps) || 10) * (Number(c.sets) || 1);
+    const { weight, sets, volume } = calculateCompletionVolume(c);
     if (!exerciseVolumeMap[name]) {
       exerciseVolumeMap[name] = { name, volume: 0, sets: 0, maxWeight: 0 };
     }
-    exerciseVolumeMap[name].volume += vol;
-    exerciseVolumeMap[name].sets += Number(c.sets) || 1;
-    exerciseVolumeMap[name].maxWeight = Math.max(exerciseVolumeMap[name].maxWeight, Number(c.weight) || 0);
+    exerciseVolumeMap[name].volume += volume;
+    exerciseVolumeMap[name].sets += sets;
+    exerciseVolumeMap[name].maxWeight = Math.max(exerciseVolumeMap[name].maxWeight, weight);
   });
   const topVolumeExercises = Object.values(exerciseVolumeMap).sort((a, b) => b.volume - a.volume).slice(0, 5);
   const maxExerciseVolume = Math.max(...topVolumeExercises.map(e => e.volume), 1);
@@ -424,6 +413,18 @@ export default function AnalyticsPage() {
   const latestWeight = weightLogs.length > 0 ? weightLogs[0].weight : null;
   const initialWeight = weightLogs.length > 1 ? weightLogs[weightLogs.length - 1].weight : null;
   const weightChange = latestWeight && initialWeight ? Number((latestWeight - initialWeight).toFixed(1)) : null;
+
+  // Cumulative Athlete Rank, Estimated Calories & Muscle Distribution (mobile parity)
+  const allTimeVolumeKg = completions.reduce((sum, c) => sum + calculateCompletionVolume(c).volume, 0);
+  const athleteRank = calculateAthleteRank(allTimeVolumeKg, ranks.length > 0 ? ranks : undefined);
+  const estimatedCalories = calculateWorkoutCalories(
+    workoutMinutes,
+    totalVolumeKg,
+    totalSets,
+    latestWeight || 75,
+    totalReps
+  );
+  const muscleDistribution = calculateMuscleDistribution(filteredCompletions);
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
@@ -515,8 +516,63 @@ export default function AnalyticsPage() {
         </div>
       ) : (
         <>
-          {/* Top KPI Cards (5 Metrics) */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          {/* Athlete Rank Progress Banner (Cumulative Tonnage) */}
+          <div className="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div
+                className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl border shrink-0"
+                style={{
+                  backgroundColor: `${athleteRank.color}18`,
+                  borderColor: `${athleteRank.color}40`,
+                }}
+              >
+                {athleteRank.icon}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs uppercase tracking-wider text-gray-400 font-semibold">
+                    Sporcu Rütbesi
+                  </span>
+                  <span
+                    className="text-xs font-bold px-2.5 py-0.5 rounded-full border"
+                    style={{
+                      color: athleteRank.color,
+                      backgroundColor: `${athleteRank.color}15`,
+                      borderColor: `${athleteRank.color}35`,
+                    }}
+                  >
+                    {athleteRank.title}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">{athleteRank.description}</p>
+              </div>
+            </div>
+
+            <div className="md:w-80 space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">
+                  Toplam Tonaj: <strong className="text-white">{(allTimeVolumeKg / 1000).toFixed(2)} ton</strong>
+                </span>
+                <span className="font-bold" style={{ color: athleteRank.color }}>
+                  %{athleteRank.pct}
+                </span>
+              </div>
+              <div className="h-2 bg-[#1A1A1A] rounded-full overflow-hidden border border-[#262626]">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${athleteRank.pct}%`, backgroundColor: athleteRank.color }}
+                />
+              </div>
+              <p className="text-[11px] text-gray-500 text-right">
+                {athleteRank.nextTitle
+                  ? `Sonraki: ${athleteRank.nextTitle} (${athleteRank.nextTarget.toLocaleString('tr-TR')} kg)`
+                  : 'Maksimum seviyeye ulaşıldı'}
+              </p>
+            </div>
+          </div>
+
+          {/* Top KPI Cards (6 Metrics) */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {/* 1. Toplam Antrenman */}
             <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A] hover:border-[#3A3A3A] transition-colors">
               <div className="flex items-center gap-3 mb-3">
@@ -580,7 +636,21 @@ export default function AnalyticsPage() {
               <p className="text-xs text-gray-500 mt-1">Toplam {totalReps.toLocaleString('tr-TR')} tekrar</p>
             </div>
 
-            {/* 5. Vücut Ağırlığı / Kilo */}
+            {/* 5. Tahmini Kalori */}
+            <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A] hover:border-[#3A3A3A] transition-colors">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#F59E0B]/10 border border-[#F59E0B]/20">
+                  <Flame size={18} className="text-[#F59E0B]" />
+                </div>
+                <span className="text-xs text-gray-400 font-medium">Tahmini Kalori</span>
+              </div>
+              <p className="text-3xl font-extrabold text-white">
+                {estimatedCalories.toLocaleString('tr-TR')} kcal
+              </p>
+              <p className="text-xs text-gray-500 mt-1">Süre + Hacim (MET) hesabı</p>
+            </div>
+
+            {/* 6. Vücut Ağırlığı / Kilo */}
             <div className="bg-[#141414] rounded-2xl p-5 border border-[#2A2A2A] hover:border-[#3A3A3A] transition-colors">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#9B6FFF]/10 border border-[#9B6FFF]/20">
@@ -645,39 +715,49 @@ export default function AnalyticsPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {prList.map((pr, index) => (
-                  <div
-                    key={pr.exerciseName}
-                    className="bg-[#1A1A1A] rounded-xl p-4 border border-[#2A2A2A] hover:border-[#4ECDC4]/30 transition-all group"
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-md bg-[#252525] text-xs font-bold flex items-center justify-center text-gray-400 group-hover:bg-[#4ECDC4]/20 group-hover:text-[#4ECDC4] transition-colors">
-                          #{index + 1}
+                {prList.map((pr, index) => {
+                  const prNote = prNoteMap[`${pr.key}|${pr.maxWeight}`];
+                  return (
+                    <div
+                      key={pr.key}
+                      className="bg-[#1A1A1A] rounded-xl p-4 border border-[#2A2A2A] hover:border-[#4ECDC4]/30 transition-all group"
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-6 h-6 rounded-md bg-[#252525] text-xs font-bold flex items-center justify-center text-gray-400 group-hover:bg-[#4ECDC4]/20 group-hover:text-[#4ECDC4] transition-colors shrink-0">
+                            #{index + 1}
+                          </span>
+                          <h4 className="text-sm font-bold text-white truncate max-w-[150px]">
+                            {pr.exerciseName}
+                          </h4>
+                        </div>
+                        <span className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-[#4ECDC4]/15 text-[#4ECDC4] border border-[#4ECDC4]/25 shrink-0">
+                          {pr.maxWeight} kg
                         </span>
-                        <h4 className="text-sm font-bold text-white truncate max-w-[150px]">
-                          {pr.exerciseName}
-                        </h4>
                       </div>
-                      <span className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-[#4ECDC4]/15 text-[#4ECDC4] border border-[#4ECDC4]/25 shrink-0">
-                        {pr.maxWeight} kg
-                      </span>
-                    </div>
 
-                    <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t border-[#262626]">
-                      <span>{pr.reps} tekrar</span>
-                      <span className="text-gray-500">
-                        {pr.date ? new Date(pr.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' }) : ''}
-                      </span>
-                    </div>
-
-                    {pr.notes ? (
-                      <div className="mt-2.5 text-xs text-purple-300 bg-purple-500/10 px-2 py-1 rounded border border-purple-500/20 truncate">
-                        📌 {pr.notes}
+                      <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t border-[#262626]">
+                        <span>
+                          {pr.repsAtMax > 0 ? `${pr.repsAtMax} tekrar` : 'Tekrar yok'}
+                          {pr.estimated1RM > 0 && (
+                            <span className="ml-2 text-[#FFD700] font-semibold">
+                              · 1RM ~{pr.estimated1RM} kg
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-gray-500">
+                          {pr.date ? new Date(pr.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' }) : ''}
+                        </span>
                       </div>
-                    ) : null}
-                  </div>
-                ))}
+
+                      {prNote ? (
+                        <div className="mt-2.5 text-xs text-purple-300 bg-purple-500/10 px-2 py-1 rounded border border-purple-500/20 truncate">
+                          📌 {prNote}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -713,7 +793,7 @@ export default function AnalyticsPage() {
                         />
                       </div>
                       <span className="text-xs text-gray-500 font-medium">
-                        {new Date(day.date).toLocaleDateString('tr-TR', { weekday: 'short' })}
+                        {new Date(`${day.date}T12:00:00`).toLocaleDateString('tr-TR', { weekday: 'short' })}
                       </span>
                     </div>
                   );
@@ -774,6 +854,40 @@ export default function AnalyticsPage() {
               )}
             </div>
           </div>
+
+          {/* Muscle Distribution Breakdown */}
+          {muscleDistribution.length > 0 && (
+            <div className="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="font-bold text-white flex items-center gap-2">
+                  <Layers size={18} className="text-[#9B6FFF]" /> Kas Grubu Dağılımı
+                </h3>
+                <span className="text-xs text-gray-400">Set ve Hacim Payı</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {muscleDistribution.map((item) => (
+                  <div key={item.group} className="bg-[#1A1A1A] rounded-xl p-4 border border-[#262626]">
+                    <div className="flex items-center justify-between text-sm mb-2">
+                      <span className="font-semibold text-white">{item.group}</span>
+                      <span className="font-bold" style={{ color: item.color }}>
+                        %{item.percent}
+                      </span>
+                    </div>
+                    <div className="h-2 bg-[#252525] rounded-full overflow-hidden mb-2">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${item.percent}%`, backgroundColor: item.color }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-400">
+                      <span>{item.count} set</span>
+                      <span>{item.volume.toLocaleString('tr-TR')} kg</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Bottom Row: Top Volume Exercises & Recent Exercise Stream */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

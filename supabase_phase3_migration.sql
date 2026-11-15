@@ -30,6 +30,15 @@ CREATE TABLE IF NOT EXISTS public.custom_widgets (
   "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 3. Antrenman Takvimi & Haftalık Planlayıcı Tablosu
+CREATE TABLE IF NOT EXISTS public.workout_schedules (
+  id BIGSERIAL PRIMARY KEY,
+  "userId" INTEGER UNIQUE REFERENCES public.users(id) ON DELETE CASCADE,
+  "weeklySchedule" JSONB NOT NULL DEFAULT '[]'::jsonb,
+  "overrides" JSONB NOT NULL DEFAULT '{}'::jsonb,
+  "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Başlangıç Varsayılan Bildirim Kuralları
 INSERT INTO public.notification_rules (title, subtitle, message, category, scheduled_time, days_of_week, voice_enabled, voice_script, is_active)
 VALUES

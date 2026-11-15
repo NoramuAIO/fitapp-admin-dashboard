@@ -3,6 +3,11 @@
 import { useEffect, useState } from 'react';
 import { Target, Plus, Edit2, Trash2, CheckCircle2, XCircle, Search, Calendar, User, Scale } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
+import {
+  calculateWeightGoalMetrics,
+  calculateGoalProgressPercent,
+  getLocalDateString,
+} from '@/lib/fitnessCalculations';
 
 interface Goal {
   id: number;
@@ -11,6 +16,7 @@ interface Goal {
   description?: string;
   targetValue: number;
   currentValue: number;
+  startValue?: number | null;
   unit: string;
   startDate: string;
   endDate: string;
@@ -27,6 +33,7 @@ interface UserModel {
 export default function GoalsPage() {
   const { confirm } = useConfirm();
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [weightLogs, setWeightLogs] = useState<any[]>([]);
   const [users, setUsers] = useState<UserModel[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,17 +49,21 @@ export default function GoalsPage() {
     targetValue: 0,
     currentValue: 0,
     unit: 'kg',
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: getLocalDateString(),
     endDate: '',
     status: 'active' as 'active' | 'completed' | 'failed'
   });
 
   useEffect(() => {
     fetchUsers();
-    if (typeof window !== 'undefined') {
+    const syncSelectedUser = () => {
+      if (typeof window === 'undefined') return;
       const saved = localStorage.getItem('selectedUserId');
-      if (saved) setSelectedUserId(parseInt(saved, 10));
-    }
+      setSelectedUserId(saved ? parseInt(saved, 10) : null);
+    };
+    syncSelectedUser();
+    window.addEventListener('userSelected', syncSelectedUser);
+    return () => window.removeEventListener('userSelected', syncSelectedUser);
   }, []);
 
   useEffect(() => {
@@ -70,10 +81,16 @@ export default function GoalsPage() {
   const loadGoals = async () => {
     try {
       setLoading(true);
-      const url = selectedUserId ? `/api/goals?userId=${selectedUserId}` : '/api/goals';
-      const response = await fetch(url);
-      const data = await response.json();
+      const goalsUrl = selectedUserId ? `/api/goals?userId=${selectedUserId}` : '/api/goals';
+      const weightUrl = selectedUserId ? `/api/weight-logs?userId=${selectedUserId}` : '/api/weight-logs';
+      const [goalsRes, weightRes] = await Promise.all([
+        fetch(goalsUrl),
+        fetch(weightUrl).catch(() => null),
+      ]);
+      const data = await goalsRes.json();
+      const weightData = weightRes?.ok ? await weightRes.json() : [];
       setGoals(Array.isArray(data) ? data : []);
+      setWeightLogs(Array.isArray(weightData) ? weightData : []);
     } catch (error) {
       console.error('Error loading goals:', error);
     } finally {
@@ -156,18 +173,6 @@ export default function GoalsPage() {
     setShowForm(true);
   };
 
-  const calculateProgress = (current: number, target: number, unit?: string) => {
-    if (!target) return 0;
-    if (unit === 'kg') {
-      if (!current) return 0;
-      const diff = Math.abs(current - target);
-      if (diff <= 0.2) return 100;
-      const proximity = Math.max(0, 1 - diff / Math.max(target, 1));
-      return Math.min(100, Math.round(proximity * 100));
-    }
-    return Math.min(Math.round((current / target) * 100), 100);
-  };
-
   const openNewForm = () => {
     const defaultUser = selectedUserId || (users[0]?.id ?? 1);
     setEditingGoal(null);
@@ -178,7 +183,7 @@ export default function GoalsPage() {
       targetValue: 70,
       currentValue: 0,
       unit: 'kg',
-      startDate: new Date().toISOString().split('T')[0],
+      startDate: getLocalDateString(),
       endDate: '',
       status: 'active'
     });
@@ -261,10 +266,12 @@ export default function GoalsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {goals.map((goal) => {
-            const progress = calculateProgress(goal.currentValue, goal.targetValue, goal.unit);
+            const isKg = String(goal.unit || '').trim().toLowerCase() === 'kg';
+            const userWeightLogs = weightLogs.filter(w => Number(w.userId) === Number(goal.userId));
+            const progress = calculateGoalProgressPercent(goal, userWeightLogs);
+            const weightMetrics = isKg ? calculateWeightGoalMetrics(goal, userWeightLogs) : null;
             const isCompleted = goal.status === 'completed';
             const user = users.find(u => u.id === goal.userId);
-            const isKg = goal.unit === 'kg';
             
             return (
               <div key={goal.id} className="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-6 group hover:border-[#3A3A3A] transition-colors relative flex flex-col justify-between">
@@ -308,10 +315,18 @@ export default function GoalsPage() {
                         style={{ width: `${progress}%` }}
                       />
                     </div>
-                    <div className="flex justify-between text-xs mt-2 text-gray-400">
-                      <span>Güncel: <strong className="text-white">{goal.currentValue} {goal.unit}</strong></span>
-                      <span>Hedef: <strong className="text-emerald-400">{goal.targetValue} {goal.unit}</strong></span>
-                    </div>
+                    {isKg && weightMetrics ? (
+                      <div className="flex flex-wrap justify-between gap-2 text-xs mt-2 text-gray-400">
+                        <span>Başlangıç: <strong className="text-gray-200">{weightMetrics.startWeight} kg</strong></span>
+                        <span>Güncel: <strong className="text-white">{weightMetrics.currentWeight} kg</strong></span>
+                        <span>Hedef: <strong className="text-emerald-400">{weightMetrics.targetWeight} kg</strong></span>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between text-xs mt-2 text-gray-400">
+                        <span>Güncel: <strong className="text-white">{goal.currentValue} {goal.unit}</strong></span>
+                        <span>Hedef: <strong className="text-emerald-400">{goal.targetValue} {goal.unit}</strong></span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -406,9 +421,9 @@ export default function GoalsPage() {
                 <div>
                   <label className="block text-xs font-semibold text-gray-400 mb-1">Hedef Değer *</label>
                   <input
-                    type="number" required min="1" step="any"
+                    type="number" required min="1" step="0.1"
                     value={formData.targetValue}
-                    onChange={(e) => setFormData({...formData, targetValue: Number(e.target.value)})}
+                    onChange={(e) => setFormData({...formData, targetValue: parseFloat(e.target.value) || 0})}
                     className="w-full bg-[#1A1A1A] border border-[#2A2A2A] text-white rounded-xl px-4 py-2.5 text-sm focus:border-[#6366F1] focus:outline-none font-mono"
                   />
                 </div>
@@ -441,10 +456,10 @@ export default function GoalsPage() {
                     {formData.unit === 'kg' ? 'Mevcut / Başlangıç Kilosu (kg)' : 'Mevcut Değer'}
                   </label>
                   <input
-                    type="number" min="0" step="any"
+                    type="number" min="0" step="0.1"
                     value={formData.currentValue || ''}
                     placeholder={formData.unit === 'kg' ? 'Örn: 80 (Boş bırakılırsa son kilo kaydından alınır)' : '0'}
-                    onChange={(e) => setFormData({...formData, currentValue: Number(e.target.value) || 0})}
+                    onChange={(e) => setFormData({...formData, currentValue: parseFloat(e.target.value) || 0})}
                     className="w-full bg-[#1A1A1A] border border-[#2A2A2A] text-white rounded-xl px-4 py-2.5 text-sm focus:border-[#6366F1] focus:outline-none font-mono"
                   />
                 </div>

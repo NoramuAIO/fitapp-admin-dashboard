@@ -8,6 +8,7 @@ interface SidebarProps {
 export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
   const menuItems = [
     { id: 'home', icon: '🏠', label: 'Ana Sayfa', href: '/' },
+    { id: 'calendar', icon: '📅', label: 'Takvim & Planlayıcı', href: '/calendar' },
     { id: 'users', icon: '👥', label: 'Kullanıcılar', href: '/users' },
     { id: 'programs', icon: '🏋️', label: 'Programlar', href: '/programs' },
     { id: 'exercises', icon: '💪', label: 'Tüm Hareketler', href: '/exercises' },

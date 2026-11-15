@@ -128,6 +128,16 @@ export async function initializeDatabase() {
       )
     `);
 
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS workout_schedules (
+        id SERIAL PRIMARY KEY,
+        "userId" INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        "weeklySchedule" JSONB NOT NULL DEFAULT '[]'::jsonb,
+        "overrides" JSONB NOT NULL DEFAULT '{}'::jsonb,
+        "updatedAt" TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
     console.log('Database tables initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);

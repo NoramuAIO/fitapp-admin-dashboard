@@ -1,8 +1,11 @@
 import { supabase } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url)
+    const includeArchived = searchParams.get('includeArchived') === 'true'
+
     const { data: exercises, error } = await supabase
       .from('exercises')
       .select(`
@@ -18,8 +21,15 @@ export async function GET() {
 
     if (error) throw error
 
+    // Exclude soft-detached archive exercises (dayId=null, programId=null, orderIndex=-1) unless explicitly requested
+    const visibleExercises = includeArchived
+      ? (exercises || [])
+      : (exercises || []).filter(
+          (ex: any) => !(ex.dayId === null && ex.programId === null && Number(ex.orderIndex) === -1)
+        )
+
     // Flatten the data
-    const formattedExercises = (exercises || []).map((ex: any) => ({
+    const formattedExercises = visibleExercises.map((ex: any) => ({
       ...ex,
       workoutId: ex.dayId || ex.program_days?.id,
       workout_name: ex.program_days?.name || ex.program_days?.dayName,

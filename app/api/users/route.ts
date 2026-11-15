@@ -1,12 +1,13 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { hashPassword } from '@/lib/auth';
 
-// Get all users
+// Get all users (never expose password hashes or plaintext passwords)
 export async function GET() {
   try {
     const { data: users, error } = await supabase
       .from('users')
-      .select('*')
+      .select('id, name, email, createdAt')
       .order('id', { ascending: false });
 
     if (error) throw error;
@@ -23,9 +24,8 @@ export async function GET() {
           id: user.id,
           name: user.name,
           email: user.email,
-          password: user.password,
-          createdAt: user.createdAt || user.created_at,
-          created_at: user.createdAt || user.created_at,
+          createdAt: user.createdAt,
+          created_at: user.createdAt,
           total_workouts: count || 0,
           total_programs: 0
         };
@@ -116,6 +116,36 @@ export async function POST(request: Request) {
 
       if (error) throw error;
       return NextResponse.json({ success: true });
+    }
+
+    if (body.email && body.name) {
+      const cleanName = String(body.name).trim();
+      const cleanEmail = String(body.email).trim().toLowerCase();
+      const rawPassword = body.password ? String(body.password).trim() : 'FitAppUser!2026';
+      const hashedPassword = await hashPassword(rawPassword);
+
+      const { data: created, error: createError } = await supabase
+        .from('users')
+        .insert([{
+          name: cleanName,
+          email: cleanEmail,
+          password: hashedPassword,
+          createdAt: new Date().toISOString(),
+        }])
+        .select('id, name, email, createdAt')
+        .single();
+
+      if (createError) throw createError;
+
+      return NextResponse.json(
+        {
+          id: created.id,
+          name: created.name,
+          email: created.email,
+          createdAt: created.createdAt,
+        },
+        { status: 201 }
+      );
     }
 
     return NextResponse.json({ error: 'Unsupported action' }, { status: 400 });

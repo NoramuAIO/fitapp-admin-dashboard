@@ -1,21 +1,62 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { verifyAdminSessionToken } from '@/lib/auth';
 
-export function middleware(request: NextRequest) {
+const PUBLIC_API_ROUTES = [
+  '/api/admin/login',
+  '/api/admin/logout',
+  '/api/auth/login',
+  '/api/auth/register',
+];
+
+const ADMIN_ONLY_API_PREFIXES = [
+  '/api/settings/delete-sessions',
+  '/api/settings/delete-progress',
+  '/api/export',
+  '/api/import',
+];
+
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Login sayfası hariç
-  if (pathname === '/login') {
+  if (request.method === 'OPTIONS') {
     return NextResponse.next();
   }
 
-  // Cookie kontrolü
-  const authCookie = request.cookies.get('admin-auth');
+  const adminCookie = request.cookies.get('admin-auth')?.value;
+  const isAdmin = await verifyAdminSessionToken(adminCookie);
 
-  if (!authCookie || authCookie.value !== 'authenticated') {
-    // Giriş yapmamış, login'e yönlendir
-    const loginUrl = new URL('/login', request.url);
-    return NextResponse.redirect(loginUrl);
+  // API route protection
+  if (pathname.startsWith('/api')) {
+    if (PUBLIC_API_ROUTES.some((route) => pathname === route)) {
+      return NextResponse.next();
+    }
+
+    const requiresAdmin =
+      ADMIN_ONLY_API_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
+      (pathname.startsWith('/api/users') &&
+        (request.method === 'DELETE' || request.method === 'POST'));
+
+    if (requiresAdmin && !isAdmin) {
+      return NextResponse.json(
+        { error: 'Yetkisiz erişim (Admin oturumu gerekli)' },
+        { status: 401 }
+      );
+    }
+
+    return NextResponse.next();
+  }
+
+  // UI route protection
+  if (pathname === '/login') {
+    if (isAdmin) {
+      return NextResponse.redirect(new URL('/', request.url));
+    }
+    return NextResponse.next();
+  }
+
+  if (!isAdmin) {
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
   return NextResponse.next();
@@ -24,9 +65,9 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Sadece admin panel sayfalarını koru
-     * API route'ları ve static dosyalar hariç
+     * Admin panel sayfaları ve API rotalarını koru
+     * Static dosyalar hariç
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

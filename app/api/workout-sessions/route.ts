@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { getLocalDateString, isManualTimerSession } from '@/lib/fitnessCalculations';
 
 export async function GET(request: Request) {
   try {
@@ -63,37 +64,23 @@ export async function GET(request: Request) {
 
     // Format the response
     const formattedSessions = rawSessions.map(session => {
-      const isManualTimer = ['duration', 'timer', 'manual'].includes(session.category);
-      
-      let completedExercises = session.completed_exercises || 0;
-      let totalReps = session.total_reps || 0;
-      let totalSets = session.total_sets || 0;
+      const isManualTimer = isManualTimerSession({
+        ...session,
+        program_name: session.programs?.name,
+      });
+
+      let completedExercises = Number(session.completed_exercises) || 0;
+      let totalReps = Number(session.total_reps) || 0;
+      let totalSets = Number(session.total_sets) || 0;
 
       const completions = completionsBySession[session.id];
       if (completions && completions.length > 0) {
         completedExercises = completions.length;
-        totalSets = completions.reduce((sum: number, c: any) => sum + (c.sets || 3), 0);
-        totalReps = completions.reduce((sum: number, c: any) => sum + ((c.sets || 3) * (c.reps || 10)), 0);
-      } else if (!isManualTimer && session.programs && completedExercises === 0) {
-        // Calculate from program structure as fallback
-        const programDays = session.programs.program_days || [];
-        const allExercises = programDays.flatMap((day: any) => day.exercises || []);
-        
-        if (allExercises.length > 0) {
-          // If multiple days, a single workout session corresponds to 1 day's exercises
-          completedExercises = programDays.length > 1
-            ? Math.max(1, Math.round(allExercises.length / programDays.length))
-            : allExercises.length;
-          
-          const avgSets = allExercises.reduce((sum: number, ex: any) => sum + (ex.sets || 3), 0) / allExercises.length;
-          const avgReps = allExercises.reduce((sum: number, ex: any) => sum + (ex.reps || 10), 0) / allExercises.length;
-          totalSets = Math.round(completedExercises * avgSets);
-          totalReps = Math.round(completedExercises * avgSets * avgReps);
-        } else {
-          completedExercises = 1;
-          totalSets = 3;
-          totalReps = 30;
-        }
+        totalSets = completions.reduce((sum: number, c: any) => sum + (Number(c.sets) || 0), 0);
+        totalReps = completions.reduce(
+          (sum: number, c: any) => sum + (Number(c.sets) || 0) * (Number(c.reps) || 0),
+          0
+        );
       }
 
       const formatted: any = {
@@ -105,8 +92,8 @@ export async function GET(request: Request) {
         duration: session.duration,
         category: isManualTimer ? 'duration' : (session.category || 'workout'),
         createdAt: session.createdAt,
-        program_name: isManualTimer 
-          ? 'Salonda Geçirilen Vakit' 
+        program_name: isManualTimer
+          ? 'Salonda Geçirilen Vakit'
           : (session.programs?.name || 'Antrenman'),
         user_name: session.users?.name || null,
         completed_exercises: completedExercises,
@@ -144,16 +131,11 @@ export async function POST(request: Request) {
 
     const { userId, programId, startTime, duration, category, completed_exercises, total_reps, total_sets } = body;
 
-    // Supabase column startTime is VARCHAR(10)
-    // Safe slicing: extract date YYYY-MM-DD (10 chars)
-    let safeStartTime = new Date().toISOString().split('T')[0];
-    if (startTime && typeof startTime === 'string') {
-      if (startTime.includes('T')) {
-        safeStartTime = startTime.split('T')[0];
-      } else {
-        safeStartTime = startTime.slice(0, 10);
-      }
-    }
+    const resolvedStartTime =
+      startTime && typeof startTime === 'string' && startTime.trim()
+        ? startTime.trim()
+        : new Date().toISOString();
+    const localDateStart = getLocalDateString(resolvedStartTime);
 
     // Verify programId exists to avoid foreign key violation
     let validProgramId: number | null = null;
@@ -168,53 +150,61 @@ export async function POST(request: Request) {
       }
     }
 
-    const isManual = ['duration', 'timer', 'manual'].includes(category);
+    const isManual = isManualTimerSession({
+      category,
+      program_name: body.program_name || body.programName,
+    });
 
     const insertPayload: any = {
       userId: userId ? parseInt(userId) : null,
       programId: validProgramId,
-      startTime: safeStartTime,
+      startTime: resolvedStartTime,
       duration: duration || null,
       category: isManual ? 'duration' : (category || 'workout'),
       createdAt: new Date().toISOString()
     };
 
-    const { data, error } = await supabase
+    const selectQuery = `
+      *,
+      programs (
+        id,
+        name,
+        program_days (
+          id,
+          exercises (
+            id,
+            sets,
+            reps
+          )
+        )
+      ),
+      users (
+        name
+      )
+    `;
+
+    let { data, error } = await supabase
       .from('workout_sessions')
       .insert([insertPayload])
-      .select(`
-        *,
-        programs (
-          id,
-          name,
-          program_days (
-            id,
-            exercises (
-              id,
-              sets,
-              reps
-            )
-          )
-        ),
-        users (
-          name
-        )
-      `)
+      .select(selectQuery)
       .single();
+
+    // If startTime column is VARCHAR(10), fallback gracefully to local YYYY-MM-DD
+    if (error?.code === '22001') {
+      const retry = await supabase
+        .from('workout_sessions')
+        .insert([{ ...insertPayload, startTime: localDateStart }])
+        .select(selectQuery)
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) throw error;
 
-    // Calculate completed exercises if not provided
-    let calculatedExercises = completed_exercises || 0;
-    let calculatedSets = total_sets || 0;
-    let calculatedReps = total_reps || 0;
-
-    if (!isManual && calculatedExercises === 0 && data.programs) {
-      const allEx = (data.programs.program_days || []).flatMap((d: any) => d.exercises || []);
-      calculatedExercises = allEx.length > 0 ? allEx.length : 5;
-      calculatedSets = calculatedExercises * 3;
-      calculatedReps = calculatedExercises * 30;
-    }
+    const calculatedExercises = Number(completed_exercises) || 0;
+    const calculatedSets = Number(total_sets) || 0;
+    const calculatedReps = Number(total_reps) || 0;
 
     // Format the response
     const formattedSession = {

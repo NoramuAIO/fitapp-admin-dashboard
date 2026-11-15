@@ -3,7 +3,7 @@
 import { 
   Home, Users, Dumbbell, Activity, Target, BarChart2, 
   Clock, Scale, Settings, LogOut, HelpCircle, ChevronRight, ChevronLeft,
-  Bell, LayoutGrid
+  Bell, LayoutGrid, CalendarDays
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -22,6 +22,7 @@ export default function FloatingSidebar() {
 
   const menuItems = [
     { id: 'home', icon: Home, label: 'Ana Sayfa', href: '/' },
+    { id: 'calendar', icon: CalendarDays, label: 'Takvim & Planlayıcı', href: '/calendar' },
     { id: 'users', icon: Users, label: 'Kullanıcılar', href: '/users' },
     { id: 'programs', icon: Dumbbell, label: 'Programlar', href: '/programs' },
     { id: 'exercises', icon: Activity, label: 'Hareketler', href: '/exercises' },

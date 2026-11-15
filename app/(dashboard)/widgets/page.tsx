@@ -22,7 +22,7 @@ import { useConfirm } from '@/components/ConfirmModal';
 interface CustomWidget {
   id: number;
   title: string;
-  widget_type: 'countdown' | 'custom_text' | 'weight_goal' | 'special_day';
+  widget_type: 'countdown' | 'custom_text' | 'weight_goal' | 'special_day' | 'workout_schedule';
   target_time?: string | null;
   custom_content?: string | null;
   userId?: number | null;
@@ -44,6 +44,13 @@ const WIDGET_TYPES = [
     icon: Calendar,
     color: '#EC4899',
     desc: 'Haftanın belirli bir gününe özel etkinlik, motivasyon veya antrenman',
+  },
+  {
+    id: 'workout_schedule',
+    label: 'Antrenman Takvimi & Bugünün Planı',
+    icon: Calendar,
+    color: '#6366F1',
+    desc: 'Bugünkü sıradaki antrenman, tek tıkla başlatma ve haftalık tamamlanma çubuğu',
   },
   {
     id: 'custom_text',
@@ -113,6 +120,21 @@ export default function WidgetsAdminPage() {
 
   useEffect(() => {
     loadWidgets();
+    const syncSelectedUser = () => {
+      if (typeof window === 'undefined') return;
+      const saved = localStorage.getItem('selectedUserId');
+      if (saved) {
+        setFilterUserId(saved);
+        const parsed = parseInt(saved, 10);
+        setTargetUserId(Number.isNaN(parsed) ? null : parsed);
+      } else {
+        setFilterUserId('all');
+        setTargetUserId(null);
+      }
+    };
+    syncSelectedUser();
+    window.addEventListener('userSelected', syncSelectedUser);
+    return () => window.removeEventListener('userSelected', syncSelectedUser);
   }, []);
 
   useEffect(() => {
@@ -130,7 +152,10 @@ export default function WidgetsAdminPage() {
 
       if (targetTime.includes(':')) {
         const parts = targetTime.split(':').map((p) => parseInt(p, 10));
-        target.setHours(parts[0] || 18, parts[1] || 0, parts[2] || 0, 0);
+        const h = Number.isNaN(parts[0]) ? 18 : parts[0];
+        const m = Number.isNaN(parts[1]) ? 0 : parts[1];
+        const s = Number.isNaN(parts[2]) ? 0 : parts[2];
+        target.setHours(h, m, s, 0);
         if (target.getTime() < now.getTime()) {
           target.setDate(target.getDate() + 1);
         }
@@ -181,7 +206,8 @@ export default function WidgetsAdminPage() {
       }
       if (widget.widget_type === 'special_day' && widget.target_time) {
         const parts = widget.target_time.split('|');
-        setSpecialDay(parseInt(parts[0], 10) || 1);
+        const parsedDay = parseInt(parts[0], 10);
+        setSpecialDay(Number.isNaN(parsedDay) ? 1 : parsedDay);
         setSpecialDayTime(parts[1] || '18:00');
       } else {
         setSpecialDay(1);
@@ -192,6 +218,8 @@ export default function WidgetsAdminPage() {
       setDisplayOrder(widget.display_order);
       setIsActive(widget.is_active);
     } else {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('selectedUserId') : null;
+      const defaultUser = saved ? parseInt(saved, 10) : null;
       setEditingWidget(null);
       setTitle('');
       setWidgetType('countdown');
@@ -200,7 +228,7 @@ export default function WidgetsAdminPage() {
       setSpecialDay(1);
       setSpecialDayTime('18:00');
       setCustomContent('');
-      setTargetUserId(null);
+      setTargetUserId(defaultUser !== null && !Number.isNaN(defaultUser) ? defaultUser : null);
       setDisplayOrder(widgets.length + 1);
       setIsActive(true);
     }
@@ -509,6 +537,16 @@ export default function WidgetsAdminPage() {
                             )}
                           </div>
                         )}
+
+                        {widget.widget_type === 'workout_schedule' && (
+                          <div className="mt-2.5 flex items-center gap-2 text-xs text-indigo-300 bg-indigo-500/15 px-3 py-1.5 rounded-xl border border-indigo-500/25 w-fit">
+                            <Calendar size={14} />
+                            <span>Mobil Ana Ekran Akıllı Kartı: <strong>Bugünkü Sıran & Haftalık Uyum</strong></span>
+                            {widget.custom_content && (
+                              <span className="text-gray-400 text-[11px] font-normal">• &quot;{widget.custom_content}&quot;</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -742,6 +780,41 @@ export default function WidgetsAdminPage() {
                       );
                     }
 
+                    if (pw.widget_type === 'workout_schedule') {
+                      return (
+                        <div
+                          key={pw.id || idx}
+                          className="bg-gradient-to-br from-[#191B30] via-[#151624] to-[#11121A] border border-[#6366F1]/40 rounded-2xl p-4 shadow-lg"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Calendar size={15} className="text-[#818CF8]" />
+                              <span className="text-xs font-bold text-white">{pw.title}</span>
+                            </div>
+                            <span className="text-[10px] font-bold text-[#A5B4FC] bg-[#6366F1]/20 px-2 py-0.5 rounded-full">
+                              BUGÜNÜN PLANI
+                            </span>
+                          </div>
+                          <p className="text-sm font-black text-white mt-1">
+                            Bugünkü Sıran: Üst Göğüs &amp; Sırt
+                          </p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">
+                            {pw.custom_content || 'Haftalık rutine göre otomatik öneri'}
+                          </p>
+                          <div className="mt-3 flex items-center justify-between text-[11px] text-emerald-300 font-semibold">
+                            <span>Bu Hafta: 3/4 Antrenman Tamamlandı</span>
+                            <span>%75</span>
+                          </div>
+                          <div className="w-full bg-black/40 rounded-full h-2 mt-1.5 overflow-hidden">
+                            <div className="bg-[#5DD97C] h-full rounded-full w-3/4" />
+                          </div>
+                          <div className="mt-3 py-2 rounded-xl bg-[#6366F1] text-white text-xs font-bold text-center">
+                            Antrenmanı Başlat
+                          </div>
+                        </div>
+                      );
+                    }
+
                     return null;
                   })}
                 </div>
@@ -814,6 +887,8 @@ export default function WidgetsAdminPage() {
                   placeholder={
                     widgetType === 'special_day'
                       ? 'Örn: 🏆 Leg Day (Bacak Günü)'
+                      : widgetType === 'workout_schedule'
+                      ? 'Örn: 📅 Haftalık Plan & Bugünkü Sıran'
                       : widgetType === 'countdown'
                       ? 'Örn: ⏱️ Antrenmana Ne Kadar Kaldı?'
                       : widgetType === 'weight_goal'

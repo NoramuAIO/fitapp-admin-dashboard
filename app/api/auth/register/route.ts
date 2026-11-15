@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { createUserToken, hashPassword } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
@@ -14,12 +15,23 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check if user already exists
+    const cleanName = String(name).trim();
+    const cleanEmail = String(email).trim().toLowerCase();
+    const cleanPassword = String(password).trim();
+
+    if (!cleanName || !cleanEmail || cleanPassword.length < 4) {
+      return NextResponse.json(
+        { error: 'Geçerli isim, email ve en az 4 karakterli şifre gerekli' },
+        { status: 400 }
+      );
+    }
+
+    // Check if user already exists (case-insensitive)
     const { data: existingUser } = await supabase
       .from('users')
       .select('id')
-      .eq('email', email)
-      .single();
+      .ilike('email', cleanEmail)
+      .maybeSingle();
 
     if (existingUser) {
       return NextResponse.json(
@@ -28,27 +40,30 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create user (in production, hash the password!)
+    const hashedPassword = await hashPassword(cleanPassword);
+
     const { data, error } = await supabase
       .from('users')
       .insert([{
-        name,
-        email,
-        password,
+        name: cleanName,
+        email: cleanEmail,
+        password: hashedPassword,
         createdAt: new Date().toISOString()
       }])
-      .select('*')
+      .select('id, name, email, createdAt')
       .single();
 
-    console.log('Register result:', { data, error });
-
     if (error) throw error;
+
+    const token = await createUserToken(data.id, data.email);
 
     return NextResponse.json({
       id: data.id,
       name: data.name,
       email: data.email,
-      createdAt: data.createdAt || data.created_at
+      createdAt: data.createdAt,
+      token,
+      accessToken: token,
     });
   } catch (error) {
     console.error('Error registering user:', error);

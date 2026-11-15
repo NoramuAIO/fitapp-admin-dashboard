@@ -70,7 +70,8 @@ export async function GET(request: Request) {
           const description = (e.description || '').replace(/"/g, '""');
           const imageUrl = e.imageUrl || '';
           const muscleGroup = e.muscleGroup || '';
-          csv += `${e.id},${e.programId || ''},${e.workoutId || ''},"${e.name}",${e.sets},${e.reps},"${duration}","${description}",${e.orderIndex},"${imageUrl}","${muscleGroup}"\n`;
+          const workoutId = e.dayId ?? e.workoutId ?? '';
+          csv += `${e.id},${e.programId || ''},${workoutId},"${e.name}",${e.sets},${e.reps},"${duration}","${description}",${e.orderIndex},"${imageUrl}","${muscleGroup}"\n`;
         });
       }
 

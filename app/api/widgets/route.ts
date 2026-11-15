@@ -7,7 +7,7 @@ export const revalidate = 0;
 interface CustomWidget {
   id: number;
   title: string;
-  widget_type: 'countdown' | 'custom_text' | 'weight_goal';
+  widget_type: 'countdown' | 'custom_text' | 'weight_goal' | 'special_day' | 'workout_schedule';
   target_time?: string | null;
   custom_content?: string | null;
   userId?: number | null;
@@ -47,6 +47,7 @@ export async function GET(request: Request) {
       .from('custom_widgets')
       .select('*')
       .neq('widget_type', 'athlete_rank')
+      .neq('widget_type', 'workout_schedule_data')
       .order('display_order', { ascending: true });
 
     if (onlyActive) {
@@ -59,7 +60,9 @@ export async function GET(request: Request) {
     if (!error && data) {
       rawList = data;
     } else {
-      rawList = fallbackWidgets.filter(w => w.widget_type !== ('athlete_rank' as any));
+      rawList = fallbackWidgets.filter(
+        w => w.widget_type !== ('athlete_rank' as any) && w.widget_type !== ('workout_schedule_data' as any)
+      );
       if (onlyActive) rawList = rawList.filter(w => w.is_active);
     }
 
@@ -192,9 +195,29 @@ export async function PUT(request: Request) {
     if (updates.display_order !== undefined) updateData.display_order = Number(updates.display_order);
 
     if (updates.custom_content !== undefined || cleanUserId !== undefined) {
-      const baseContent = updates.custom_content !== undefined ? updates.custom_content : '';
-      if (cleanUserId) {
-        updateData.custom_content = `[USER:${cleanUserId}] ${baseContent}`;
+      let existingUserId: number | null = null;
+      let existingBaseContent = '';
+      if (cleanUserId === undefined || updates.custom_content === undefined) {
+        try {
+          const { data: existingRow } = await supabase
+            .from('custom_widgets')
+            .select('custom_content')
+            .eq('id', numericId)
+            .maybeSingle();
+          if (existingRow) {
+            const parsedExisting = parseWidgetUser(existingRow);
+            existingUserId = parsedExisting.userId ?? null;
+            existingBaseContent = parsedExisting.custom_content ?? '';
+          }
+        } catch {}
+      }
+
+      const targetUserId = cleanUserId !== undefined ? cleanUserId : existingUserId;
+      const baseContent =
+        updates.custom_content !== undefined ? updates.custom_content : existingBaseContent;
+
+      if (targetUserId) {
+        updateData.custom_content = `[USER:${targetUserId}] ${baseContent}`;
       } else {
         updateData.custom_content = baseContent;
       }

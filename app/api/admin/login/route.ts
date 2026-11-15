@@ -1,24 +1,35 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-
-// Admin bilgileri environment variable'dan al
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'soykamermustafa033@gmail.com';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '4#$4&!j7xXU7$#';
+import { createAdminSessionToken } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
+    const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+      return NextResponse.json(
+        { error: 'Sunucu yapılandırma hatası: Admin bilgileri tanımlanmamış' },
+        { status: 500 }
+      );
+    }
+
     const { email, password } = await request.json();
 
-    // Basit doğrulama
-    if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-      // Cookie oluştur
+    if (
+      typeof email === 'string' &&
+      typeof password === 'string' &&
+      email.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase() &&
+      password === ADMIN_PASSWORD
+    ) {
+      const token = await createAdminSessionToken(ADMIN_EMAIL.trim().toLowerCase());
       const cookieStore = await cookies();
-      cookieStore.set('admin-auth', 'authenticated', {
+      cookieStore.set('admin-auth', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         maxAge: 60 * 60 * 24 * 7, // 7 gün
-        path: '/', // Tüm path'lerde geçerli
+        path: '/',
       });
 
       return NextResponse.json({ success: true });

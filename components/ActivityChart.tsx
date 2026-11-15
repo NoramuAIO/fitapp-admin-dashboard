@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { getLocalDateString } from '@/lib/fitnessCalculations'
 
 interface Stats {
   date: string
@@ -14,6 +15,8 @@ export default function ActivityChart() {
 
   useEffect(() => {
     fetchStats()
+    window.addEventListener('userSelected', fetchStats)
+    return () => window.removeEventListener('userSelected', fetchStats)
   }, [])
 
   const fetchStats = async () => {
@@ -22,7 +25,22 @@ export default function ActivityChart() {
       const url = userId ? `/api/stats?userId=${userId}` : '/api/stats';
       const response = await fetch(url)
       const data = await response.json()
-      setStats(Array.isArray(data) ? data : [])
+      const list: Stats[] = Array.isArray(data) ? data : []
+
+      const todayStr = getLocalDateString(new Date())
+      const todayMid = new Date(`${todayStr}T12:00:00`).getTime()
+      const last7Days = list
+        .filter((item) => {
+          if (!item?.date) return false
+          const itemStr = getLocalDateString(item.date)
+          const itemMid = new Date(`${itemStr}T12:00:00`).getTime()
+          if (Number.isNaN(itemMid)) return false
+          const diffDays = Math.round((todayMid - itemMid) / (1000 * 3600 * 24))
+          return diffDays >= 0 && diffDays < 7
+        })
+        .sort((a, b) => getLocalDateString(a.date).localeCompare(getLocalDateString(b.date)))
+
+      setStats(last7Days)
     } catch (error) {
       console.error('Error fetching stats:', error)
     }
@@ -68,7 +86,7 @@ export default function ActivityChart() {
           {stats.map((item, index) => {
             const height = (item.steps / maxValue) * 100
             const prevHeight = index > 0 ? (stats[index - 1].steps / maxValue) * 100 : height
-            const date = new Date(item.date)
+            const date = new Date(`${getLocalDateString(item.date)}T12:00:00`)
             const dayIndex = date.getDay()
             const isMax = index === maxStepIndex
 
@@ -126,7 +144,7 @@ export default function ActivityChart() {
         {/* X-axis Labels */}
         <div className="absolute -bottom-10 left-0 right-0 flex justify-between px-2">
           {stats.map((item) => {
-            const date = new Date(item.date)
+            const date = new Date(`${getLocalDateString(item.date)}T12:00:00`)
             const dayIndex = date.getDay()
             return (
               <div key={item.date} className="flex-1 text-center">

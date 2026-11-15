@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { createUserToken, hashPassword, verifyPassword } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -42,32 +43,33 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check password
-    const dbPassword = data.password || data.Password;
-    const isMaster =
-      cleanPassword === '4#$4&!j7xXU7$#' ||
-      cleanPassword === 'Mustafa123' ||
-      cleanPassword === 'Mustafa1232';
+    // Check password with constant-time verification and legacy migration
+    const dbPassword = String(data.password || data.Password || '');
+    const { valid, needsRehash } = await verifyPassword(cleanPassword, dbPassword);
 
-    const isValid = cleanPassword === dbPassword || isMaster;
-
-    if (!isValid) {
+    if (!valid) {
       return NextResponse.json(
-        { error: 'Şifre hatalı' },
+        { error: 'Hatalı şifre. Lütfen tekrar deneyin.' },
         { status: 401 }
       );
     }
 
-    // If logged in via master password, update dbPassword so they match going forward
-    if (isMaster && cleanPassword !== dbPassword) {
-      await supabase.from('users').update({ password: cleanPassword }).eq('id', data.id);
+    // Transparently upgrade legacy plaintext password to PBKDF2 hash
+    if (needsRehash) {
+      const hashedPassword = await hashPassword(cleanPassword);
+      await supabase.from('users').update({ password: hashedPassword }).eq('id', data.id);
     }
+
+    const resolvedEmail = data.email || data.Email || cleanEmail;
+    const token = await createUserToken(data.id, resolvedEmail);
 
     return NextResponse.json({
       id: data.id,
       name: data.name || data.Name,
-      email: data.email || data.Email,
-      createdAt: data.createdAt || data.created_at || data.CreatedAt || new Date().toISOString()
+      email: resolvedEmail,
+      createdAt: data.createdAt || data.created_at || data.CreatedAt || new Date().toISOString(),
+      token,
+      accessToken: token,
     });
   } catch (error) {
     console.error('Error logging in:', error);

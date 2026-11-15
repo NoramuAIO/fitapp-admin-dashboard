@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { Clock, Dumbbell, Calendar, Search, User, CheckSquare, Activity } from 'lucide-react';
+import {
+  isRealWorkoutSession,
+  isManualTimerSession,
+  parseDurationToMinutes,
+  extractLocalTimeString,
+  getLocalDateString,
+} from '@/lib/fitnessCalculations';
 
 interface WorkoutSession {
   id: number;
@@ -35,8 +42,13 @@ export default function TimePage() {
 
   useEffect(() => {
     fetchUsers();
-    const saved = localStorage.getItem('selectedUserId');
-    if (saved) setSelectedUserId(parseInt(saved));
+    const syncSelectedUser = () => {
+      const saved = localStorage.getItem('selectedUserId');
+      setSelectedUserId(saved ? parseInt(saved, 10) : null);
+    };
+    syncSelectedUser();
+    window.addEventListener('userSelected', syncSelectedUser);
+    return () => window.removeEventListener('userSelected', syncSelectedUser);
   }, []);
 
   useEffect(() => {
@@ -71,30 +83,21 @@ export default function TimePage() {
     });
   };
 
-  const parseDuration = (dur?: string) => {
-    if (!dur) return 0;
-    let mins = 0;
-    const hoursMatch = dur.match(/(\d+)s/);
-    const minsMatch = dur.match(/(\d+)dk/);
-    if (hoursMatch) mins += parseInt(hoursMatch[1]) * 60;
-    if (minsMatch) mins += parseInt(minsMatch[1]);
-    return mins;
-  };
-
   const getFilteredSessions = () => {
     let filtered = [...sessions];
     
     // Category filter
     if (categoryFilter === 'workout') {
-      filtered = filtered.filter(s => !s.is_manual_timer && s.programId != null);
+      filtered = filtered.filter(isRealWorkoutSession);
     } else if (categoryFilter === 'duration') {
-      filtered = filtered.filter(s => s.is_manual_timer || s.programId == null);
+      filtered = filtered.filter(isManualTimerSession);
     }
 
-    // Time filter
+    // Time filter (Europe/Istanbul calendar day parity)
     const now = new Date();
+    const todayStr = getLocalDateString(now);
     if (filter === 'today') {
-      filtered = filtered.filter(s => new Date(s.startTime).toDateString() === now.toDateString());
+      filtered = filtered.filter(s => s.startTime && getLocalDateString(s.startTime) === todayStr);
     } else if (filter === 'week') {
       const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       filtered = filtered.filter(s => new Date(s.startTime) >= lastWeek);
@@ -116,11 +119,11 @@ export default function TimePage() {
   };
 
   const filteredSessions = getFilteredSessions();
-  const workoutSessions = filteredSessions.filter(s => !s.is_manual_timer && s.programId != null);
-  const durationSessions = filteredSessions.filter(s => s.is_manual_timer || s.programId == null);
+  const workoutSessions = filteredSessions.filter(isRealWorkoutSession);
+  const durationSessions = filteredSessions.filter(isManualTimerSession);
 
-  const workoutDurationMins = workoutSessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
-  const gymDurationMins = durationSessions.reduce((sum, s) => sum + parseDuration(s.duration), 0);
+  const workoutDurationMins = workoutSessions.reduce((sum, s) => sum + parseDurationToMinutes(s.duration), 0);
+  const gymDurationMins = durationSessions.reduce((sum, s) => sum + parseDurationToMinutes(s.duration), 0);
   const workoutCount = workoutSessions.length;
   const totalExercises = filteredSessions.reduce((sum, s) => sum + (s.completed_exercises || 0), 0);
 
@@ -274,7 +277,8 @@ export default function TimePage() {
         ) : (
           <div className="divide-y divide-[#2A2A2A]">
             {filteredSessions.map((session) => {
-              const isDurationLog = session.is_manual_timer || !session.programId;
+              const isDurationLog = isManualTimerSession(session);
+              const localTime = extractLocalTimeString(session.startTime);
 
               return (
                 <div key={session.id} className="p-5 flex items-center justify-between hover:bg-white/[0.02] transition-colors">
@@ -294,7 +298,9 @@ export default function TimePage() {
                         {!selectedUserId && (
                           <span className="flex items-center gap-1"><User size={12} /> {session.user_name || 'Kullanıcı'}</span>
                         )}
-                        <span className="flex items-center gap-1"><Calendar size={12} /> {formatDate(session.startTime)}</span>
+                        <span className="flex items-center gap-1">
+                          <Calendar size={12} /> {formatDate(session.startTime)} · {localTime || 'Gün İçi'}
+                        </span>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                           isDurationLog 
                             ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' 

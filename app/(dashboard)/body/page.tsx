@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Scale, TrendingDown, TrendingUp, Trash2, BarChart3, Plus, X, Calendar, Activity, Coffee, Utensils } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
+import { getLocalDateString } from '@/lib/fitnessCalculations';
 
 interface WeightLog {
   id: number;
@@ -61,7 +62,7 @@ export default function BodyAdminPage() {
   // Modal State for adding new weight log
   const [showAddWeightModal, setShowAddWeightModal] = useState(false);
   const [newWeight, setNewWeight] = useState('');
-  const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newDate, setNewDate] = useState(getLocalDateString());
   const [newTag, setNewTag] = useState<'ac' | 'tok' | null>(null);
   const [newNotes, setNewNotes] = useState('');
   const [submittingWeight, setSubmittingWeight] = useState(false);
@@ -71,8 +72,13 @@ export default function BodyAdminPage() {
 
   useEffect(() => {
     fetchUsers();
-    const saved = localStorage.getItem('selectedUserId');
-    if (saved) setSelectedUserId(parseInt(saved));
+    const syncSelectedUser = () => {
+      const saved = localStorage.getItem('selectedUserId');
+      setSelectedUserId(saved ? parseInt(saved, 10) : null);
+    };
+    syncSelectedUser();
+    window.addEventListener('userSelected', syncSelectedUser);
+    return () => window.removeEventListener('userSelected', syncSelectedUser);
   }, []);
 
   useEffect(() => {
@@ -191,7 +197,7 @@ export default function BodyAdminPage() {
         setNewWeight('');
         setNewNotes('');
         setNewTag(null);
-        setNewDate(new Date().toISOString().split('T')[0]);
+        setNewDate(getLocalDateString());
         loadData(selectedUserId);
       } else {
         alert('Kilo kaydı eklenemedi!');
@@ -333,6 +339,7 @@ export default function BodyAdminPage() {
                 setSelectedUserId(null);
                 localStorage.removeItem('selectedUserId');
               }
+              window.dispatchEvent(new Event('userSelected'));
             }}
           >
             <option value="">Kullanıcı Seç</option>

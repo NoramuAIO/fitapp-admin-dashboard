@@ -1,8 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Dumbbell, Users, Activity, Flame, TrendingUp, TrendingDown, Clock, ChevronRight, Scale, Target } from 'lucide-react';
+import {
+  Dumbbell, Users, Activity, Flame, TrendingUp, TrendingDown,
+  Clock, ChevronRight, Scale, Target, CalendarDays, CheckCircle2,
+  Sparkles, RefreshCw, Coffee,
+} from 'lucide-react';
 import Link from 'next/link';
+import {
+  isRealWorkoutSession,
+  isManualTimerSession,
+  getLocalDateString,
+} from '@/lib/fitnessCalculations';
+import {
+  REST_DAY_LABEL,
+  UserWorkoutSchedule,
+  calculateWeeklyAdherence,
+  getSmartTodayAndNextRecommendation,
+  getWeekCalendarDays,
+  normalizeUserSchedule,
+} from '@/lib/workoutSchedule';
 
 interface DashboardStats {
   totalPrograms: number;
@@ -53,59 +70,104 @@ export default function Dashboard() {
   const [fatLogs, setFatLogs] = useState<BodyFatLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
+  const [schedule, setSchedule] = useState<UserWorkoutSchedule>(() =>
+    normalizeUserSchedule(null, null)
+  );
+  const [scheduleOwnerName, setScheduleOwnerName] = useState<string>('');
+  const [allSessions, setAllSessions] = useState<any[]>([]);
+  const [allCompletions, setAllCompletions] = useState<any[]>([]);
+  const [enrichedPrograms, setEnrichedPrograms] = useState<any[]>([]);
 
   useEffect(() => {
     loadAll();
+    window.addEventListener('userSelected', loadAll);
+    return () => window.removeEventListener('userSelected', loadAll);
   }, []);
 
   const loadAll = async () => {
     try {
       const userId = typeof window !== 'undefined' ? localStorage.getItem('selectedUserId') : null;
-      if (userId) {
-        try {
-          const usersRes = await fetch('/api/users');
-          const users = await usersRes.json();
-          const u = Array.isArray(users) ? users.find((x: any) => x.id === parseInt(userId)) : null;
-          if (u) setUserName(u.name);
-        } catch {}
+      let loadedUsers: any[] = [];
+      try {
+        const usersRes = await fetch('/api/users');
+        const parsedUsers = await usersRes.json();
+        loadedUsers = Array.isArray(parsedUsers) ? parsedUsers : [];
+      } catch {}
+
+      const selectedUserObj = userId
+        ? loadedUsers.find((x: any) => x.id === parseInt(userId, 10))
+        : null;
+      if (selectedUserObj) {
+        setUserName(selectedUserObj.name);
+      } else {
+        setUserName('');
       }
 
+      const scheduleUserId = selectedUserObj?.id ?? loadedUsers[0]?.id ?? null;
+      setScheduleOwnerName(selectedUserObj?.name || loadedUsers[0]?.name || '');
+
       const programsUrl = userId ? `/api/programs?userId=${userId}` : '/api/programs';
-      const [programsRes, usersRes, sessionsRes, goalsRes, exercisesRes] = await Promise.all([
+      const [
+        programsRes,
+        sessionsRes,
+        goalsRes,
+        exercisesRes,
+        workoutsRes,
+        scheduleRes,
+        completionsRes,
+      ] = await Promise.all([
         fetch(programsUrl).catch(() => null),
-        fetch('/api/users').catch(() => null),
         fetch(userId ? `/api/workout-sessions?userId=${userId}` : '/api/workout-sessions').catch(() => null),
         fetch(userId ? `/api/goals?userId=${userId}` : '/api/goals').catch(() => null),
         fetch('/api/exercises').catch(() => null),
+        fetch('/api/workouts').catch(() => null),
+        scheduleUserId
+          ? fetch(`/api/workout-schedules?userId=${scheduleUserId}`).catch(() => null)
+          : Promise.resolve(null),
+        fetch(
+          scheduleUserId
+            ? `/api/exercise-completions?userId=${scheduleUserId}`
+            : '/api/exercise-completions'
+        ).catch(() => null),
       ]);
 
       const programs = programsRes?.ok ? await programsRes.json() : [];
-      const users = usersRes?.ok ? await usersRes.json() : [];
+      const users = loadedUsers;
       const sessions = sessionsRes?.ok ? await sessionsRes.json() : [];
       const goals = goalsRes?.ok ? await goalsRes.json() : [];
       const exercises = exercisesRes?.ok ? await exercisesRes.json() : [];
+      const workoutsList = workoutsRes?.ok ? await workoutsRes.json() : [];
+      const scheduleData = scheduleRes?.ok ? await scheduleRes.json() : null;
+      const completionsData = completionsRes?.ok ? await completionsRes.json() : [];
 
-      const now = new Date();
-      const todayDateStr = now.toLocaleDateString('en-CA');
+      const safePrograms = Array.isArray(programs) ? programs : [];
+      const safeWorkouts = Array.isArray(workoutsList) ? workoutsList : [];
+      const safeSessions = Array.isArray(sessions) ? sessions : [];
+      const safeCompletions = Array.isArray(completionsData) ? completionsData : [];
 
-      const isWorkoutSession = (s: any) => {
-        if (s.is_manual_timer) return false;
-        if (['duration', 'timer', 'manual', 'set'].includes(s.category)) return false;
-        return true;
-      };
+      setEnrichedPrograms(
+        safePrograms.map((p: any) => ({
+          ...p,
+          workouts: safeWorkouts.filter((w: any) => Number(w.programId) === Number(p.id)),
+        }))
+      );
+      setAllSessions(safeSessions);
+      setAllCompletions(safeCompletions);
+      setSchedule(normalizeUserSchedule(scheduleData, scheduleUserId));
+
+      const todayDateStr = getLocalDateString(new Date());
 
       const todaySessions = Array.isArray(sessions)
         ? sessions.filter((s: any) => {
-            if (!isWorkoutSession(s)) return false;
+            if (!isRealWorkoutSession(s)) return false;
             if (!s.startTime) return false;
-            const sDate = new Date(s.startTime).toLocaleDateString('en-CA');
-            return sDate === todayDateStr;
+            return getLocalDateString(s.startTime) === todayDateStr;
           }).length
         : 0;
 
       const totalExercises = Array.isArray(exercises) ? exercises.length : 0;
       const actualWorkoutSessions = Array.isArray(sessions)
-        ? sessions.filter(isWorkoutSession)
+        ? sessions.filter(isRealWorkoutSession)
         : [];
 
       setStats({
@@ -155,6 +217,22 @@ export default function Dashboard() {
   const prevFat = fatLogs[1]?.fatPercent;
   const fDiff = latestFat && prevFat ? +(latestFat - prevFat).toFixed(1) : null;
 
+  const todayDateStr = getLocalDateString(new Date());
+  const weeklyAdherence = calculateWeeklyAdherence(todayDateStr, schedule, allSessions);
+  const smartRec = getSmartTodayAndNextRecommendation(
+    todayDateStr,
+    schedule,
+    allSessions,
+    enrichedPrograms
+  );
+  const weekStrip = getWeekCalendarDays(
+    todayDateStr,
+    schedule,
+    allSessions,
+    allCompletions,
+    todayDateStr
+  );
+
   return (
     <div className="p-8 max-w-7xl mx-auto">
       {/* Welcome */}
@@ -196,6 +274,154 @@ export default function Dashboard() {
             })}
           </div>
 
+          {/* Smart Schedule Overview Card */}
+          <div className="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-6 mb-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-5 border-b border-[#242424]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#6366F1]/20 flex items-center justify-center text-[#6366F1]">
+                  <CalendarDays size={20} />
+                </div>
+                <div>
+                  <h2 className="font-bold text-white flex items-center gap-2">
+                    <span>Antrenman Takvimi & Haftalık İlerleme</span>
+                    {scheduleOwnerName && (
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white/5 text-gray-300 border border-white/10">
+                        {scheduleOwnerName}
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-xs text-gray-400">
+                    Bugünün planı, haftalık uyum oranı ve otomatik sıradaki antrenman önerisi
+                  </p>
+                </div>
+              </div>
+              <Link
+                href="/calendar"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#6366F1] hover:bg-[#5558E6] text-white text-xs font-bold transition-colors w-fit"
+              >
+                <span>Takvim & Planlayıcıyı Aç</span>
+                <ChevronRight size={14} />
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+              {/* Bugünün Planı */}
+              <div className="bg-[#1A1A1F] border border-[#292932] rounded-xl p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-300 mb-1.5">
+                  Bugünün Planı
+                </p>
+                <p className="text-lg font-bold text-white truncate">
+                  {smartRec.todayDay.isRestDay
+                    ? REST_DAY_LABEL
+                    : smartRec.todayDay.plannedWorkout?.workoutName || REST_DAY_LABEL}
+                </p>
+                {smartRec.todayDay.note && (
+                  <p className="text-xs text-[#4ECDC4] mt-1">{smartRec.todayDay.note}</p>
+                )}
+                <div className="mt-2 flex items-center gap-2 text-xs">
+                  {smartRec.todayDay.completedSessions.length > 0 ? (
+                    <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                      <CheckCircle2 size={13} /> Tamamlandı
+                    </span>
+                  ) : smartRec.todayDay.isRestDay ? (
+                    <span className="text-gray-400 flex items-center gap-1">
+                      <Coffee size={13} /> Aktif toparlanma
+                    </span>
+                  ) : smartRec.todayDay.isAlternating ? (
+                    <span className="text-purple-300 flex items-center gap-1">
+                      <RefreshCw size={12} /> Dönüşümlü gün
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">Planlanan gün</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Bu Haftaki Tamamlanma Oranı */}
+              <div className="bg-[#1A1A1F] border border-[#292932] rounded-xl p-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
+                    Bu Haftaki Hedef / Tamamlanma
+                  </p>
+                  <span className="text-xs font-bold text-emerald-400">
+                    %{weeklyAdherence.completionPercent}
+                  </span>
+                </div>
+                <p className="text-lg font-bold text-white">
+                  {weeklyAdherence.completedCount}/{weeklyAdherence.plannedCount} Antrenman
+                </p>
+                <div className="h-2 bg-[#25252D] rounded-full overflow-hidden mt-2.5">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#5DD97C] to-[#4ECDC4] rounded-full transition-all duration-500"
+                    style={{ width: `${weeklyAdherence.completionPercent}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1.5">{weeklyAdherence.summaryText}</p>
+              </div>
+
+              {/* Sıradaki Antrenman Önerisi */}
+              <div className="bg-[#1A1A1F] border border-[#292932] rounded-xl p-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-purple-300">
+                    Sıradaki Antrenman Önerisi
+                  </p>
+                  <Sparkles size={14} className="text-[#9B6FFF]" />
+                </div>
+                <p className="text-lg font-bold text-white truncate">
+                  {smartRec.nextWorkout?.workoutName || REST_DAY_LABEL}
+                </p>
+                <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                  {smartRec.recommendationReason}
+                </p>
+              </div>
+            </div>
+
+            {/* 7-Day Mini Weekly Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+              {weekStrip.map((d) => (
+                <Link
+                  key={d.date}
+                  href="/calendar"
+                  className={`rounded-xl p-3 border transition-all hover:brightness-110 ${
+                    d.status === 'completed'
+                      ? 'bg-emerald-500/12 border-emerald-500/35'
+                      : d.isToday
+                        ? 'bg-indigo-500/18 border-indigo-400/50'
+                        : d.isRestDay
+                          ? 'bg-[#17171B] border-[#25252B]'
+                          : 'bg-[#1B1B22] border-[#2C2C38]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] font-bold text-gray-400">
+                      {d.dayShort} {d.dayNumber}
+                    </span>
+                    {d.status === 'completed' ? (
+                      <CheckCircle2 size={13} className="text-emerald-400" />
+                    ) : d.isToday ? (
+                      <span className="text-[9px] font-bold px-1.5 py-0.2 bg-[#6366F1] text-white rounded">
+                        BUGÜN
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs font-semibold text-white truncate">
+                    {d.status === 'completed'
+                      ? d.completedSessions[0]?.workout_name ||
+                        d.completedSessions[0]?.program_name ||
+                        d.plannedWorkout?.workoutName ||
+                        'Antrenman'
+                      : d.isRestDay
+                        ? REST_DAY_LABEL
+                        : d.plannedWorkout?.workoutName || REST_DAY_LABEL}
+                  </p>
+                  {d.note && (
+                    <p className="text-[10px] text-[#4ECDC4] truncate mt-0.5">{d.note}</p>
+                  )}
+                </Link>
+              ))}
+            </div>
+          </div>
+
           {/* Bottom Row */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -210,7 +436,7 @@ export default function Dashboard() {
               ) : (
                 <div className="divide-y divide-[#2A2A2A]">
                   {recentSessions.map((s) => {
-                    const isManual = s.is_manual_timer ?? ['duration', 'timer', 'manual', 'set'].includes(s.category);
+                    const isManual = isManualTimerSession(s);
                     return (
                       <div key={s.id} className="flex items-center gap-4 px-6 py-3.5 hover:bg-white/[0.02] transition-colors">
                         <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"

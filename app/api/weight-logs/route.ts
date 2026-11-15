@@ -82,15 +82,27 @@ export async function POST(request: Request) {
       resultData = data;
     }
 
-    // Auto-update active kg goals for this user
-    if (userId && weight) {
+    // Auto-update active kg goals for this user (try decimal first, fallback to rounded on INTEGER schema 22P02)
+    if (userId && weight !== undefined && weight !== null) {
       try {
-        await supabase
-          .from('goals')
-          .update({ currentValue: Math.round(Number(weight)) })
-          .eq('userId', userId)
-          .eq('unit', 'kg')
-          .eq('status', 'active');
+        const parsedWeight = parseFloat(String(weight).replace(',', '.'));
+        if (Number.isFinite(parsedWeight)) {
+          const { error: goalUpdateError } = await supabase
+            .from('goals')
+            .update({ currentValue: parsedWeight })
+            .eq('userId', userId)
+            .eq('unit', 'kg')
+            .eq('status', 'active');
+
+          if (goalUpdateError?.code === '22P02') {
+            await supabase
+              .from('goals')
+              .update({ currentValue: Math.round(parsedWeight) })
+              .eq('userId', userId)
+              .eq('unit', 'kg')
+              .eq('status', 'active');
+          }
+        }
       } catch (goalErr) {
         console.error('Error auto-updating kg goals:', goalErr);
       }
