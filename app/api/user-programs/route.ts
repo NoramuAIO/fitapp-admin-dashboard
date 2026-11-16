@@ -1,11 +1,31 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import {
+  parsePositiveInt,
+  requireApiAuth,
+  resolveScopedUserId,
+} from '@/lib/apiAuth';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
 
 export async function GET(request: Request) {
+  const guard = await requireApiAuth(request);
+  if (!guard.ok) return guard.response;
+
   try {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
-    
+    const rawUserId = searchParams.get('userId');
+    const parsedUserId = rawUserId ? parsePositiveInt(rawUserId) : null;
+    if (rawUserId && !parsedUserId) {
+      return NextResponse.json({ error: 'Geçersiz userId' }, { status: 400 });
+    }
+
+    const scoped = resolveScopedUserId(guard.auth, parsedUserId);
+    if (!scoped.ok) return scoped.response;
+
     let query = supabase
       .from('user_programs')
       .select(`
@@ -23,77 +43,109 @@ export async function GET(request: Request) {
       `)
       .order('assignedAt', { ascending: false });
 
-    if (userId) {
-      query = query.eq('userId', userId);
+    if (scoped.userId) {
+      query = query.eq('userId', scoped.userId);
     }
 
     const { data, error } = await query;
-
     if (error) throw error;
 
-    return NextResponse.json(data || []);
+    return NextResponse.json(data || [], { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error('Error fetching user programs:', error);
     return NextResponse.json(
       { error: 'Failed to fetch user programs' },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }
 
 export async function POST(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
-    const { userId, programId, isActive } = body;
+    const userId = parsePositiveInt(body.userId);
+    const programId = parsePositiveInt(body.programId);
+    const isActive = body.isActive ?? true;
 
-    // Deactivate other programs if this is active
+    if (!userId || !programId) {
+      return NextResponse.json({ error: 'Geçerli userId ve programId gerekli' }, { status: 400 });
+    }
+
     if (isActive) {
-      await supabase
+      const { error: deactErr } = await supabase
         .from('user_programs')
         .update({ isActive: false })
         .eq('userId', userId);
+      if (deactErr) throw deactErr;
+    }
+
+    const { data: existing } = await supabase
+      .from('user_programs')
+      .select('id')
+      .eq('userId', userId)
+      .eq('programId', programId)
+      .maybeSingle();
+
+    if (existing) {
+      const { data, error } = await supabase
+        .from('user_programs')
+        .update({ isActive: Boolean(isActive) })
+        .eq('id', existing.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return NextResponse.json(data, { status: 200, headers: NO_STORE_HEADERS });
     }
 
     const { data, error } = await supabase
       .from('user_programs')
-      .insert([{ userId, programId, isActive: isActive ?? true }])
+      .insert([{ userId, programId, isActive: Boolean(isActive) }])
       .select()
       .single();
 
     if (error) throw error;
 
-    return NextResponse.json(data, { status: 201 });
+    return NextResponse.json(data, { status: 201, headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error('Error assigning program:', error);
     return NextResponse.json(
       { error: 'Failed to assign program' },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }
 
 export async function DELETE(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-
-    if (!id) {
-      return NextResponse.json({ error: 'ID required' }, { status: 400 });
+    const numericId = parsePositiveInt(searchParams.get('id'));
+    if (!numericId) {
+      return NextResponse.json({ error: 'Geçerli ID gerekli' }, { status: 400 });
     }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('user_programs')
       .delete()
-      .eq('id', id);
+      .eq('id', numericId)
+      .select('id');
 
     if (error) throw error;
+    if (!data || data.length === 0) {
+      return NextResponse.json({ error: 'Kayıt bulunamadı' }, { status: 404 });
+    }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true }, { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error('Error removing program:', error);
     return NextResponse.json(
       { error: 'Failed to remove program' },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }

@@ -18,6 +18,9 @@ import {
   Calendar,
 } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
+import { apiFetch } from '@/lib/clientCache';
+import { getMondayFirstDayIndex } from '@/lib/fitnessCalculations';
+import { getStoredSelectedUserId, subscribeUserSelected } from '@/lib/userSelection';
 
 interface CustomWidget {
   id: number;
@@ -84,10 +87,41 @@ function getSpecialDayInfo(targetTimeStr?: string | null) {
   const dayIndex = parseInt(parts[0], 10);
   const time = parts[1] || '';
   const dayObj = DAYS_OF_WEEK.find((d) => d.value === dayIndex) || DAYS_OF_WEEK[0];
-  const todayIndex = new Date().getDay(); // 0 is Sunday
+  const mondayFirstToday = getMondayFirstDayIndex(new Date());
+  const todayIndex = (mondayFirstToday + 1) % 7; // 0 is Sunday in Europe/Istanbul
   const isToday = todayIndex === dayObj.value;
   const daysLeft = (dayObj.value - todayIndex + 7) % 7;
   return { dayIndex: dayObj.value, dayName: dayObj.label, time, isToday, daysLeft };
+}
+
+function computeCountdownParts(targetTimeStr?: string | null, nowMs: number = Date.now()) {
+  try {
+    const raw = (targetTimeStr || '18:00:00').trim();
+    const now = new Date(nowMs);
+    let target = new Date(nowMs);
+
+    if (raw.includes(':')) {
+      const parts = raw.split(':').map((p) => parseInt(p, 10));
+      const h = Number.isNaN(parts[0]) ? 18 : parts[0];
+      const m = Number.isNaN(parts[1]) ? 0 : parts[1];
+      const s = Number.isNaN(parts[2]) ? 0 : parts[2];
+      target.setHours(h, m, s, 0);
+      if (target.getTime() < now.getTime()) {
+        target.setDate(target.getDate() + 1);
+      }
+    } else if (!Number.isNaN(Date.parse(raw))) {
+      target = new Date(raw);
+    }
+
+    const diff = Math.max(0, target.getTime() - now.getTime());
+    return {
+      hours: Math.floor(diff / (1000 * 60 * 60)),
+      minutes: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
+      seconds: Math.floor((diff % (1000 * 60)) / 1000),
+    };
+  } catch {
+    return { hours: 0, minutes: 0, seconds: 0 };
+  }
 }
 
 export default function WidgetsAdminPage() {
@@ -115,78 +149,44 @@ export default function WidgetsAdminPage() {
   const [displayOrder, setDisplayOrder] = useState(1);
   const [isActive, setIsActive] = useState(true);
 
-  // Real-time ticking countdown for live preview
-  const [timeRemaining, setTimeRemaining] = useState({ hours: 0, minutes: 0, seconds: 0 });
+  // Real-time ticking clock for per-widget live previews
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     loadWidgets();
-    const syncSelectedUser = () => {
-      if (typeof window === 'undefined') return;
-      const saved = localStorage.getItem('selectedUserId');
-      if (saved) {
-        setFilterUserId(saved);
-        const parsed = parseInt(saved, 10);
-        setTargetUserId(Number.isNaN(parsed) ? null : parsed);
-      } else {
-        setFilterUserId('all');
-        setTargetUserId(null);
-      }
+    const syncSelectedUser = (uid?: number | null) => {
+      const resolved = uid !== undefined ? uid : getStoredSelectedUserId();
+      setFilterUserId(resolved ? String(resolved) : 'all');
+      setTargetUserId(resolved);
     };
     syncSelectedUser();
-    window.addEventListener('userSelected', syncSelectedUser);
-    return () => window.removeEventListener('userSelected', syncSelectedUser);
+    return subscribeUserSelected(syncSelectedUser);
   }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      calculateTimeRemaining();
+      setNowMs(Date.now());
     }, 1000);
-    calculateTimeRemaining();
     return () => clearInterval(timer);
-  }, [targetTime]);
-
-  const calculateTimeRemaining = () => {
-    try {
-      const now = new Date();
-      let target = new Date();
-
-      if (targetTime.includes(':')) {
-        const parts = targetTime.split(':').map((p) => parseInt(p, 10));
-        const h = Number.isNaN(parts[0]) ? 18 : parts[0];
-        const m = Number.isNaN(parts[1]) ? 0 : parts[1];
-        const s = Number.isNaN(parts[2]) ? 0 : parts[2];
-        target.setHours(h, m, s, 0);
-        if (target.getTime() < now.getTime()) {
-          target.setDate(target.getDate() + 1);
-        }
-      } else if (!isNaN(Date.parse(targetTime))) {
-        target = new Date(targetTime);
-      }
-
-      const diff = Math.max(0, target.getTime() - now.getTime());
-      const hours = Math.floor(diff / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-
-      setTimeRemaining({ hours, minutes, seconds });
-    } catch {
-      setTimeRemaining({ hours: 0, minutes: 0, seconds: 0 });
-    }
-  };
+  }, []);
 
   const loadWidgets = async () => {
     setLoading(true);
     try {
       const [resWidgets, resUsers] = await Promise.all([
-        fetch(`/api/widgets?t=${Date.now()}`, { cache: 'no-store' }),
-        fetch('/api/users', { cache: 'no-store' }),
+        apiFetch('/api/widgets', { forceRefresh: true }),
+        apiFetch('/api/users?lite=1', { forceRefresh: true }),
       ]);
-      const data = await resWidgets.json();
-      setWidgets(Array.isArray(data) ? data : []);
-      const usersData = await resUsers.json();
-      setUsers(Array.isArray(usersData) ? usersData : []);
+      if (resWidgets.ok) {
+        const data = await resWidgets.json().catch(() => []);
+        setWidgets(Array.isArray(data) ? data : []);
+      }
+      if (resUsers.ok) {
+        const usersData = await resUsers.json().catch(() => []);
+        setUsers(Array.isArray(usersData) ? usersData : []);
+      }
     } catch {
-      setWidgets([]);
+      setErrorMsg('Widget verileri yüklenemedi.');
     } finally {
       setLoading(false);
     }
@@ -242,17 +242,27 @@ export default function WidgetsAdminPage() {
       return;
     }
 
-    setIsSaving(true);
-    setErrorMsg(null);
-
     let formattedTargetTime: string | null = null;
     if (widgetType === 'countdown') {
-      formattedTargetTime = targetTime ? (targetTime.length === 5 ? targetTime + ':00' : targetTime) : '18:00:00';
+      const cleanTime = targetTime.trim();
+      if (!cleanTime) {
+        setErrorMsg('Lütfen geçerli bir hedef saat veya tarih girin.');
+        return;
+      }
+      formattedTargetTime = cleanTime.length === 5 ? cleanTime + ':00' : cleanTime;
     } else if (widgetType === 'special_day') {
       formattedTargetTime = `${specialDay}|${specialDayTime || ''}`;
     } else if (widgetType === 'weight_goal') {
-      formattedTargetTime = targetWeight ? targetWeight.trim() : '70';
+      const parsedWeight = parseFloat(String(targetWeight).trim().replace(',', '.'));
+      if (!Number.isFinite(parsedWeight) || parsedWeight <= 0 || parsedWeight >= 500) {
+        setErrorMsg('Lütfen geçerli bir hedef kilo değeri girin (ör. 70,5).');
+        return;
+      }
+      formattedTargetTime = String(parsedWeight);
     }
+
+    setIsSaving(true);
+    setErrorMsg(null);
 
     const payload = {
       title: title.trim(),
@@ -265,20 +275,17 @@ export default function WidgetsAdminPage() {
     };
 
     try {
-      let res;
-      if (editingWidget) {
-        res = await fetch('/api/widgets', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: editingWidget.id, ...payload }),
-        });
-      } else {
-        res = await fetch('/api/widgets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-      }
+      const res = editingWidget
+        ? await apiFetch('/api/widgets', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: editingWidget.id, ...payload }),
+          })
+        : await apiFetch('/api/widgets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
@@ -311,15 +318,21 @@ export default function WidgetsAdminPage() {
 
   const handleToggleActive = async (widget: CustomWidget) => {
     try {
-      await fetch('/api/widgets', {
+      const res = await apiFetch('/api/widgets', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: widget.id, is_active: !widget.is_active }),
       });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Widget durumu değiştirilemedi.');
+      }
       setWidgets((prev) =>
         prev.map((w) => (w.id === widget.id ? { ...w, is_active: !w.is_active } : w))
       );
-    } catch {}
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Widget durumu değiştirilemedi.');
+    }
   };
 
   const handleDeleteWidget = async (id: number) => {
@@ -332,22 +345,20 @@ export default function WidgetsAdminPage() {
 
     try {
       const numericId = Number(id);
-      // Optimistic instant UI removal with guaranteed type comparison
       setWidgets((prev) => prev.filter((w) => Number(w.id) !== numericId));
       if (editingWidget && Number(editingWidget.id) === numericId) {
         setShowModal(false);
         setEditingWidget(null);
       }
 
-      // Use POST with action: 'delete' (and fallback to DELETE) so no browser/proxy blocks DELETE
-      let res = await fetch('/api/widgets', {
+      let res = await apiFetch('/api/widgets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete', id: numericId }),
       });
 
       if (!res.ok) {
-        res = await fetch(`/api/widgets?id=${numericId}`, {
+        res = await apiFetch(`/api/widgets?id=${numericId}`, {
           method: 'DELETE',
         });
       }
@@ -610,13 +621,22 @@ export default function WidgetsAdminPage() {
             </div>
 
             {(() => {
+              const modalPreviewTarget =
+                widgetType === 'countdown'
+                  ? targetTime
+                  : widgetType === 'special_day'
+                    ? `${specialDay}|${specialDayTime || ''}`
+                    : widgetType === 'weight_goal'
+                      ? targetWeight
+                      : null;
+
               const previewWidgets: CustomWidget[] = showModal
                 ? [
                     {
                       id: editingWidget?.id || -1,
                       title: title.trim() || 'Yeni Widget',
                       widget_type: widgetType,
-                      target_time: targetTime,
+                      target_time: modalPreviewTarget,
                       custom_content: customContent,
                       is_active: isActive,
                       display_order: 1,
@@ -641,6 +661,7 @@ export default function WidgetsAdminPage() {
                 <div className="space-y-4">
                   {previewWidgets.map((pw, idx) => {
                     if (pw.widget_type === 'countdown') {
+                      const pwRemaining = computeCountdownParts(pw.target_time, nowMs);
                       return (
                         <div
                           key={pw.id || idx}
@@ -664,19 +685,19 @@ export default function WidgetsAdminPage() {
                           <div className="grid grid-cols-3 gap-2 my-2 text-center">
                             <div className="bg-[#0C1217] border border-[#1E2C37] rounded-xl p-2">
                               <span className="text-2xl font-black font-mono text-white">
-                                {formatTwoDigits(timeRemaining.hours)}
+                                {formatTwoDigits(pwRemaining.hours)}
                               </span>
                               <span className="text-[10px] text-gray-400 block font-medium">SAAT</span>
                             </div>
                             <div className="bg-[#0C1217] border border-[#1E2C37] rounded-xl p-2">
                               <span className="text-2xl font-black font-mono text-[#4ECDC4]">
-                                {formatTwoDigits(timeRemaining.minutes)}
+                                {formatTwoDigits(pwRemaining.minutes)}
                               </span>
                               <span className="text-[10px] text-gray-400 block font-medium">DAKİKA</span>
                             </div>
                             <div className="bg-[#0C1217] border border-[#1E2C37] rounded-xl p-2">
                               <span className="text-2xl font-black font-mono text-emerald-400">
-                                {formatTwoDigits(timeRemaining.seconds)}
+                                {formatTwoDigits(pwRemaining.seconds)}
                               </span>
                               <span className="text-[10px] text-gray-400 block font-medium">SANİYE</span>
                             </div>

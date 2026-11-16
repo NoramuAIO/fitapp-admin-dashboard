@@ -1,20 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Search, Filter, Trash2, Plus, Upload, Activity, Dumbbell, Edit2, History, X, Calendar, TrendingUp, User } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
-import { apiFetch } from '@/lib/clientCache';
+import { apiFetch, invalidateApiCache } from '@/lib/clientCache';
+import { ISTANBUL_TZ } from '@/lib/fitnessCalculations';
 
 interface Exercise {
   id: number;
-  programId: number;
+  programId?: number | null;
+  program_id?: number | null;
   name: string;
   sets: number;
   reps: number;
   duration?: string;
   description?: string;
   imageUrl?: string;
-  orderIndex: number;
+  muscleGroup?: string | null;
+  muscle_group?: string | null;
+  orderIndex?: number;
   program_name?: string;
 }
 
@@ -36,11 +41,15 @@ interface ExerciseHistoryItem {
 
 export default function ExercisesPage() {
   const { confirm } = useConfirm();
+  const searchParams = useSearchParams();
+  const initialSearch = searchParams.get('search') || '';
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [filterProgram, setFilterProgram] = useState<number | 'all'>('all');
   const [programs, setPrograms] = useState<any[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -55,32 +64,45 @@ export default function ExercisesPage() {
   
   const [formData, setFormData] = useState({
     name: '',
-    sets: 3,
-    reps: 10,
+    sets: '3',
+    reps: '10',
     duration: '',
     description: '',
     imageUrl: '',
+    muscleGroup: '',
   });
+
+  useEffect(() => {
+    setSearchTerm(searchParams.get('search') || '');
+  }, [searchParams]);
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const loadData = async () => {
+  const loadData = async (forceRefresh = false) => {
     try {
       setLoading(true);
+      setLoadError(null);
       const [exercisesRes, programsRes] = await Promise.all([
-        apiFetch('/api/exercises'),
-        apiFetch('/api/programs'),
+        apiFetch('/api/exercises', { forceRefresh }),
+        apiFetch('/api/programs', { forceRefresh }),
       ]);
-      
-      const exercisesData = await exercisesRes.json();
-      const programsData = await programsRes.json();
-      
-      setExercises(exercisesData);
-      setPrograms(programsData);
+
+      if (!exercisesRes.ok || !programsRes.ok) {
+        setLoadError('Hareket veya program verileri yüklenemedi.');
+      }
+
+      const [exercisesData, programsData] = await Promise.all([
+        exercisesRes.ok ? exercisesRes.json() : [],
+        programsRes.ok ? programsRes.json() : [],
+      ]);
+
+      setExercises(Array.isArray(exercisesData) ? exercisesData : []);
+      setPrograms(Array.isArray(programsData) ? programsData : []);
     } catch (error) {
       console.error('Error loading data:', error);
+      setLoadError('Veriler yüklenirken bir ağ hatası oluştu.');
     } finally {
       setLoading(false);
     }
@@ -94,33 +116,44 @@ export default function ExercisesPage() {
       return;
     }
 
+    const parsedSets = Math.max(1, parseInt(formData.sets, 10) || 3);
+    const parsedReps = Math.max(1, parseInt(formData.reps, 10) || 10);
+
     try {
       const url = editingExercise ? `/api/exercises/${editingExercise.id}` : '/api/exercises';
       const method = editingExercise ? 'PUT' : 'POST';
-      
+      const existingProgramId =
+        editingExercise?.programId ?? editingExercise?.program_id ?? null;
+
       const response = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: formData.name,
-          sets: formData.sets,
-          reps: formData.reps,
-          duration: formData.duration,
-          description: formData.description,
-          imageUrl: formData.imageUrl,
-          programId: editingExercise?.programId || null,
+          name: formData.name.trim(),
+          sets: parsedSets,
+          reps: parsedReps,
+          duration: formData.duration.trim() || null,
+          description: formData.description.trim() || null,
+          imageUrl: formData.imageUrl.trim() || null,
+          muscleGroup: formData.muscleGroup.trim() || null,
+          programId: existingProgramId,
           orderIndex: editingExercise?.orderIndex || 0,
         }),
       });
 
       if (response.ok) {
-        await loadData();
+        invalidateApiCache();
+        await loadData(true);
         setShowAddModal(false);
         setEditingExercise(null);
         resetForm();
+      } else {
+        const err = await response.json().catch(() => ({}));
+        alert(err.error || 'Hareket kaydedilemedi.');
       }
     } catch (error) {
       console.error('Error saving exercise:', error);
+      alert('Hareket kaydedilirken bir hata oluştu.');
     }
   };
 
@@ -145,9 +178,15 @@ export default function ExercisesPage() {
       if (!response.ok) {
         response = await apiFetch(`/api/exercises/${numericId}`, { method: 'DELETE' });
       }
+      if (!response.ok) {
+        alert('Hareket silinemedi.');
+        await loadData(true);
+      } else {
+        invalidateApiCache();
+      }
     } catch (error) {
       console.error('Error deleting exercise:', error);
-      loadData();
+      await loadData(true);
     }
   };
 
@@ -155,11 +194,12 @@ export default function ExercisesPage() {
     setEditingExercise(exercise);
     setFormData({
       name: exercise.name,
-      sets: exercise.sets,
-      reps: exercise.reps,
+      sets: String(exercise.sets ?? 3),
+      reps: String(exercise.reps ?? 10),
       duration: exercise.duration || '',
       description: exercise.description || '',
       imageUrl: exercise.imageUrl || '',
+      muscleGroup: exercise.muscleGroup ?? exercise.muscle_group ?? '',
     });
     setShowAddModal(true);
   };
@@ -187,11 +227,12 @@ export default function ExercisesPage() {
   const resetForm = () => {
     setFormData({
       name: '',
-      sets: 3,
-      reps: 10,
+      sets: '3',
+      reps: '10',
       duration: '',
       description: '',
       imageUrl: '',
+      muscleGroup: '',
     });
   };
 
@@ -206,7 +247,7 @@ export default function ExercisesPage() {
       : '/api/import-fitnessprogramer';
 
     try {
-      setLoading(true);
+      setImporting(true);
       const response = await apiFetch(apiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -216,9 +257,9 @@ export default function ExercisesPage() {
         }),
       });
 
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
       
-      if (result.success) {
+      if (response.ok && result.success) {
         let message = result.message;
         
         if (result.debugInfo) {
@@ -232,12 +273,13 @@ export default function ExercisesPage() {
         }
         
         alert(message);
-        await loadData();
+        invalidateApiCache();
+        await loadData(true);
         setShowImportModal(false);
         setImportCsvData('');
         setImportProgramId(null);
       } else {
-        alert('İçe aktarma başarısız: ' + (result.error || 'Bilinmeyen hata'));
+        alert('İçe aktarma başarısız: ' + (result.error || `Sunucu hatası (${response.status})`));
         if (result.details) {
           console.error('Error details:', result.details);
         }
@@ -246,7 +288,7 @@ export default function ExercisesPage() {
       console.error('Import error:', error);
       alert('İçe aktarma başarısız oldu: ' + error);
     } finally {
-      setLoading(false);
+      setImporting(false);
     }
   };
 
@@ -270,11 +312,32 @@ export default function ExercisesPage() {
     );
   };
 
+  const programNameMap = useMemo(
+    () => new Map<number, string>(programs.map((p) => [Number(p.id), p.name])),
+    [programs]
+  );
+
+  const filteredExercises = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    return exercises.filter((exercise) => {
+      const matchesSearch = !query || exercise.name.toLowerCase().includes(query);
+      const progId = exercise.programId ?? exercise.program_id;
+      const matchesProgram =
+        filterProgram === 'all' || Number(progId) === Number(filterProgram);
+      return matchesSearch && matchesProgram;
+    });
+  }, [exercises, searchTerm, filterProgram]);
+
+  const allFilteredSelected =
+    filteredExercises.length > 0 &&
+    filteredExercises.every((e) => selectedExerciseIds.includes(e.id));
+
   const toggleSelectAll = () => {
-    if (selectedExerciseIds.length === filteredExercises.length) {
-      setSelectedExerciseIds([]);
+    const filteredSet = new Set(filteredExercises.map((e) => e.id));
+    if (allFilteredSelected) {
+      setSelectedExerciseIds((prev) => prev.filter((id) => !filteredSet.has(id)));
     } else {
-      setSelectedExerciseIds(filteredExercises.map(e => e.id));
+      setSelectedExerciseIds((prev) => Array.from(new Set([...prev, ...filteredExercises.map((e) => e.id)])));
     }
   };
 
@@ -293,7 +356,7 @@ export default function ExercisesPage() {
     setExercises((prev) => prev.filter((e) => !idsToDelete.includes(e.id)));
     setSelectedExerciseIds([]);
 
-    await Promise.allSettled(
+    const results = await Promise.all(
       idsToDelete.map(async (id) => {
         try {
           let res = await apiFetch(`/api/exercises/${id}`, {
@@ -302,13 +365,21 @@ export default function ExercisesPage() {
             body: JSON.stringify({ action: 'delete' }),
           });
           if (!res.ok) {
-            await apiFetch(`/api/exercises/${id}`, { method: 'DELETE' });
+            res = await apiFetch(`/api/exercises/${id}`, { method: 'DELETE' });
           }
+          return res.ok;
         } catch (e) {
           console.error(e);
+          return false;
         }
       })
     );
+    if (results.some((okRes) => !okRes)) {
+      alert('Bazı seçili hareketler silinemedi. Liste yenileniyor.');
+      await loadData(true);
+    } else {
+      invalidateApiCache();
+    }
   };
 
   const handleDeleteAll = async () => {
@@ -326,7 +397,7 @@ export default function ExercisesPage() {
     setExercises((prev) => prev.filter((e) => !idsToDelete.includes(e.id)));
     setSelectedExerciseIds([]);
 
-    await Promise.allSettled(
+    const results = await Promise.all(
       idsToDelete.map(async (id) => {
         try {
           let res = await apiFetch(`/api/exercises/${id}`, {
@@ -335,20 +406,22 @@ export default function ExercisesPage() {
             body: JSON.stringify({ action: 'delete' }),
           });
           if (!res.ok) {
-            await apiFetch(`/api/exercises/${id}`, { method: 'DELETE' });
+            res = await apiFetch(`/api/exercises/${id}`, { method: 'DELETE' });
           }
+          return res.ok;
         } catch (e) {
           console.error(e);
+          return false;
         }
       })
     );
+    if (results.some((okRes) => !okRes)) {
+      alert('Bazı hareketler silinemedi. Liste yenileniyor.');
+      await loadData(true);
+    } else {
+      invalidateApiCache();
+    }
   };
-
-  const filteredExercises = exercises.filter(exercise => {
-    const matchesSearch = exercise.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesProgram = filterProgram === 'all' || exercise.programId === filterProgram;
-    return matchesSearch && matchesProgram;
-  });
 
   if (loading) {
     return (
@@ -403,9 +476,7 @@ export default function ExercisesPage() {
           <button
             onClick={() => {
               setEditingExercise(null);
-              setFormData({
-                name: '', sets: 3, reps: 10, duration: '', description: '', imageUrl: '',
-              });
+              resetForm();
               setShowAddModal(true);
             }}
             className="flex items-center gap-2 bg-[#6366F1] hover:bg-[#5558DD] text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
@@ -415,12 +486,24 @@ export default function ExercisesPage() {
         </div>
       </div>
 
+      {loadError && (
+        <div className="mb-6 bg-red-500/10 border border-red-500/30 text-red-300 rounded-xl px-4 py-3 text-sm flex items-center justify-between">
+          <span>{loadError}</span>
+          <button
+            onClick={() => loadData(true)}
+            className="px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-xs font-semibold"
+          >
+            Yeniden Dene
+          </button>
+        </div>
+      )}
+
       {/* Filters and Search */}
       <div className="flex flex-col md:flex-row gap-4 mb-8 items-center">
         <div className="flex items-center gap-3 bg-[#141414] border border-[#2A2A2A] px-4 py-2.5 rounded-xl shrink-0">
           <input
             type="checkbox"
-            checked={selectedExerciseIds.length === filteredExercises.length && filteredExercises.length > 0}
+            checked={allFilteredSelected}
             onChange={toggleSelectAll}
             className="w-4 h-4 rounded border-[#2A2A2A] bg-[#0F0F0F] checked:bg-[#6366F1]"
           />
@@ -531,11 +614,16 @@ export default function ExercisesPage() {
                     )}
                     
                     {/* Program Badge */}
-                    {exercise.program_name && (
-                      <span className="inline-block bg-purple-500/20 text-purple-400 px-3 py-1 rounded-lg text-xs font-medium mb-3">
-                        {exercise.program_name}
-                      </span>
-                    )}
+                    {(() => {
+                      const pid = exercise.programId ?? exercise.program_id;
+                      const progName =
+                        exercise.program_name || (pid ? programNameMap.get(Number(pid)) : undefined);
+                      return progName ? (
+                        <span className="inline-block bg-purple-500/20 text-purple-400 px-3 py-1 rounded-lg text-xs font-medium mb-3">
+                          {progName}
+                        </span>
+                      ) : null;
+                    })()}
 
                     {/* Stats */}
                     <div className="flex gap-4 text-sm">
@@ -691,10 +779,10 @@ export default function ExercisesPage() {
               <div className="flex gap-3 pt-4">
                 <button
                   onClick={handleImportBodybuilding}
-                  disabled={loading}
+                  disabled={importing}
                   className="flex-1 bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5558E3] hover:to-[#7C3AED] disabled:opacity-50 text-white px-6 py-3 rounded-xl font-semibold transition-all"
                 >
-                  {loading ? 'İçe Aktarılıyor...' : 'İçe Aktar'}
+                  {importing ? 'İçe Aktarılıyor...' : 'İçe Aktar'}
                 </button>
                 <button
                   onClick={() => {
@@ -737,7 +825,7 @@ export default function ExercisesPage() {
                   <input
                     type="number"
                     value={formData.sets}
-                    onChange={(e) => setFormData({ ...formData, sets: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, sets: e.target.value })}
                     className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
                     min="1"
                   />
@@ -747,11 +835,22 @@ export default function ExercisesPage() {
                   <input
                     type="number"
                     value={formData.reps}
-                    onChange={(e) => setFormData({ ...formData, reps: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, reps: e.target.value })}
                     className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
                     min="1"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">Kas Grubu (Opsiyonel)</label>
+                <input
+                  type="text"
+                  value={formData.muscleGroup}
+                  onChange={(e) => setFormData({ ...formData, muscleGroup: e.target.value })}
+                  className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+                  placeholder="Örn: Göğüs, Sırt, Bacak"
+                />
               </div>
 
               <div>
@@ -832,7 +931,12 @@ export default function ExercisesPage() {
                     </span>
                   </h3>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {historyExercise.program_name || 'Antrenman Programı'} · Kullanıcı ağırlık, tekrar ve ekipman notları
+                    {historyExercise.program_name ||
+                      ((historyExercise.programId ?? historyExercise.program_id)
+                        ? programNameMap.get(Number(historyExercise.programId ?? historyExercise.program_id))
+                        : null) ||
+                      'Antrenman Programı'}{' '}
+                    · Kullanıcı ağırlık, tekrar ve ekipman notları
                   </p>
                 </div>
               </div>
@@ -931,6 +1035,7 @@ export default function ExercisesPage() {
                                       year: 'numeric',
                                       hour: '2-digit',
                                       minute: '2-digit',
+                                      timeZone: ISTANBUL_TZ,
                                     })
                                   : '-'}
                               </td>

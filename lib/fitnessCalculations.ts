@@ -1,5 +1,58 @@
 export const ISTANBUL_TZ = 'Europe/Istanbul';
 
+/**
+ * Normalizes timezone-naive ISO timestamps returned by Postgres `timestamp without time zone`
+ * columns (which store UTC values without a trailing `Z`) into explicit UTC ISO strings.
+ */
+export function normalizeUtcTimestamp(raw?: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(trimmed)) {
+    return trimmed.replace(' ', 'T') + 'Z';
+  }
+  return trimmed;
+}
+
+/**
+ * Converts a JS Date.getDay() into Monday-first index (0=Monday..6=Sunday) in Europe/Istanbul.
+ */
+export function getMondayFirstDayIndex(date: Date): number {
+  const shortDay = new Intl.DateTimeFormat('en-US', {
+    timeZone: ISTANBUL_TZ,
+    weekday: 'short',
+  }).format(date);
+  const map: Record<string, number> = {
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6,
+  };
+  return map[shortDay] ?? (date.getDay() + 6) % 7;
+}
+
+function isValidCalendarYmd(ymd: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return false;
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+function parseLocaleFiniteNumber(raw: unknown): number {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : 0;
+  if (typeof raw === 'string') {
+    const cleaned = raw.trim().replace(',', '.');
+    if (!cleaned) return 0;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
 const MANUAL_TIMER_CATEGORIES = new Set(['duration', 'timer', 'manual', 'set']);
 const MANUAL_TIMER_NAMES = new Set([
   'Serbest Süre',
@@ -21,14 +74,15 @@ export const MUSCLE_COLORS = [
   '#38BDF8',
 ];
 
+// Specific compound rules must come before broad single-word terms to prevent misclassifications
 const MUSCLE_KEYWORDS: Array<{ group: string; terms: string[] }> = [
-  { group: 'Göğüs', terms: ['bench', 'chest', 'pec', 'fly', 'incline', 'decline', 'push up', 'pushup', 'göğüs', 'dip'] },
-  { group: 'Sırt', terms: ['row', 'pull', 'lat', 'deadlift', 'pulldown', 'chin', 'shrug', 'back', 'sırt', 'kanat', 'barfiks'] },
-  { group: 'Bacak', terms: ['squat', 'leg', 'lunge', 'calf', 'hamstring', 'quad', 'glute', 'hip thrust', 'rdl', 'bacak', 'kalf', 'kalça'] },
-  { group: 'Omuz', terms: ['shoulder', 'overhead', 'ohp', 'military', 'lateral raise', 'front raise', 'rear delt', 'face pull', 'arnold', 'omuz'] },
-  { group: 'Kol', terms: ['curl', 'bicep', 'tricep', 'hammer', 'pushdown', 'skullcrusher', 'preacher', 'extension', 'kol'] },
-  { group: 'Karın', terms: ['crunch', 'plank', 'abs', 'core', 'sit up', 'russian twist', 'leg raise', 'karın'] },
-  { group: 'Kardiyo', terms: ['koşu', 'run', 'treadmill', 'bisiklet', 'bike', 'cycling', 'cardio', 'kardiyo', 'ip', 'jumping', 'hiit', 'kürek', 'rowing', 'yürüyüş', 'walk'] },
+  { group: 'Karın', terms: ['crunch', 'plank', 'abs', 'core', 'sit up', 'russian twist', 'leg raise', 'knee raise', 'karın', 'mekik'] },
+  { group: 'Omuz', terms: ['lateral raise', 'side raise', 'front raise', 'rear delt', 'face pull', 'shoulder press', 'overhead press', 'military press', 'arnold press', 'ohp', 'shoulder', 'overhead', 'arnold', 'omuz'] },
+  { group: 'Kol', terms: ['incline dumbbell curl', 'incline curl', 'hammer curl', 'preacher curl', 'reverse curl', 'tricep extension', 'overhead extension', 'triceps pushdown', 'triceps push-down', 'rope pushdown', 'curl', 'bicep', 'biceps', 'tricep', 'triceps', 'hammer', 'pushdown', 'push-down', 'skullcrusher', 'preacher', 'kol'] },
+  { group: 'Bacak', terms: ['leg extension', 'leg curl', 'leg press', 'hip thrust', 'romanian deadlift', 'stiff leg deadlift', 'squat', 'lunge', 'calf', 'hamstring', 'quad', 'glute', 'rdl', 'bacak', 'kalf', 'kalça', 'leg'] },
+  { group: 'Göğüs', terms: ['bench press', 'incline chest', 'chest press', 'pec deck', 'chest fly', 'bench', 'chest', 'pec', 'fly', 'incline', 'decline', 'push up', 'pushup', 'göğüs', 'dip', 'dips'] },
+  { group: 'Sırt', terms: ['lat pulldown', 'barbell row', 'dumbbell row', 'cable row', 'seated row', 'pull up', 'pullup', 'chin up', 'chinup', 'deadlift', 'pulldown', 'shrug', 'row', 'pull', 'lat', 'back', 'sırt', 'kanat', 'barfiks'] },
+  { group: 'Kardiyo', terms: ['koşu', 'run', 'running', 'treadmill', 'bisiklet', 'bike', 'cycling', 'cardio', 'kardiyo', 'ip atlama', 'jump rope', 'jumping jack', 'hiit', 'kürek', 'rowing', 'yürüyüş', 'walk', 'walking'] },
 ];
 
 export const DEFAULT_ATHLETE_RANKS = [
@@ -45,13 +99,15 @@ export const DEFAULT_ATHLETE_RANKS = [
  * Formats a Date or ISO timestamp into YYYY-MM-DD in Europe/Istanbul timezone.
  * Preserves pure YYYY-MM-DD strings without timezone shift.
  */
-export function getLocalDateString(dateInput: Date | string = new Date()): string {
+export function getLocalDateString(dateInput?: Date | string | null): string {
   if (typeof dateInput === 'string') {
     const trimmed = dateInput.trim();
+    if (!trimmed) return '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-      return trimmed;
+      return isValidCalendarYmd(trimmed) ? trimmed : '';
     }
-    const parsed = new Date(trimmed);
+    const normalized = normalizeUtcTimestamp(trimmed) || trimmed;
+    const parsed = new Date(normalized);
     if (!Number.isNaN(parsed.getTime())) {
       return new Intl.DateTimeFormat('en-CA', {
         timeZone: ISTANBUL_TZ,
@@ -61,18 +117,28 @@ export function getLocalDateString(dateInput: Date | string = new Date()): strin
       }).format(parsed);
     }
     const prefix = trimmed.slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(prefix)) {
-      return prefix;
-    }
+    return isValidCalendarYmd(prefix) ? prefix : '';
   }
 
-  const d = dateInput instanceof Date && !Number.isNaN(dateInput.getTime()) ? dateInput : new Date();
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: ISTANBUL_TZ,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d);
+  if (dateInput === undefined || dateInput === null) {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: ISTANBUL_TZ,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  }
+
+  if (dateInput instanceof Date && !Number.isNaN(dateInput.getTime())) {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: ISTANBUL_TZ,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(dateInput);
+  }
+
+  return '';
 }
 
 /**
@@ -86,7 +152,8 @@ export function extractLocalTimeString(dateInput?: string | null): string | null
     return null;
   }
 
-  const parsed = new Date(trimmed);
+  const normalized = normalizeUtcTimestamp(trimmed) || trimmed;
+  const parsed = new Date(normalized);
   if (Number.isNaN(parsed.getTime())) return null;
 
   const formatted = new Intl.DateTimeFormat('tr-TR', {
@@ -107,25 +174,49 @@ export function parseDurationToMinutes(dur?: string | null): number {
   const trimmed = String(dur).trim();
   if (!trimmed) return 0;
 
+  const hmsMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (hmsMatch) {
+    const h = parseInt(hmsMatch[1], 10);
+    const m = parseInt(hmsMatch[2], 10);
+    const s = hmsMatch[3] ? parseInt(hmsMatch[3], 10) : 0;
+    return h * 60 + m + Math.round(s / 60);
+  }
+
   let totalMinutes = 0;
-  const hoursMatch = trimmed.match(/(\d+)\s*(?:s|h|sa)(?![a-zçğıöşü])/i);
-  const minsMatch = trimmed.match(/(\d+)\s*(?:dk|m|min)/i);
+  let matchedUnit = false;
+
+  const secsNamedMatch = trimmed.match(/(\d+)\s*(?:saniye|sn|secs?|seconds?)(?![a-zçğıöşü])/i);
+  const minsMatch = trimmed.match(/(\d+)\s*(?:dakika|dk|minutes?|mins?|m)(?![a-zçğıöşü])/i);
+  const secsAfterMinMatch = minsMatch
+    ? trimmed.match(/(?:\d+\s*(?:dakika|dk|minutes?|mins?|m)\s*)(\d+)\s*s(?![a-zçğıöşü])/i)
+    : null;
+  const secsMatch = secsNamedMatch || secsAfterMinMatch;
+
+  const hoursMatch =
+    trimmed.match(/(\d+)\s*(?:saat|hours?|hrs?|sa|h)(?![a-zçğıöşü])/i) ||
+    (!secsMatch ? trimmed.match(/(\d+)\s*s(?![a-zçğıöşü])/i) : null);
 
   if (hoursMatch) {
     totalMinutes += parseInt(hoursMatch[1], 10) * 60;
+    matchedUnit = true;
   }
   if (minsMatch) {
     totalMinutes += parseInt(minsMatch[1], 10);
+    matchedUnit = true;
+  }
+  if (secsMatch) {
+    totalMinutes += Math.round(parseInt(secsMatch[1], 10) / 60);
+    matchedUnit = true;
   }
 
-  if (!hoursMatch && !minsMatch) {
+  if (!matchedUnit) {
     const numMatch = trimmed.match(/(\d+)/);
     if (numMatch) {
       totalMinutes += parseInt(numMatch[1], 10);
     }
   }
 
-  return Number.isNaN(totalMinutes) ? 0 : totalMinutes;
+  return Number.isNaN(totalMinutes) ? 0 : Math.max(0, totalMinutes);
 }
 
 export function formatMinutesTurkish(totalMinutes: number): string {
@@ -169,25 +260,32 @@ export function calculateCompletionVolume(c: any): {
   reps: number;
   volume: number;
 } {
-  const weight = Number(c?.weight_kg ?? c?.actualWeight ?? c?.weight) || 0;
-  const sets = Number(c?.sets) || 0;
-  const reps = Number(c?.reps) || 0;
+  let weight = Math.max(0, parseLocaleFiniteNumber(c?.weight_kg ?? c?.actualWeight ?? c?.weight));
+  let sets = Math.max(0, parseLocaleFiniteNumber(c?.sets));
+  let reps = Math.max(0, parseLocaleFiniteNumber(c?.reps));
 
   if (Array.isArray(c?.setsDetail) && c.setsDetail.length > 0) {
     let setVolume = 0;
+    let maxSetWeight = 0;
+    let sumReps = 0;
     for (const s of c.setsDetail) {
-      const sw = Number(s?.weight_kg ?? s?.weight) || 0;
-      const sr = Number(s?.reps) || 0;
+      const sw = Math.max(0, parseLocaleFiniteNumber(s?.weight_kg ?? s?.weight));
+      const sr = Math.max(0, parseLocaleFiniteNumber(s?.reps));
       setVolume += sw * sr;
+      if (sw > maxSetWeight) maxSetWeight = sw;
+      sumReps += sr;
     }
-    return { weight, sets, reps, volume: setVolume };
+    if (weight <= 0 && maxSetWeight > 0) weight = maxSetWeight;
+    if (sets <= 0) sets = c.setsDetail.length;
+    if (reps <= 0 && sumReps > 0) reps = Math.round(sumReps / c.setsDetail.length);
+    return { weight, sets, reps, volume: Math.max(0, setVolume) };
   }
 
   return {
     weight,
     sets,
     reps,
-    volume: weight * reps * sets,
+    volume: Math.max(0, weight * reps * sets),
   };
 }
 
@@ -293,6 +391,12 @@ export function calculateExercisePRs(
   );
 }
 
+function matchesKeywordBoundary(text: string, term: string): boolean {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(?:^|[^\\p{L}])${escaped}(?:[^\\p{L}]|$)`, 'iu');
+  return pattern.test(text);
+}
+
 export function inferMuscleGroup(
   exerciseName?: string | null,
   rawMuscleGroup?: string | null
@@ -303,8 +407,9 @@ export function inferMuscleGroup(
   }
 
   const lower = String(exerciseName || '').trim().toLowerCase();
+  if (!lower) return 'Genel';
   for (const rule of MUSCLE_KEYWORDS) {
-    if (rule.terms.some((term) => lower.includes(term))) {
+    if (rule.terms.some((term) => matchesKeywordBoundary(lower, term))) {
       return rule.group;
     }
   }
@@ -470,11 +575,11 @@ export function calculateWeightGoalMetrics(
 ): WeightGoalMetrics {
   const sortedLogs = [...(weightLogs || [])]
     .map((l) => ({
-      date: getLocalDateString(l.date || ''),
-      weight: Number(l.weight),
+      date: l.date ? getLocalDateString(l.date) : '',
+      weight: parseLocaleFiniteNumber(l.weight),
       id: Number(l.id) || 0,
     }))
-    .filter((l) => Number.isFinite(l.weight) && l.weight > 0)
+    .filter((l) => l.date !== '' && Number.isFinite(l.weight) && l.weight > 0)
     .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
 
   const latestLog = sortedLogs.length > 0 ? sortedLogs[sortedLogs.length - 1] : null;

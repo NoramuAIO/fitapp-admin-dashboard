@@ -1,21 +1,40 @@
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { verifyAdminSessionToken } from '@/lib/auth';
+import {
+  isValidYmdDate,
+  parseLocaleDecimal,
+  parsePositiveInt,
+  requireApiAuth,
+  resolveScopedUserId,
+} from '@/lib/apiAuth';
 import {
   calculateWeightGoalMetrics,
+  getLocalDateString,
   parseStartValueTag,
   stripGoalMetadataTags,
 } from '@/lib/fitnessCalculations';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
+
 export async function GET(request: Request) {
+  const guard = await requireApiAuth(request);
+  if (!guard.ok) return guard.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const rawUserId = searchParams.get('userId');
-    const numericUserId =
-      rawUserId && rawUserId !== 'all' && rawUserId !== 'undefined' && rawUserId !== 'null'
-        ? parseInt(rawUserId, 10)
-        : null;
+    const isUnfiltered = !rawUserId || rawUserId === 'all' || rawUserId === 'undefined' || rawUserId === 'null';
+    const parsedUserId = isUnfiltered ? null : parsePositiveInt(rawUserId);
+    if (!isUnfiltered && !parsedUserId) {
+      return NextResponse.json({ error: 'Geçersiz userId parametresi' }, { status: 400 });
+    }
+
+    const scoped = resolveScopedUserId(guard.auth, parsedUserId);
+    if (!scoped.ok) return scoped.response;
+    const numericUserId = scoped.userId;
 
     let query = supabase
       .from('goals')
@@ -33,7 +52,7 @@ export async function GET(request: Request) {
       .order('date', { ascending: true })
       .order('id', { ascending: true });
 
-    if (numericUserId && !isNaN(numericUserId)) {
+    if (numericUserId) {
       query = query.eq('userId', numericUserId);
       logsQuery = logsQuery.eq('userId', numericUserId);
     }
@@ -86,7 +105,7 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json(formattedGoals);
+    return NextResponse.json(formattedGoals, { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error('Error fetching goals:', error);
     return NextResponse.json(
@@ -97,34 +116,40 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const guard = await requireApiAuth(request);
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
 
     // Support delete via POST
     if (body.action === 'delete' && body.id !== undefined) {
-      const numericId = Number(body.id);
-      const { data, error } = await supabase
-        .from('goals')
-        .delete()
-        .eq('id', numericId)
-        .select();
-
+      const numericId = parsePositiveInt(body.id);
+      if (!numericId) {
+        return NextResponse.json({ error: 'Geçersiz hedef ID' }, { status: 400 });
+      }
+      let delQuery = supabase.from('goals').delete().eq('id', numericId);
+      if (!guard.auth.isAdmin && guard.auth.userId) {
+        delQuery = delQuery.eq('userId', guard.auth.userId);
+      }
+      const { data, error } = await delQuery.select();
       if (error) throw error;
+      if (!data || data.length === 0) {
+        return NextResponse.json({ error: 'Hedef bulunamadı' }, { status: 404 });
+      }
 
-      return NextResponse.json({
-        success: true,
-        deleted: data?.length || 0,
-      });
+      return NextResponse.json(
+        { success: true, deleted: data.length },
+        { headers: NO_STORE_HEADERS }
+      );
     }
 
-    // Check if this is a bulk delete request (admin session required)
+    // Bulk delete requires admin session
     if (body.action === 'bulkDelete' && body.names) {
-      const cookieStore = await cookies();
-      const isAdmin = await verifyAdminSessionToken(cookieStore.get('admin-auth')?.value);
-      if (!isAdmin) {
+      if (!guard.auth.isAdmin) {
         return NextResponse.json(
           { error: 'Yetkisiz erişim (Admin oturumu gerekli)' },
-          { status: 401 }
+          { status: 403 }
         );
       }
 
@@ -136,30 +161,56 @@ export async function POST(request: Request) {
 
       if (error) throw error;
 
-      return NextResponse.json({
-        success: true,
-        deleted: data?.length || 0,
-        goals: data?.map((r) => r.title) || [],
-      });
+      return NextResponse.json(
+        {
+          success: true,
+          deleted: data?.length || 0,
+          goals: data?.map((r) => r.title) || [],
+        },
+        { headers: NO_STORE_HEADERS }
+      );
     }
 
-    const { userId, title, description, targetValue, currentValue, startValue, unit, startDate, endDate, status } = body;
+    const { title, description, targetValue, currentValue, startValue, unit, startDate, endDate, status } = body;
+    const requestedUserId = parsePositiveInt(body.userId);
+    const scoped = resolveScopedUserId(guard.auth, requestedUserId);
+    if (!scoped.ok) return scoped.response;
+    const userId = scoped.userId;
 
-    const targetNum = parseFloat(String(targetValue).replace(',', '.'));
+    if (!userId || !String(title || '').trim() || !String(unit || '').trim()) {
+      return NextResponse.json(
+        { error: 'Kullanıcı, başlık ve birim alanları zorunludur' },
+        { status: 400 }
+      );
+    }
+
+    const targetNum = parseLocaleDecimal(targetValue);
     let initialCurNum =
       currentValue !== undefined && currentValue !== null && currentValue !== ''
-        ? parseFloat(String(currentValue).replace(',', '.'))
+        ? parseLocaleDecimal(currentValue)
         : 0;
 
-    if (!Number.isFinite(targetNum)) {
+    if (targetNum === null || targetNum <= 0) {
       return NextResponse.json({ error: 'Geçerli hedef değeri gerekli' }, { status: 400 });
     }
-    if (!Number.isFinite(initialCurNum)) {
+    if (initialCurNum === null || initialCurNum < 0) {
       initialCurNum = 0;
     }
 
+    const resolvedStartDate =
+      startDate && isValidYmdDate(String(startDate)) ? String(startDate).trim() : getLocalDateString();
+    const resolvedEndDate =
+      endDate && String(endDate).trim()
+        ? isValidYmdDate(String(endDate))
+          ? String(endDate).trim()
+          : null
+        : null;
+    if (endDate && String(endDate).trim() && !resolvedEndDate) {
+      return NextResponse.json({ error: 'Geçersiz bitiş tarihi' }, { status: 400 });
+    }
+
     // If unit is kg and no currentValue provided, pull exact latest weight from weight_logs
-    if (String(unit || '').trim().toLowerCase() === 'kg' && initialCurNum === 0 && userId) {
+    if (String(unit).trim().toLowerCase() === 'kg' && initialCurNum === 0) {
       try {
         const { data: latestWeight } = await supabase
           .from('weight_logs')
@@ -180,12 +231,12 @@ export async function POST(request: Request) {
 
     const explicitStart =
       startValue !== undefined && startValue !== null && startValue !== ''
-        ? parseFloat(String(startValue).replace(',', '.'))
-        : NaN;
+        ? parseLocaleDecimal(startValue)
+        : null;
     const resolvedStart =
-      Number.isFinite(explicitStart) && explicitStart > 0
+      explicitStart !== null && explicitStart > 0
         ? explicitStart
-        : String(unit || '').trim().toLowerCase() === 'kg' && initialCurNum > 0
+        : String(unit).trim().toLowerCase() === 'kg' && initialCurNum > 0
           ? initialCurNum
           : null;
 
@@ -196,13 +247,13 @@ export async function POST(request: Request) {
 
     const basePayload = {
       userId,
-      title,
+      title: String(title).trim(),
       description: descriptionWithMeta,
       targetValue: targetNum,
       currentValue: initialCurNum,
-      unit,
-      startDate,
-      endDate,
+      unit: String(unit).trim(),
+      startDate: resolvedStartDate,
+      endDate: resolvedEndDate,
       status: status || 'active',
       createdAt: new Date().toISOString(),
     };
@@ -213,19 +264,14 @@ export async function POST(request: Request) {
       .select()
       .single();
 
-    // Fallback to integer rounding only if Postgres column type is INTEGER (error 22P02)
-    if (error?.code === '22P02') {
-      const retry = await supabase
-        .from('goals')
-        .insert([
-          {
-            ...basePayload,
-            targetValue: Math.round(targetNum),
-            currentValue: Math.round(initialCurNum),
-          },
-        ])
-        .select()
-        .single();
+    if (error && (error.code === '22P02' || error.code === '23502')) {
+      const retryPayload = {
+        ...basePayload,
+        targetValue: error.code === '22P02' ? Math.round(targetNum) : basePayload.targetValue,
+        currentValue: error.code === '22P02' ? Math.round(initialCurNum) : basePayload.currentValue,
+        endDate: basePayload.endDate || resolvedStartDate,
+      };
+      const retry = await supabase.from('goals').insert([retryPayload]).select().single();
       data = retry.data;
       error = retry.error;
     }
@@ -238,13 +284,13 @@ export async function POST(request: Request) {
         description: cleanDesc || null,
         startValue: resolvedStart,
       },
-      { status: 201 }
+      { status: 201, headers: NO_STORE_HEADERS }
     );
   } catch (error) {
     console.error('Error creating goal:', error);
     return NextResponse.json(
       { error: 'Failed to create goal: ' + (error as Error).message },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { AlertTriangle, Trash2, CheckCircle2, Info } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
+import { apiFetch, invalidateApiCache } from '@/lib/clientCache';
 
 interface DangerAction {
   url: string;
@@ -29,12 +30,13 @@ export default function SettingsPage() {
     setMessage(null);
 
     try {
-      let res = await fetch(action.url, { method: 'POST' });
+      let res = await apiFetch(action.url, { method: 'POST' });
       if (!res.ok) {
-        res = await fetch(action.url, { method: 'DELETE' });
+        res = await apiFetch(action.url, { method: 'DELETE' });
       }
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        invalidateApiCache();
         setMessage({ text: `Başarılı! ${data.deletedCount ?? ''} kayıt silindi.`, ok: true });
       } else {
         setMessage({ text: `Hata: ${data.error || 'İşlem tamamlanamadı'}`, ok: false });
@@ -82,7 +84,7 @@ export default function SettingsPage() {
             },
             {
               title: 'Tüm Egzersiz İlerlemelerini Sil',
-              desc: 'Tüm egzersiz set/tekrar kayıtlarını siler (exercise_progress tablosu).',
+              desc: 'Tüm egzersiz set/tekrar kayıtlarını siler (exercise_completions tablosu).',
               url: '/api/settings/delete-progress',
               label: 'Egzersiz İlerlemelerini Sil',
             },

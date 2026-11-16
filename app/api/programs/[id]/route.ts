@@ -1,17 +1,64 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import {
+  detachOrDeleteExercises,
+  parsePositiveInt,
+  requireApiAuth,
+} from '@/lib/apiAuth';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
 
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const { id } = await params;
+    const numericId = parsePositiveInt(id);
+    if (!numericId) {
+      return NextResponse.json({ error: 'Geçersiz program ID' }, { status: 400 });
+    }
+
     const body = await request.json();
     const { name, isPrimary, orderIndex, userId } = body;
-    const numericId = parseInt(id, 10);
 
-    // If this is primary, unset other primary programs
+    const updateData: any = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (name !== undefined) updateData.name = String(name).trim();
+    if (isPrimary !== undefined) updateData.isPrimary = Boolean(isPrimary);
+    if (orderIndex !== undefined) updateData.orderIndex = Number(orderIndex) || 0;
+
+    let { data, error } = await supabase
+      .from('programs')
+      .update(updateData)
+      .eq('id', numericId)
+      .select()
+      .maybeSingle();
+
+    if (error && orderIndex !== undefined && /orderIndex/i.test(String(error.message || ''))) {
+      const { orderIndex: _ignored, ...fallbackUpdate } = updateData;
+      const retry = await supabase
+        .from('programs')
+        .update(fallbackUpdate)
+        .eq('id', numericId)
+        .select()
+        .maybeSingle();
+      data = retry.data;
+      error = retry.error;
+    }
+
+    if (error) throw error;
+    if (!data) {
+      return NextResponse.json({ error: 'Program not found' }, { status: 404 });
+    }
+
     if (isPrimary) {
       await supabase
         .from('programs')
@@ -19,38 +66,19 @@ export async function PUT(
         .neq('id', numericId);
     }
 
-    const updateData: any = {
-      name,
-      isPrimary,
-      updatedAt: new Date().toISOString()
-    };
-
-    if (orderIndex !== undefined) {
-      updateData.orderIndex = orderIndex;
-    }
-
-    const { data, error } = await supabase
-      .from('programs')
-      .update(updateData)
-      .eq('id', numericId)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Handle user assignment if specified
     if (userId !== undefined) {
       await supabase.from('user_programs').delete().eq('programId', numericId);
-      if (userId) {
+      const parsedUserId = userId ? parsePositiveInt(userId) : null;
+      if (parsedUserId) {
         await supabase.from('user_programs').insert([{
-          userId: parseInt(String(userId), 10),
+          userId: parsedUserId,
           programId: numericId,
-          isActive: true
+          isActive: true,
         }]);
       }
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error('Error updating program:', error);
     return NextResponse.json({ error: 'Failed to update program' }, { status: 500 });
@@ -61,27 +89,32 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const { id } = await params;
-    const numericId = parseInt(id, 10);
+    const numericId = parsePositiveInt(id);
+    if (!numericId) {
+      return NextResponse.json({ error: 'Geçersiz program ID' }, { status: 400 });
+    }
 
-    // 1. Delete user assignments
     await supabase.from('user_programs').delete().eq('programId', numericId);
 
-    // 2. Find program days
     const { data: days } = await supabase.from('program_days').select('id').eq('programId', numericId);
-    const dayIds = (days || []).map((d: any) => d.id);
+    const dayIds = (days || []).map((d: any) => Number(d.id));
 
-    // 3. Delete exercises under this program
+    let exQuery = supabase.from('exercises').select('id');
     if (dayIds.length > 0) {
-      await supabase.from('exercises').delete().in('dayId', dayIds);
+      exQuery = exQuery.or(`programId.eq.${numericId},dayId.in.(${dayIds.join(',')})`);
+    } else {
+      exQuery = exQuery.eq('programId', numericId);
     }
-    await supabase.from('exercises').delete().eq('programId', numericId);
+    const { data: exRows } = await exQuery;
+    await detachOrDeleteExercises((exRows || []).map((e: any) => Number(e.id)));
 
-    // 4. Delete program days
     await supabase.from('program_days').delete().eq('programId', numericId);
 
-    // 5. Delete program itself
     const { data, error } = await supabase
       .from('programs')
       .delete()
@@ -90,10 +123,16 @@ export async function DELETE(
 
     if (error) throw error;
 
-    return NextResponse.json({ success: true, deleted: data?.length || 0 });
+    return NextResponse.json(
+      { success: true, deleted: data?.length || 0 },
+      { headers: NO_STORE_HEADERS }
+    );
   } catch (error) {
     console.error('Error deleting program:', error);
-    return NextResponse.json({ error: 'Failed to delete program: ' + (error as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to delete program: ' + (error as Error).message },
+      { status: 500, headers: NO_STORE_HEADERS }
+    );
   }
 }
 
@@ -101,6 +140,9 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
     if (body.action === 'delete') {

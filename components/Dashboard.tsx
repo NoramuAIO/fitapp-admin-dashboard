@@ -9,6 +9,11 @@ import {
 import Link from 'next/link';
 import { apiFetch } from '@/lib/clientCache';
 import {
+  formatIstanbulLocaleDate,
+  getStoredSelectedUserId,
+  setStoredSelectedUserId,
+} from '@/lib/userSelection';
+import {
   isRealWorkoutSession,
   isManualTimerSession,
   getLocalDateString,
@@ -80,16 +85,38 @@ export default function Dashboard() {
   const [enrichedPrograms, setEnrichedPrograms] = useState<any[]>([]);
 
   useEffect(() => {
-    loadAll();
-    window.addEventListener('userSelected', loadAll);
-    return () => window.removeEventListener('userSelected', loadAll);
+    loadAll(false);
+    const onUserChanged = () => loadAll(true);
+    const onVisibleOrFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      loadAll(true);
+    };
+    window.addEventListener('userSelected', onUserChanged);
+    window.addEventListener('focus', onVisibleOrFocus);
+    document.addEventListener('visibilitychange', onVisibleOrFocus);
+    return () => {
+      window.removeEventListener('userSelected', onUserChanged);
+      window.removeEventListener('focus', onVisibleOrFocus);
+      document.removeEventListener('visibilitychange', onVisibleOrFocus);
+    };
   }, []);
 
-  const loadAll = async () => {
+  const loadAll = async (forceRefresh = false) => {
     try {
-      const userId = typeof window !== 'undefined' ? localStorage.getItem('selectedUserId') : null;
-      const parsedUserId = userId ? parseInt(userId, 10) : NaN;
-      const selectedId = Number.isFinite(parsedUserId) && parsedUserId > 0 ? parsedUserId : null;
+      let selectedId = getStoredSelectedUserId();
+
+      // Fetch user list first if needed or validate selectedId against active users
+      const usersRes = await apiFetch('/api/users?lite=1', { forceRefresh }).catch(() => null);
+      const parsedUsers = usersRes?.ok ? await usersRes.json().catch(() => []) : [];
+      const loadedUsers: any[] = Array.isArray(parsedUsers) ? parsedUsers : [];
+      const selectedUserObj = selectedId
+        ? loadedUsers.find((x: any) => Number(x.id) === selectedId)
+        : null;
+
+      if (selectedId && !selectedUserObj && loadedUsers.length > 0) {
+        selectedId = null;
+        setStoredSelectedUserId(null);
+      }
 
       const programsUrl = selectedId ? `/api/programs?userId=${selectedId}` : '/api/programs';
       const sessionsUrl = selectedId ? `/api/workout-sessions?userId=${selectedId}` : '/api/workout-sessions';
@@ -99,7 +126,6 @@ export default function Dashboard() {
         : '/api/exercise-completions?limit=300';
 
       const [
-        usersRes,
         programsRes,
         sessionsRes,
         goalsRes,
@@ -110,29 +136,23 @@ export default function Dashboard() {
         wRes,
         fRes,
       ] = await Promise.all([
-        apiFetch('/api/users?lite=1').catch(() => null),
-        apiFetch(programsUrl).catch(() => null),
-        apiFetch(sessionsUrl).catch(() => null),
-        apiFetch(goalsUrl).catch(() => null),
-        apiFetch('/api/exercises').catch(() => null),
-        apiFetch('/api/workouts?lite=1').catch(() => null),
-        apiFetch(completionsUrl).catch(() => null),
+        apiFetch(programsUrl, { forceRefresh }).catch(() => null),
+        apiFetch(sessionsUrl, { forceRefresh }).catch(() => null),
+        apiFetch(goalsUrl, { forceRefresh }).catch(() => null),
+        apiFetch('/api/exercises', { forceRefresh }).catch(() => null),
+        apiFetch('/api/workouts?lite=1', { forceRefresh }).catch(() => null),
+        apiFetch(completionsUrl, { forceRefresh }).catch(() => null),
         selectedId
-          ? apiFetch(`/api/workout-schedules?userId=${selectedId}`).catch(() => null)
+          ? apiFetch(`/api/workout-schedules?userId=${selectedId}`, { forceRefresh }).catch(() => null)
           : Promise.resolve(null),
         selectedId
-          ? apiFetch(`/api/weight-logs?userId=${selectedId}`).catch(() => null)
+          ? apiFetch(`/api/weight-logs?userId=${selectedId}`, { forceRefresh }).catch(() => null)
           : Promise.resolve(null),
         selectedId
-          ? apiFetch(`/api/body-fat-logs?userId=${selectedId}`).catch(() => null)
+          ? apiFetch(`/api/body-fat-logs?userId=${selectedId}`, { forceRefresh }).catch(() => null)
           : Promise.resolve(null),
       ]);
 
-      const parsedUsers = usersRes?.ok ? await usersRes.json() : [];
-      const loadedUsers: any[] = Array.isArray(parsedUsers) ? parsedUsers : [];
-      const selectedUserObj = selectedId
-        ? loadedUsers.find((x: any) => Number(x.id) === selectedId)
-        : null;
       if (selectedUserObj) {
         setUserName(selectedUserObj.name);
       } else {
@@ -153,15 +173,15 @@ export default function Dashboard() {
         wData,
         fData,
       ] = await Promise.all([
-        programsRes?.ok ? programsRes.json() : [],
-        sessionsRes?.ok ? sessionsRes.json() : [],
-        goalsRes?.ok ? goalsRes.json() : [],
-        exercisesRes?.ok ? exercisesRes.json() : [],
-        workoutsRes?.ok ? workoutsRes.json() : [],
-        scheduleRes?.ok ? scheduleRes.json() : null,
-        completionsRes?.ok ? completionsRes.json() : [],
-        wRes?.ok ? wRes.json() : [],
-        fRes?.ok ? fRes.json() : [],
+        programsRes?.ok ? programsRes.json().catch(() => []) : [],
+        sessionsRes?.ok ? sessionsRes.json().catch(() => []) : [],
+        goalsRes?.ok ? goalsRes.json().catch(() => []) : [],
+        exercisesRes?.ok ? exercisesRes.json().catch(() => []) : [],
+        workoutsRes?.ok ? workoutsRes.json().catch(() => []) : [],
+        scheduleRes?.ok ? scheduleRes.json().catch(() => null) : null,
+        completionsRes?.ok ? completionsRes.json().catch(() => []) : [],
+        wRes?.ok ? wRes.json().catch(() => []) : [],
+        fRes?.ok ? fRes.json().catch(() => []) : [],
       ]);
 
       let scheduleData = initialScheduleData;
@@ -169,14 +189,14 @@ export default function Dashboard() {
 
       if (!selectedId && scheduleUserId) {
         const [fallbackSchedRes, fallbackCompRes] = await Promise.all([
-          apiFetch(`/api/workout-schedules?userId=${scheduleUserId}`).catch(() => null),
-          apiFetch(`/api/exercise-completions?userId=${scheduleUserId}&limit=300`).catch(() => null),
+          apiFetch(`/api/workout-schedules?userId=${scheduleUserId}`, { forceRefresh }).catch(() => null),
+          apiFetch(`/api/exercise-completions?userId=${scheduleUserId}&limit=300`, { forceRefresh }).catch(() => null),
         ]);
         if (fallbackSchedRes?.ok) {
-          scheduleData = await fallbackSchedRes.json();
+          scheduleData = await fallbackSchedRes.json().catch(() => null);
         }
         if (fallbackCompRes?.ok) {
-          completionsData = await fallbackCompRes.json();
+          completionsData = await fallbackCompRes.json().catch(() => []);
         }
       }
 
@@ -185,6 +205,9 @@ export default function Dashboard() {
       const safeWorkouts = Array.isArray(workoutsList) ? workoutsList : [];
       const safeSessions = Array.isArray(sessions) ? sessions : [];
       const safeCompletions = Array.isArray(completionsData) ? completionsData : [];
+      const scheduleScopedSessions = scheduleUserId
+        ? safeSessions.filter((s: any) => Number(s.userId) === Number(scheduleUserId))
+        : safeSessions;
 
       setEnrichedPrograms(
         safePrograms.map((p: any) => ({
@@ -192,41 +215,39 @@ export default function Dashboard() {
           workouts: safeWorkouts.filter((w: any) => Number(w.programId) === Number(p.id)),
         }))
       );
-      setAllSessions(safeSessions);
+      setAllSessions(scheduleScopedSessions);
       setAllCompletions(safeCompletions);
       setSchedule(normalizeUserSchedule(scheduleData, scheduleUserId));
 
       const todayDateStr = getLocalDateString(new Date());
 
-      const todaySessions = Array.isArray(sessions)
-        ? sessions.filter((s: any) => {
-            if (!isRealWorkoutSession(s)) return false;
-            if (!s.startTime) return false;
-            return getLocalDateString(s.startTime) === todayDateStr;
-          }).length
-        : 0;
+      const todaySessions = safeSessions.filter((s: any) => {
+        if (!isRealWorkoutSession(s)) return false;
+        if (!s.startTime) return false;
+        return getLocalDateString(s.startTime) === todayDateStr;
+      }).length;
 
       const totalExercises = Array.isArray(exercises) ? exercises.length : 0;
-      const actualWorkoutSessions = Array.isArray(sessions)
-        ? sessions.filter(isRealWorkoutSession)
-        : [];
+      const actualWorkoutSessions = safeSessions.filter(isRealWorkoutSession);
 
       setStats({
-        totalPrograms: Array.isArray(programs) ? programs.length : 0,
+        totalPrograms: safePrograms.length,
         totalExercises,
-        totalUsers: Array.isArray(users) ? users.length : 0,
+        totalUsers: users.length,
         totalSessions: actualWorkoutSessions.length,
         todaySessions,
         totalGoals: Array.isArray(goals) ? goals.length : 0,
         activeGoals: Array.isArray(goals) ? goals.filter((g: any) => g.status === 'active').length : 0,
       });
 
-      setRecentSessions(Array.isArray(sessions) ? sessions.slice(0, 5) : []);
+      setRecentSessions(safeSessions.slice(0, 5));
 
-      // Body stats
-      if (selectedId) {
+      if (selectedId && selectedUserObj) {
         setWeightLogs(Array.isArray(wData) ? wData.slice(0, 5) : []);
         setFatLogs(Array.isArray(fData) ? fData.slice(0, 5) : []);
+      } else {
+        setWeightLogs([]);
+        setFatLogs([]);
       }
     } catch (e) {
       console.error('Dashboard load error:', e);
@@ -487,7 +508,7 @@ export default function Dashboard() {
                             {isManual ? 'Salonda Geçirilen Vakit' : (s.program_name || 'Antrenman')}
                           </p>
                           <p className="text-xs text-gray-500">
-                            {new Date(s.startTime).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {formatIstanbulLocaleDate(s.startTime)}
                             {s.duration ? ` · ${s.duration}` : ''}
                           </p>
                         </div>
@@ -521,7 +542,7 @@ export default function Dashboard() {
                     </div>
                     {wDiff !== null && (
                       <div className="flex items-center gap-1 text-xs font-bold"
-                        style={{ color: wDiff > 0 ? '#FF6B4A' : '#5DD97C' }}>
+                        style={{ color: wDiff > 0 ? '#FF6B4A' : wDiff < 0 ? '#5DD97C' : '#9CA3AF' }}>
                         {wDiff > 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                         {wDiff > 0 ? '+' : ''}{wDiff} kg
                       </div>
@@ -532,7 +553,7 @@ export default function Dashboard() {
                   </p>
                   {weightLogs[0] && (
                     <p className="text-xs text-gray-600 mt-0.5">
-                      {new Date(weightLogs[0].date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
+                      {formatIstanbulLocaleDate(weightLogs[0].date, { day: 'numeric', month: 'short' })}
                     </p>
                   )}
                 </div>
@@ -548,7 +569,7 @@ export default function Dashboard() {
                     </div>
                     {fDiff !== null && (
                       <div className="flex items-center gap-1 text-xs font-bold"
-                        style={{ color: fDiff > 0 ? '#FF6B4A' : '#5DD97C' }}>
+                        style={{ color: fDiff > 0 ? '#FF6B4A' : fDiff < 0 ? '#5DD97C' : '#9CA3AF' }}>
                         {fDiff > 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                         {fDiff > 0 ? '+' : ''}{fDiff}%
                       </div>
@@ -559,7 +580,7 @@ export default function Dashboard() {
                   </p>
                   {fatLogs[0] && (
                     <p className="text-xs text-gray-600 mt-0.5">
-                      {new Date(fatLogs[0].date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
+                      {formatIstanbulLocaleDate(fatLogs[0].date, { day: 'numeric', month: 'short' })}
                     </p>
                   )}
                 </div>

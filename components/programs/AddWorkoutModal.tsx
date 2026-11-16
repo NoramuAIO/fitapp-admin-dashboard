@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiFetch } from '@/lib/clientCache';
 
 interface AddWorkoutModalProps {
     isOpen: boolean;
@@ -17,20 +18,32 @@ export default function AddWorkoutModal({ isOpen, onClose, onSuccess, programId,
     const [loading, setLoading] = useState(false);
 
     const handleAddWorkout = async () => {
-        if (!workout.name.trim()) {
+        const trimmedName = workout.name.trim();
+        if (!trimmedName) {
             alert('Antreman adı gerekli');
             return;
         }
 
+        const rawDay = workout.dayNumber.trim();
+        let parsedDay: number | null = null;
+        if (rawDay !== '') {
+            const n = parseInt(rawDay, 10);
+            if (!Number.isInteger(n) || n < 1) {
+                alert('Gün numarası 1 veya daha büyük bir tam sayı olmalıdır');
+                return;
+            }
+            parsedDay = n;
+        }
+
         setLoading(true);
         try {
-            const response = await fetch('/api/workouts', {
+            const response = await apiFetch('/api/workouts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     programId,
-                    name: workout.name,
-                    dayNumber: workout.dayNumber ? parseInt(workout.dayNumber) : null,
+                    name: trimmedName,
+                    dayNumber: parsedDay,
                     orderIndex: workout.orderIndex
                 }),
             });
@@ -39,12 +52,22 @@ export default function AddWorkoutModal({ isOpen, onClose, onSuccess, programId,
                 await onSuccess();
                 setWorkout({ name: '', dayNumber: '', orderIndex: 0 });
                 onClose();
+            } else {
+                const err = await response.json().catch(() => ({}));
+                alert(err.error || 'Antrenman eklenemedi');
             }
         } catch (error) {
             console.error('Error adding workout:', error);
+            alert('Antrenman eklenirken bir hata oluştu');
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleClose = () => {
+        if (loading) return;
+        setWorkout({ name: '', dayNumber: '', orderIndex: 0 });
+        onClose();
     };
 
     if (!isOpen) return null;
@@ -89,7 +112,7 @@ export default function AddWorkoutModal({ isOpen, onClose, onSuccess, programId,
                             {loading ? 'Ekleniyor...' : '✓ Ekle'}
                         </button>
                         <button
-                            onClick={onClose}
+                            onClick={handleClose}
                             disabled={loading}
                             className="px-6 bg-[#2A2A2A] hover:bg-[#3A3A3A] disabled:opacity-50 text-white py-3 rounded-xl font-medium transition-colors"
                         >

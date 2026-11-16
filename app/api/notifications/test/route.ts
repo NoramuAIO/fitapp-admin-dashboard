@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/apiAuth';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function POST(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
     const { title, subtitle, message, category, voice_enabled, voice_script } = body;

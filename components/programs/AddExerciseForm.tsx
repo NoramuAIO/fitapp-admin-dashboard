@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiFetch } from '@/lib/clientCache';
 
 interface AddExerciseFormProps {
     workoutId?: number;
@@ -27,7 +28,7 @@ export default function AddExerciseForm({ workoutId, programId, onSuccess, onCan
 
         setLoading(true);
         try {
-            const response = await fetch('/api/exercises', {
+            const response = await apiFetch('/api/exercises', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

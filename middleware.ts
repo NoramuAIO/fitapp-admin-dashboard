@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { verifyAdminSessionToken } from '@/lib/auth';
+import { verifyAdminSessionToken, verifyUserToken } from '@/lib/auth';
 
 const PUBLIC_API_ROUTES = [
   '/api/admin/login',
@@ -10,10 +10,24 @@ const PUBLIC_API_ROUTES = [
 ];
 
 const ADMIN_ONLY_API_PREFIXES = [
-  '/api/settings/delete-sessions',
-  '/api/settings/delete-progress',
+  '/api/settings',
   '/api/export',
   '/api/import',
+  '/api/programs/export',
+  '/api/programs/import',
+  '/api/users',
+  '/api/notifications/test',
+];
+
+const ADMIN_WRITE_ONLY_PREFIXES = [
+  '/api/programs',
+  '/api/workouts',
+  '/api/program-days',
+  '/api/exercises',
+  '/api/notifications/rules',
+  '/api/athlete-ranks',
+  '/api/widgets',
+  '/api/user-programs',
 ];
 
 export async function middleware(request: NextRequest) {
@@ -26,21 +40,39 @@ export async function middleware(request: NextRequest) {
   const adminCookie = request.cookies.get('admin-auth')?.value;
   const isAdmin = await verifyAdminSessionToken(adminCookie);
 
-  // API route protection
+  // API route protection (default-deny except explicit public login/register routes)
   if (pathname.startsWith('/api')) {
     if (PUBLIC_API_ROUTES.some((route) => pathname === route)) {
       return NextResponse.next();
     }
 
-    const requiresAdmin =
-      ADMIN_ONLY_API_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
-      (pathname.startsWith('/api/users') &&
-        (request.method === 'DELETE' || request.method === 'POST'));
+    const authHeader = request.headers.get('authorization');
+    const bearerToken =
+      authHeader && authHeader.toLowerCase().startsWith('bearer ')
+        ? authHeader.slice(7).trim()
+        : null;
+    const tokenUser = bearerToken ? await verifyUserToken(bearerToken) : null;
 
-    if (requiresAdmin && !isAdmin) {
+    if (!isAdmin && !tokenUser) {
       return NextResponse.json(
-        { error: 'Yetkisiz erişim (Admin oturumu gerekli)' },
+        { error: 'Yetkisiz erişim (Oturum gerekli)' },
         { status: 401 }
+      );
+    }
+
+    const isAdminOnlyPrefix = ADMIN_ONLY_API_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+    );
+    const isAdminWriteRoute =
+      request.method !== 'GET' &&
+      ADMIN_WRITE_ONLY_PREFIXES.some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+      );
+
+    if ((isAdminOnlyPrefix || isAdminWriteRoute) && !isAdmin) {
+      return NextResponse.json(
+        { error: 'Bu işlem için admin yetkisi gereklidir' },
+        { status: 403 }
       );
     }
 
@@ -64,10 +96,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Admin panel sayfaları ve API rotalarını koru
-     * Static dosyalar hariç
-     */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/api/:path*',
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

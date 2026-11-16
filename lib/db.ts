@@ -4,15 +4,17 @@ let pool: Pool | null = null;
 
 export default function getDatabase() {
   if (!pool) {
+    const dbHost = process.env.DB_HOST || '';
+    const isSupabasePg = dbHost.includes('supabase.co') || dbHost.includes('supabase.com');
     pool = new Pool({
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '5432'),
+      host: dbHost || 'localhost',
+      port: parseInt(process.env.DB_PORT || '5432', 10),
       database: process.env.DB_NAME || 'postgres',
       user: process.env.DB_USER || 'postgres',
       password: process.env.DB_PASSWORD,
-      ssl: process.env.DB_HOST?.includes('supabase.co') ? {
-        rejectUnauthorized: false
-      } : undefined
+      ssl: isSupabasePg
+        ? { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' }
+        : undefined
     });
   }
   return pool;
@@ -118,11 +120,11 @@ export async function initializeDatabase() {
         "userId" INTEGER REFERENCES users(id) ON DELETE CASCADE,
         title VARCHAR(255) NOT NULL,
         description TEXT,
-        "targetValue" INTEGER NOT NULL,
-        "currentValue" INTEGER DEFAULT 0,
+        "targetValue" NUMERIC(10, 2) NOT NULL,
+        "currentValue" NUMERIC(10, 2) DEFAULT 0,
         unit VARCHAR(50) NOT NULL,
         "startDate" DATE NOT NULL,
-        "endDate" DATE NOT NULL,
+        "endDate" DATE,
         status VARCHAR(50) DEFAULT 'active',
         "createdAt" TIMESTAMP DEFAULT NOW()
       )

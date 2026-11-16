@@ -72,7 +72,10 @@ export default function ProgramItem({
         <>
             <div 
                 draggable={isDraggable}
-                onDragStart={onDragStart}
+                onDragStart={(e) => {
+                    e.dataTransfer?.setData('text/plain', String(program.id));
+                    onDragStart?.();
+                }}
                 onDragOver={onDragOver}
                 onDragEnd={onDragEnd}
                 onDrop={onDrop}

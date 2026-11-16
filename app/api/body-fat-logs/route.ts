@@ -1,24 +1,47 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import {
+  isValidYmdDate,
+  parseLocaleDecimal,
+  parsePositiveInt,
+  requireApiAuth,
+  resolveScopedUserId,
+} from '@/lib/apiAuth';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
 
 export async function GET(request: Request) {
+  const guard = await requireApiAuth(request);
+  if (!guard.ok) return guard.response;
+
   try {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
+    const rawUserId = searchParams.get('userId');
+    const parsedUserId = rawUserId ? parsePositiveInt(rawUserId) : null;
+    if (rawUserId && !parsedUserId) {
+      return NextResponse.json({ error: 'Geçersiz userId' }, { status: 400 });
+    }
+
+    const scoped = resolveScopedUserId(guard.auth, parsedUserId);
+    if (!scoped.ok) return scoped.response;
 
     let query = supabase
       .from('body_fat_logs')
       .select('*')
-      .order('date', { ascending: false });
+      .order('date', { ascending: false })
+      .order('id', { ascending: false });
 
-    if (userId) {
-      query = query.eq('userId', userId);
+    if (scoped.userId) {
+      query = query.eq('userId', scoped.userId);
     }
 
     const { data, error } = await query;
     if (error) throw error;
 
-    return NextResponse.json(data || []);
+    return NextResponse.json(data || [], { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error('Error fetching body fat logs:', error);
     return NextResponse.json({ error: 'Failed to fetch body fat logs' }, { status: 500 });
@@ -26,57 +49,79 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const guard = await requireApiAuth(request);
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
 
-    // Check for delete action via POST
     if (body.action === 'delete') {
-      const targetId = parseInt(String(body.id), 10);
-      if (isNaN(targetId)) {
-        return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+      const targetId = parsePositiveInt(body.id);
+      if (!targetId) {
+        return NextResponse.json({ error: 'Geçersiz ID' }, { status: 400 });
       }
-      const { error } = await supabase
-        .from('body_fat_logs')
-        .delete()
-        .eq('id', targetId);
-
+      let query = supabase.from('body_fat_logs').delete().eq('id', targetId);
+      if (!guard.auth.isAdmin && guard.auth.userId) {
+        query = query.eq('userId', guard.auth.userId);
+      }
+      const { data, error } = await query.select('id');
       if (error) throw error;
-      return NextResponse.json({ success: true });
+      if (!data || data.length === 0) {
+        return NextResponse.json({ error: 'Kayıt bulunamadı' }, { status: 404 });
+      }
+      return NextResponse.json({ success: true }, { headers: NO_STORE_HEADERS });
     }
 
-    const { userId, date, fatPercent, weight, notes } = body;
+    const scoped = resolveScopedUserId(guard.auth, parsePositiveInt(body.userId));
+    if (!scoped.ok) return scoped.response;
+    const userId = scoped.userId;
 
-    if (!userId || !date || fatPercent === undefined) {
-      return NextResponse.json({ error: 'userId, date and fatPercent are required' }, { status: 400 });
+    const cleanDate = typeof body.date === 'string' ? body.date.trim() : '';
+    const parsedFat = parseLocaleDecimal(body.fatPercent);
+    const parsedWeight =
+      body.weight !== undefined && body.weight !== null && body.weight !== ''
+        ? parseLocaleDecimal(body.weight)
+        : null;
+
+    if (!userId || !isValidYmdDate(cleanDate) || parsedFat === null || parsedFat <= 0 || parsedFat > 100) {
+      return NextResponse.json(
+        { error: 'Geçerli kullanıcı, YYYY-AA-GG tarih ve yağ oranı (%0-100) gereklidir' },
+        { status: 400 }
+      );
     }
 
-    // Check if entry exists for this date
     const { data: existing } = await supabase
       .from('body_fat_logs')
       .select('id')
       .eq('userId', userId)
-      .eq('date', date)
+      .eq('date', cleanDate)
       .maybeSingle();
+
+    const payload = {
+      fatPercent: parsedFat,
+      weight: parsedWeight !== null && parsedWeight > 0 ? parsedWeight : null,
+      notes: body.notes !== undefined && body.notes !== null ? String(body.notes) : null,
+    };
 
     if (existing) {
       const { data, error } = await supabase
         .from('body_fat_logs')
-        .update({ fatPercent, weight: weight ?? null, notes: notes ?? null })
+        .update(payload)
         .eq('id', existing.id)
         .select()
         .single();
 
       if (error) throw error;
-      return NextResponse.json(data);
+      return NextResponse.json(data, { headers: NO_STORE_HEADERS });
     } else {
       const { data, error } = await supabase
         .from('body_fat_logs')
-        .insert([{ userId, date, fatPercent, weight: weight ?? null, notes: notes ?? null }])
+        .insert([{ userId, date: cleanDate, ...payload }])
         .select()
         .single();
 
       if (error) throw error;
-      return NextResponse.json(data, { status: 201 });
+      return NextResponse.json(data, { status: 201, headers: NO_STORE_HEADERS });
     }
   } catch (error) {
     console.error('Error saving body fat log:', error);
@@ -85,30 +130,29 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const guard = await requireApiAuth(request);
+  if (!guard.ok) return guard.response;
+
   try {
     const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-
-    if (!id) {
-      return NextResponse.json({ error: 'ID required' }, { status: 400 });
+    const numericId = parsePositiveInt(searchParams.get('id'));
+    if (!numericId) {
+      return NextResponse.json({ error: 'Geçersiz ID' }, { status: 400 });
     }
 
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
-      return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+    let query = supabase.from('body_fat_logs').delete().eq('id', numericId);
+    if (!guard.auth.isAdmin && guard.auth.userId) {
+      query = query.eq('userId', guard.auth.userId);
     }
-
-    const { error } = await supabase
-      .from('body_fat_logs')
-      .delete()
-      .eq('id', numericId);
-
+    const { data, error } = await query.select('id');
     if (error) throw error;
+    if (!data || data.length === 0) {
+      return NextResponse.json({ error: 'Kayıt bulunamadı' }, { status: 404 });
+    }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true }, { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error('Error deleting body fat log:', error);
     return NextResponse.json({ error: 'Failed to delete body fat log' }, { status: 500 });
   }
 }
-

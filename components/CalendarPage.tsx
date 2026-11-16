@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Calendar as CalendarIcon,
   CalendarDays,
@@ -17,11 +17,18 @@ import {
   Save,
   Sparkles,
   Target,
+  Trash2,
   Users,
   X,
 } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmModal';
 import { getLocalDateString } from '@/lib/fitnessCalculations';
-import { apiFetch } from '@/lib/clientCache';
+import { apiFetch, invalidateApiCache } from '@/lib/clientCache';
+import {
+  getStoredSelectedUserId,
+  setStoredSelectedUserId,
+  subscribeUserSelected,
+} from '@/lib/userSelection';
 import {
   MONDAY_FIRST_DAYS,
   REST_DAY_LABEL,
@@ -35,6 +42,7 @@ import {
   getWeekCalendarDays,
   normalizeUserSchedule,
   resolveAlternatingWorkout,
+  resolveCalendarDay,
 } from '@/lib/workoutSchedule';
 
 interface UserItem {
@@ -83,6 +91,7 @@ function isSameScheduledWorkout(a: ScheduledWorkoutItem, b: ScheduledWorkoutItem
 }
 
 export default function CalendarPage() {
+  const { confirm } = useConfirm();
   const [users, setUsers] = useState<UserItem[]>([]);
   const [activeUserId, setActiveUserId] = useState<number | null>(null);
   const [programs, setPrograms] = useState<ProgramItem[]>([]);
@@ -91,6 +100,9 @@ export default function CalendarPage() {
   const [completions, setCompletions] = useState<any[]>([]);
   const [schedule, setSchedule] = useState<UserWorkoutSchedule>(() =>
     normalizeUserSchedule(null, null)
+  );
+  const [savedWeeklySnapshot, setSavedWeeklySnapshot] = useState<string>(() =>
+    JSON.stringify(normalizeUserSchedule(null, null).weeklySchedule)
   );
 
   const [loading, setLoading] = useState(true);
@@ -111,115 +123,136 @@ export default function CalendarPage() {
   // Quick day editor inside Weekly Planner
   const [editingWeekday, setEditingWeekday] = useState<number | null>(null);
 
-  const todayStr = useMemo(() => getLocalDateString(new Date()), []);
+  const [todayStr, setTodayStr] = useState<string>(() => getLocalDateString(new Date()));
+
+  const hasUnsavedWeeklyChanges = useMemo(
+    () => JSON.stringify(schedule.weeklySchedule) !== savedWeeklySnapshot,
+    [schedule.weeklySchedule, savedWeeklySnapshot]
+  );
+
+  const activeUserIdRef = useRef<number | null>(activeUserId);
+  activeUserIdRef.current = activeUserId;
+  const hasUnsavedWeeklyRef = useRef<boolean>(hasUnsavedWeeklyChanges);
+  hasUnsavedWeeklyRef.current = hasUnsavedWeeklyChanges;
 
   const showToast = useCallback((type: 'success' | 'error', text: string) => {
     setToast({ type, text });
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  const loadData = useCallback(async (explicitUserId?: number | null) => {
-    setLoading(true);
-    try {
-      let targetId = explicitUserId ?? null;
-      if (!targetId && typeof window !== 'undefined') {
-        const stored = localStorage.getItem('selectedUserId');
-        const parsed = stored ? parseInt(stored, 10) : NaN;
-        if (!Number.isNaN(parsed) && parsed > 0) {
-          targetId = parsed;
-        }
-      }
+  const loadData = useCallback(
+    async (
+      explicitUserId?: number | null,
+      options?: { silent?: boolean; forceRefresh?: boolean }
+    ) => {
+      const silent = Boolean(options?.silent);
+      const forceRefresh = Boolean(options?.forceRefresh);
+      setTodayStr(getLocalDateString(new Date()));
+      if (!silent) setLoading(true);
+      try {
+        let targetId = explicitUserId !== undefined ? explicitUserId : getStoredSelectedUserId();
 
-      if (targetId) {
-        setActiveUserId(targetId);
-        const userQuery = `?userId=${targetId}`;
-        const [usersRes, progRes, workoutsRes, sessionsRes, completionsRes, schedRes] =
-          await Promise.all([
-            apiFetch('/api/users?lite=1').catch(() => null),
-            apiFetch(`/api/programs${userQuery}`).catch(() => null),
-            apiFetch('/api/workouts?lite=1').catch(() => null),
-            apiFetch(`/api/workout-sessions${userQuery}`).catch(() => null),
-            apiFetch(`/api/exercise-completions${userQuery}&limit=300`).catch(() => null),
-            apiFetch(`/api/workout-schedules${userQuery}`).catch(() => null),
-          ]);
-
-        const [usersList, progData, workoutsData, sessionsData, completionsData, schedData] =
-          await Promise.all([
-            usersRes?.ok ? usersRes.json() : [],
-            progRes?.ok ? progRes.json() : [],
-            workoutsRes?.ok ? workoutsRes.json() : [],
-            sessionsRes?.ok ? sessionsRes.json() : [],
-            completionsRes?.ok ? completionsRes.json() : [],
-            schedRes?.ok ? schedRes.json() : null,
-          ]);
-
-        setUsers(Array.isArray(usersList) ? usersList : []);
-        setPrograms(Array.isArray(progData) ? progData : []);
+        const [usersRes, workoutsRes] = await Promise.all([
+          apiFetch('/api/users?lite=1', { forceRefresh }).catch(() => null),
+          apiFetch('/api/workouts?lite=1', { forceRefresh }).catch(() => null),
+        ]);
+        const usersList: UserItem[] = usersRes?.ok ? await usersRes.json() : [];
+        const workoutsData = workoutsRes?.ok ? await workoutsRes.json() : [];
+        const safeUsers = Array.isArray(usersList) ? usersList : [];
+        setUsers(safeUsers);
         setWorkouts(Array.isArray(workoutsData) ? workoutsData : []);
+
+        if (safeUsers.length > 0) {
+          const validTarget =
+            targetId && safeUsers.some((u) => Number(u.id) === Number(targetId));
+          if (!validTarget) {
+            targetId = safeUsers[0].id;
+            activeUserIdRef.current = targetId;
+            setStoredSelectedUserId(targetId);
+          }
+        } else {
+          targetId = null;
+        }
+        setActiveUserId(targetId);
+        activeUserIdRef.current = targetId;
+
+        const userQuery = targetId ? `?userId=${targetId}` : '';
+        const completionsQuery = targetId
+          ? `?userId=${targetId}&limit=500`
+          : '?limit=500';
+        const [progRes, sessionsRes, completionsRes, schedRes] = await Promise.all([
+          apiFetch(`/api/programs${userQuery}`, { forceRefresh }).catch(() => null),
+          apiFetch(`/api/workout-sessions${userQuery}`, { forceRefresh }).catch(() => null),
+          apiFetch(`/api/exercise-completions${completionsQuery}`, { forceRefresh }).catch(() => null),
+          apiFetch(`/api/workout-schedules${userQuery}`, { forceRefresh }).catch(() => null),
+        ]);
+
+        const [progData, sessionsData, completionsData, schedData] = await Promise.all([
+          progRes?.ok ? progRes.json() : [],
+          sessionsRes?.ok ? sessionsRes.json() : [],
+          completionsRes?.ok ? completionsRes.json() : [],
+          schedRes?.ok ? schedRes.json() : null,
+        ]);
+
+        setPrograms(Array.isArray(progData) ? progData : []);
         setSessions(Array.isArray(sessionsData) ? sessionsData : []);
         setCompletions(Array.isArray(completionsData) ? completionsData : []);
-        setSchedule(normalizeUserSchedule(schedData, targetId));
-        return;
+        const normalized = normalizeUserSchedule(schedData, targetId);
+        setSavedWeeklySnapshot(JSON.stringify(normalized.weeklySchedule));
+        if (silent && hasUnsavedWeeklyRef.current) {
+          setSchedule((prev) => ({
+            ...normalized,
+            weeklySchedule: prev.weeklySchedule,
+          }));
+        } else {
+          setSchedule(normalized);
+        }
+      } catch (err) {
+        console.error('Calendar page load error:', err);
+      } finally {
+        if (!silent) setLoading(false);
       }
-
-      const [usersRes, workoutsRes] = await Promise.all([
-        apiFetch('/api/users?lite=1').catch(() => null),
-        apiFetch('/api/workouts?lite=1').catch(() => null),
-      ]);
-      const usersList: UserItem[] = usersRes?.ok ? await usersRes.json() : [];
-      const workoutsData = workoutsRes?.ok ? await workoutsRes.json() : [];
-      setUsers(Array.isArray(usersList) ? usersList : []);
-      setWorkouts(Array.isArray(workoutsData) ? workoutsData : []);
-
-      if (Array.isArray(usersList) && usersList.length > 0) {
-        targetId = usersList[0].id;
-      }
-      setActiveUserId(targetId);
-
-      const userQuery = targetId ? `?userId=${targetId}` : '';
-      const completionsQuery = targetId
-        ? `?userId=${targetId}&limit=300`
-        : '?limit=300';
-      const [progRes, sessionsRes, completionsRes, schedRes] = await Promise.all([
-        apiFetch(`/api/programs${userQuery}`).catch(() => null),
-        apiFetch(`/api/workout-sessions${userQuery}`).catch(() => null),
-        apiFetch(`/api/exercise-completions${completionsQuery}`).catch(() => null),
-        apiFetch(`/api/workout-schedules${userQuery}`).catch(() => null),
-      ]);
-
-      const [progData, sessionsData, completionsData, schedData] = await Promise.all([
-        progRes?.ok ? progRes.json() : [],
-        sessionsRes?.ok ? sessionsRes.json() : [],
-        completionsRes?.ok ? completionsRes.json() : [],
-        schedRes?.ok ? schedRes.json() : null,
-      ]);
-
-      setPrograms(Array.isArray(progData) ? progData : []);
-      setSessions(Array.isArray(sessionsData) ? sessionsData : []);
-      setCompletions(Array.isArray(completionsData) ? completionsData : []);
-      setSchedule(normalizeUserSchedule(schedData, targetId));
-    } catch (err) {
-      console.error('Calendar page load error:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   useEffect(() => {
     loadData();
-    const onUserChanged = () => loadData();
-    window.addEventListener('userSelected', onUserChanged);
-    return () => window.removeEventListener('userSelected', onUserChanged);
+    const unsubscribeUser = subscribeUserSelected((uid) => {
+      if (uid !== activeUserIdRef.current) {
+        setSelectedDay(null);
+        loadData(uid, { forceRefresh: true });
+      }
+    });
+    const onFocusOrVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      loadData(undefined, { silent: true, forceRefresh: true });
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+    return () => {
+      unsubscribeUser();
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
   }, [loadData]);
 
-  const handleUserChange = (nextIdStr: string) => {
+  const handleUserChange = async (nextIdStr: string) => {
     const nextId = nextIdStr ? parseInt(nextIdStr, 10) : null;
-    if (typeof window !== 'undefined') {
-      if (nextId) localStorage.setItem('selectedUserId', String(nextId));
-      else localStorage.removeItem('selectedUserId');
+    if (hasUnsavedWeeklyChanges) {
+      const discard = await confirm({
+        title: 'Kaydedilmemiş Haftalık Değişiklikler',
+        message: 'Haftalık planlayıcıda kaydedilmemiş değişiklikleriniz var. Sporcu değiştirirseniz bu değişiklikler kaybolacak. Devam edilsin mi?',
+        confirmText: 'Değişiklikleri At ve Geç',
+        cancelText: 'İptal',
+        variant: 'warning',
+      });
+      if (!discard) return;
     }
     setSelectedDay(null);
-    loadData(nextId);
+    activeUserIdRef.current = nextId;
+    setStoredSelectedUserId(nextId);
+    loadData(nextId, { forceRefresh: true });
   };
 
   // Enrich programs with nested workouts for recommendations & grouped pickers
@@ -233,11 +266,8 @@ export default function CalendarPage() {
   const workoutOptions = useMemo(() => {
     const progMap = new Map<number, ProgramItem>(programs.map((p) => [Number(p.id), p]));
     const visibleProgramIds = new Set(programs.map((p) => Number(p.id)));
-    const relevant = workouts.filter(
-      (w) => visibleProgramIds.size === 0 || visibleProgramIds.has(Number(w.programId))
-    );
-    const list = relevant.length > 0 ? relevant : workouts;
-    return list.map((w) => {
+    const relevant = workouts.filter((w) => visibleProgramIds.has(Number(w.programId)));
+    return relevant.map((w) => {
       const prog = progMap.get(Number(w.programId));
       const item: ScheduledWorkoutItem = {
         workoutId: w.id,
@@ -261,6 +291,11 @@ export default function CalendarPage() {
   const smartRec = useMemo(
     () => getSmartTodayAndNextRecommendation(todayStr, schedule, sessions, enrichedPrograms),
     [todayStr, schedule, sessions, enrichedPrograms]
+  );
+
+  const todayDayWithStats = useMemo(
+    () => resolveCalendarDay(todayStr, schedule, sessions, completions, todayStr),
+    [todayStr, schedule, sessions, completions]
   );
 
   const monthDays = useMemo(
@@ -308,6 +343,18 @@ export default function CalendarPage() {
       showToast('error', 'Lütfen önce bir sporcu seçin.');
       return;
     }
+    const invalidAlt = nextWeekly.find(
+      (d) => !d.isRestDay && d.isAlternating && d.workouts.length < 2
+    );
+    if (invalidAlt) {
+      const dayLabel =
+        MONDAY_FIRST_DAYS.find((m) => m.dayOfWeek === invalidAlt.dayOfWeek)?.label || 'Seçili gün';
+      showToast(
+        'error',
+        `${dayLabel} için Dönüşümlü modda en az 2 antrenman seçmelisiniz (tek antrenman için Sabit seçin).`
+      );
+      return;
+    }
     setSaving(true);
     try {
       const res = await apiFetch('/api/workout-schedules', {
@@ -321,7 +368,9 @@ export default function CalendarPage() {
       });
       if (!res.ok) throw new Error('Kayıt başarısız');
       const saved = await res.json();
-      setSchedule(normalizeUserSchedule(saved, activeUserId));
+      const normalized = normalizeUserSchedule(saved, activeUserId);
+      setSchedule(normalized);
+      setSavedWeeklySnapshot(JSON.stringify(normalized.weeklySchedule));
       showToast('success', 'Haftalık antrenman planı kaydedildi.');
     } catch {
       showToast('error', 'Haftalık plan kaydedilirken bir hata oluştu.');
@@ -371,7 +420,12 @@ export default function CalendarPage() {
 
       if (!res.ok) throw new Error('Değişiklik kaydedilemedi');
       const saved = await res.json();
-      setSchedule(normalizeUserSchedule(saved, activeUserId));
+      const normalized = normalizeUserSchedule(saved, activeUserId);
+      setSavedWeeklySnapshot(JSON.stringify(normalized.weeklySchedule));
+      setSchedule((prev) => ({
+        ...normalized,
+        weeklySchedule: hasUnsavedWeeklyRef.current ? prev.weeklySchedule : normalized.weeklySchedule,
+      }));
       setSelectedDay(null);
       showToast(
         'success',
@@ -401,11 +455,83 @@ export default function CalendarPage() {
       });
       if (!res.ok) throw new Error('Sıfırlanamadı');
       const saved = await res.json();
-      setSchedule(normalizeUserSchedule(saved, activeUserId));
+      const normalized = normalizeUserSchedule(saved, activeUserId);
+      setSavedWeeklySnapshot(JSON.stringify(normalized.weeklySchedule));
+      setSchedule((prev) => ({
+        ...normalized,
+        weeklySchedule: hasUnsavedWeeklyRef.current ? prev.weeklySchedule : normalized.weeklySchedule,
+      }));
       setSelectedDay(null);
       showToast('success', 'Kalıcı haftalık düzen geri yüklendi.');
     } catch {
       showToast('error', 'Kalıcı düzen geri yüklenemedi.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMarkDayCompleted = async () => {
+    if (!selectedDay || !activeUserId) return;
+    const chosen =
+      (overrideMode === 'workout'
+        ? workoutOptions.find((o) => o.key === overrideWorkoutKey)?.item
+        : undefined) || selectedDay.plannedWorkout;
+    if (!chosen) {
+      showToast('error', 'Tamamlandı işaretlemek için önce bir antrenman seçin.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await apiFetch('/api/workout-sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: activeUserId,
+          programId: chosen.programId ?? null,
+          workoutId: chosen.workoutId ?? null,
+          workoutName: chosen.workoutName,
+          startTime: selectedDay.date,
+          duration: '45 dk',
+          category: 'workout',
+          markCompletedFromAdmin: true,
+        }),
+      });
+      if (!res.ok) throw new Error('Tamamlandı kaydedilemedi');
+      invalidateApiCache();
+      await loadData(activeUserId, { silent: true, forceRefresh: true });
+      setSelectedDay(null);
+      showToast('success', `${selectedDay.date} için "${chosen.workoutName}" tamamlandı işaretlendi.`);
+    } catch {
+      showToast('error', 'Antrenman tamamlandı olarak işaretlenemedi.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteCompletedSession = async (sessionId: number) => {
+    if (!activeUserId) return;
+    const ok = await confirm({
+      title: 'Tamamlanan Kaydı Sil',
+      message: 'Tamamlanan antrenman kaydı kalıcı olarak silinecek. Devam edilsin mi?',
+      confirmText: 'Sil',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    setSaving(true);
+    try {
+      const res = await apiFetch('/api/workout-sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id: sessionId }),
+      });
+      if (!res.ok) throw new Error('Kayıt silinemedi');
+      invalidateApiCache();
+      await loadData(activeUserId, { silent: true, forceRefresh: true });
+      setSelectedDay(null);
+      showToast('success', 'Tamamlanan antrenman kaydı silindi.');
+    } catch {
+      showToast('error', 'Tamamlanan antrenman kaydı silinemedi.');
     } finally {
       setSaving(false);
     }
@@ -486,7 +612,19 @@ export default function CalendarPage() {
           <div className="flex bg-[#141414] border border-[#2A2A2A] rounded-xl p-1">
             <button
               type="button"
-              onClick={() => setMainTab('calendar')}
+              onClick={async () => {
+                if (mainTab === 'planner' && hasUnsavedWeeklyChanges) {
+                  const ok = await confirm({
+                    title: 'Kaydedilmemiş Haftalık Plan',
+                    message: 'Haftalık planlayıcıda kaydedilmemiş değişiklikler var. Takvime geçerseniz yaptığınız düzenlemeleri kaydetmeyi unutmayın. Geçilsin mi?',
+                    confirmText: 'Takvime Geç',
+                    cancelText: 'Planda Kal',
+                    variant: 'warning',
+                  });
+                  if (!ok) return;
+                }
+                setMainTab('calendar');
+              }}
               className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
                 mainTab === 'calendar'
                   ? 'bg-[#6366F1] text-white shadow'
@@ -498,13 +636,16 @@ export default function CalendarPage() {
             <button
               type="button"
               onClick={() => setMainTab('planner')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 ${
                 mainTab === 'planner'
                   ? 'bg-[#6366F1] text-white shadow'
                   : 'text-gray-400 hover:text-white'
               }`}
             >
-              Haftalık Planlayıcı (Pzt–Paz)
+              <span>Haftalık Planlayıcı (Pzt–Paz)</span>
+              {hasUnsavedWeeklyChanges && (
+                <span className="w-2 h-2 rounded-full bg-amber-400" title="Kaydedilmemiş değişiklik var" />
+              )}
             </button>
           </div>
         </div>
@@ -561,7 +702,7 @@ export default function CalendarPage() {
           </div>
           <button
             type="button"
-            onClick={() => openDayDetail(smartRec.todayDay)}
+            onClick={() => openDayDetail(todayDayWithStats)}
             className="mt-4 w-full py-2 rounded-xl bg-[#1D1D22] hover:bg-[#27272E] border border-[#2F2F37] text-xs font-semibold text-gray-200 transition-colors"
           >
             Bugünü Yönet / Değiştir
@@ -897,9 +1038,16 @@ export default function CalendarPage() {
         <div className="space-y-4">
           <div className="bg-[#141414] border border-[#2A2A2A] rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-bold text-white">
-                7 Günlük Sabit ve Dönüşümlü Rutin Planlayıcı
-              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-bold text-white">
+                  7 Günlük Sabit ve Dönüşümlü Rutin Planlayıcı
+                </h2>
+                {hasUnsavedWeeklyChanges && (
+                  <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/35 text-amber-300">
+                    Kaydedilmemiş Değişiklik
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-gray-400 mt-0.5">
                 Her gün için sabit antrenman, &quot;{REST_DAY_LABEL}&quot; veya dönüşümlü birden fazla antrenman seçebilirsiniz.
               </p>
@@ -1073,43 +1221,54 @@ export default function CalendarPage() {
                         Dönüşümlü Antrenman Havuzu (Birden fazla seçin)
                       </label>
                       <div className="flex flex-wrap gap-2">
-                        {workoutOptions.map((opt) => {
-                          const checked = dayRule.workouts.some((w) =>
-                            isSameScheduledWorkout(w, opt.item)
-                          );
-                          return (
-                            <button
-                              key={opt.key}
-                              type="button"
-                              onClick={() => {
-                                updateLocalWeekday(meta.dayOfWeek, (prev) => {
-                                  const exists = prev.workouts.some((w) =>
-                                    isSameScheduledWorkout(w, opt.item)
-                                  );
-                                  const nextWorkouts = exists
-                                    ? prev.workouts.filter(
-                                        (w) => !isSameScheduledWorkout(w, opt.item)
-                                      )
-                                    : [...prev.workouts, opt.item];
-                                  return {
-                                    ...prev,
-                                    isRestDay: nextWorkouts.length === 0,
-                                    isAlternating: true,
-                                    workouts: nextWorkouts,
-                                  };
-                                });
-                              }}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-                                checked
-                                  ? 'bg-[#9B6FFF]/25 border-[#9B6FFF] text-purple-200'
-                                  : 'bg-[#1B1B1F] border-[#2E2E36] text-gray-400 hover:text-white'
-                              }`}
-                            >
-                              {opt.item.workoutName}
-                            </button>
-                          );
-                        })}
+                        {workoutOptions.length === 0 ? (
+                          <span className="text-xs text-amber-300/90">
+                            Seçili sporcuya atanmış antrenman bulunamadı.
+                          </span>
+                        ) : (
+                          workoutOptions.map((opt) => {
+                            const checked = dayRule.workouts.some((w) =>
+                              isSameScheduledWorkout(w, opt.item)
+                            );
+                            return (
+                              <button
+                                key={opt.key}
+                                type="button"
+                                onClick={() => {
+                                  updateLocalWeekday(meta.dayOfWeek, (prev) => {
+                                    const exists = prev.workouts.some((w) =>
+                                      isSameScheduledWorkout(w, opt.item)
+                                    );
+                                    const nextWorkouts = exists
+                                      ? prev.workouts.filter(
+                                          (w) => !isSameScheduledWorkout(w, opt.item)
+                                        )
+                                      : [...prev.workouts, opt.item];
+                                    return {
+                                      ...prev,
+                                      isRestDay: nextWorkouts.length === 0,
+                                      isAlternating: true,
+                                      workouts: nextWorkouts,
+                                    };
+                                  });
+                                }}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                                  checked
+                                    ? 'bg-[#9B6FFF]/25 border-[#9B6FFF] text-purple-200'
+                                    : 'bg-[#1B1B1F] border-[#2E2E36] text-gray-400 hover:text-white'
+                                }`}
+                              >
+                                {opt.item.workoutName}
+                              </button>
+                            );
+                          })
+                        )}
                       </div>
+                      {dayRule.workouts.length < 2 && (
+                        <div className="text-xs bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 text-amber-300">
+                          Dönüşümlü mod için en az 2 antrenman seçilmelidir (aksi halde kaydedilemez).
+                        </div>
+                      )}
                       {alternatingPreview?.selected && (
                         <div className="text-xs bg-purple-500/10 border border-purple-500/25 rounded-xl px-3 py-2 text-purple-200 flex items-center gap-2">
                           <RefreshCw size={13} className="shrink-0" />
@@ -1206,13 +1365,28 @@ export default function CalendarPage() {
                   {selectedDay.completedSessions.map((s: any, idx: number) => (
                     <div
                       key={s.id || idx}
-                      className="text-xs text-gray-200 flex items-center justify-between bg-black/20 px-3 py-2 rounded-xl"
+                      className="text-xs text-gray-200 flex items-center justify-between gap-2 bg-black/20 px-3 py-2 rounded-xl"
                     >
-                      <span className="font-semibold flex items-center gap-1.5">
-                        <Dumbbell size={13} className="text-emerald-400" />
-                        {s.workout_name || s.workoutName || s.program_name || 'Antrenman'}
+                      <span className="font-semibold flex items-center gap-1.5 min-w-0">
+                        <Dumbbell size={13} className="text-emerald-400 shrink-0" />
+                        <span className="truncate">
+                          {s.workout_name || s.workoutName || s.program_name || 'Antrenman'}
+                        </span>
                       </span>
-                      <span className="text-gray-400">{s.duration || '-'}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-gray-400">{s.duration || '-'}</span>
+                        {s.id && (
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => handleDeleteCompletedSession(Number(s.id))}
+                            title="Tamamlanan kaydı sil"
+                            className="p-1 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-500/15 disabled:opacity-40 transition-colors"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1265,6 +1439,9 @@ export default function CalendarPage() {
                     onChange={(e) => setOverrideWorkoutKey(e.target.value)}
                     className="w-full bg-[#141416] border border-[#2E2E36] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#6366F1]"
                   >
+                    {workoutOptions.length === 0 && (
+                      <option value="">Atanmış antrenman yok</option>
+                    )}
                     {workoutOptions.map((opt) => (
                       <option key={opt.key} value={opt.key}>
                         {opt.label}
@@ -1295,6 +1472,15 @@ export default function CalendarPage() {
                   className="flex-1 py-2.5 px-4 rounded-xl bg-[#6366F1] hover:bg-[#5558E6] disabled:opacity-50 text-white text-xs font-bold transition-colors"
                 >
                   {saving ? 'Kaydediliyor...' : 'Yalnızca Bu Günü Kaydet'}
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={handleMarkDayCompleted}
+                  className="flex items-center gap-1.5 py-2.5 px-3.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/35 text-emerald-300 text-xs font-bold transition-colors disabled:opacity-50"
+                >
+                  <CheckCircle2 size={13} />
+                  <span>Tamamlandı İşaretle</span>
                 </button>
                 {selectedDay.isOverride && (
                   <button

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   BarChart2,
@@ -30,6 +30,12 @@ import {
 } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
 import { apiFetch } from '@/lib/clientCache';
+import {
+  formatIstanbulLocaleDate,
+  getStoredSelectedUserId,
+  setStoredSelectedUserId,
+  subscribeUserSelected,
+} from '@/lib/userSelection';
 import {
   isRealWorkoutSession,
   isManualTimerSession,
@@ -111,7 +117,6 @@ interface AthleteRank {
 export default function AnalyticsPage() {
   const { confirm } = useConfirm();
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
-  const [programs, setPrograms] = useState<Program[]>([]);
   const [completions, setCompletions] = useState<ExerciseCompletion[]>([]);
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
   const [users, setUsers] = useState<UserModel[]>([]);
@@ -127,46 +132,142 @@ export default function AnalyticsPage() {
   const [rankTitle, setRankTitle] = useState('');
   const [rankIcon, setRankIcon] = useState('⚡');
   const [rankColor, setRankColor] = useState('#5DD97C');
-  const [rankMinKg, setRankMinKg] = useState(0);
-  const [rankMaxKg, setRankMaxKg] = useState(300);
+  const [rankMinKg, setRankMinKg] = useState('0');
+  const [rankMaxKg, setRankMaxKg] = useState('300');
   const [rankDesc, setRankDesc] = useState('');
+  const [rankFormError, setRankFormError] = useState<string | null>(null);
   const [isSavingRank, setIsSavingRank] = useState(false);
+
+  const selectedUserIdRef = useRef<number | null | undefined>(selectedUserId);
+  selectedUserIdRef.current = selectedUserId;
 
   const searchParams = useSearchParams();
   const urlUserId = searchParams.get('userId');
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/users?lite=1');
+      if (!res.ok) return;
+      const data = await res.json();
+      const safeUsers: UserModel[] = Array.isArray(data) ? data : [];
+      setUsers(safeUsers);
+      const currentUid = selectedUserIdRef.current;
+      if (
+        typeof currentUid === 'number' &&
+        safeUsers.length > 0 &&
+        !safeUsers.some((u) => Number(u.id) === currentUid)
+      ) {
+        selectedUserIdRef.current = null;
+        setSelectedUserId(null);
+        setStoredSelectedUserId(null);
+      }
+    } catch {}
+  }, []);
+
+  const loadRanks = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/athlete-ranks');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) setRanks(data);
+    } catch {}
+  }, []);
+
+  const loadData = useCallback(
+    async (
+      targetUserId: number | null | undefined = selectedUserIdRef.current,
+      options?: { silent?: boolean; forceRefresh?: boolean }
+    ) => {
+      if (targetUserId === undefined) return;
+      const silent = Boolean(options?.silent);
+      const forceRefresh = Boolean(options?.forceRefresh);
+      try {
+        if (!silent) setLoading(true);
+        const sessionUrl = targetUserId
+          ? `/api/workout-sessions?userId=${targetUserId}`
+          : '/api/workout-sessions';
+        const completionUrl = targetUserId
+          ? `/api/exercise-completions?userId=${targetUserId}&limit=2000`
+          : '/api/exercise-completions?limit=2000';
+        const weightUrl = targetUserId
+          ? `/api/weight-logs?userId=${targetUserId}`
+          : '/api/weight-logs';
+
+        const [sessionsRes, completionsRes, weightRes] = await Promise.all([
+          apiFetch(sessionUrl, { forceRefresh }),
+          apiFetch(completionUrl, { forceRefresh }),
+          apiFetch(weightUrl, { forceRefresh }),
+        ]);
+
+        const [sessionsData, completionsData, weightData] = await Promise.all([
+          sessionsRes.ok ? sessionsRes.json() : [],
+          completionsRes.ok ? completionsRes.json() : [],
+          weightRes.ok ? weightRes.json() : [],
+        ]);
+
+        setSessions(Array.isArray(sessionsData) ? sessionsData : []);
+        setCompletions(Array.isArray(completionsData) ? completionsData : []);
+        setWeightLogs(Array.isArray(weightData) ? weightData : []);
+      } catch (error) {
+        console.error('Error loading analytics data:', error);
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     fetchUsers();
     loadRanks();
     if (urlUserId) {
       const parsed = parseInt(urlUserId, 10);
-      if (!isNaN(parsed)) {
+      if (Number.isInteger(parsed) && parsed > 0) {
+        selectedUserIdRef.current = parsed;
         setSelectedUserId(parsed);
-        localStorage.setItem('selectedUserId', parsed.toString());
+        setStoredSelectedUserId(parsed);
         return;
       }
     }
-    const saved = localStorage.getItem('selectedUserId');
-    const parsedSaved = saved ? parseInt(saved, 10) : NaN;
-    setSelectedUserId(Number.isFinite(parsedSaved) && parsedSaved > 0 ? parsedSaved : null);
-  }, [urlUserId]);
+    const stored = getStoredSelectedUserId();
+    selectedUserIdRef.current = stored;
+    setSelectedUserId(stored);
+  }, [urlUserId, fetchUsers, loadRanks]);
 
-  const loadRanks = async () => {
-    try {
-      const res = await apiFetch('/api/athlete-ranks');
-      const data = await res.json();
-      if (Array.isArray(data)) setRanks(data);
-    } catch {}
-  };
+  useEffect(() => {
+    const unsubscribe = subscribeUserSelected((uid) => {
+      if (uid !== selectedUserIdRef.current) {
+        selectedUserIdRef.current = uid;
+        setSelectedUserId(uid);
+      }
+    });
+    const onFocusOrVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      loadData(selectedUserIdRef.current, { silent: true, forceRefresh: true });
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [loadData]);
+
+  useEffect(() => {
+    if (selectedUserId === undefined) return;
+    loadData(selectedUserId);
+  }, [selectedUserId, loadData]);
 
   const handleOpenRankForm = (r?: AthleteRank) => {
+    setRankFormError(null);
     if (r) {
       setEditingRank(r);
       setRankTitle(r.title);
       setRankIcon(r.icon);
       setRankColor(r.color);
-      setRankMinKg(r.min_volume_kg);
-      setRankMaxKg(r.max_volume_kg);
+      setRankMinKg(String(r.min_volume_kg));
+      setRankMaxKg(String(r.max_volume_kg));
       setRankDesc(r.description);
     } else {
       setEditingRank(null);
@@ -175,8 +276,8 @@ export default function AnalyticsPage() {
       setRankColor('#5DD97C');
       const lastRank = ranks[ranks.length - 1];
       const nextMin = lastRank ? lastRank.max_volume_kg : 0;
-      setRankMinKg(nextMin);
-      setRankMaxKg(nextMin + 2500);
+      setRankMinKg(String(nextMin));
+      setRankMaxKg(String(nextMin + 2500));
       setRankDesc('');
     }
     setShowRankForm(true);
@@ -184,35 +285,54 @@ export default function AnalyticsPage() {
 
   const handleSaveRank = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!rankTitle.trim()) return;
+    setRankFormError(null);
+    if (!rankTitle.trim()) {
+      setRankFormError('Seviye adı zorunludur.');
+      return;
+    }
+    const minVal = Number(rankMinKg);
+    const maxVal = Number(rankMaxKg);
+    if (!Number.isFinite(minVal) || minVal < 0) {
+      setRankFormError('Min tonaj 0 veya daha büyük olmalıdır.');
+      return;
+    }
+    if (!Number.isFinite(maxVal) || maxVal <= minVal) {
+      setRankFormError('Maksimum tonaj değeri minimum değerden büyük olmalıdır.');
+      return;
+    }
+
     setIsSavingRank(true);
     try {
       const payload = {
         title: rankTitle.trim(),
-        icon: rankIcon,
+        icon: rankIcon.trim() || '⚡',
         color: rankColor,
-        min_volume_kg: Number(rankMinKg) || 0,
-        max_volume_kg: Number(rankMaxKg) || 1000,
+        min_volume_kg: minVal,
+        max_volume_kg: maxVal,
         description: rankDesc.trim(),
       };
-      if (editingRank) {
-        await apiFetch('/api/athlete-ranks', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: editingRank.id, ...payload }),
-        });
-      } else {
-        await apiFetch('/api/athlete-ranks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+      const res = editingRank
+        ? await apiFetch('/api/athlete-ranks', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: editingRank.id, ...payload }),
+          })
+        : await apiFetch('/api/athlete-ranks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setRankFormError(errData.error || 'Seviye kaydedilemedi.');
+        return;
       }
       await loadRanks();
       setShowRankForm(false);
       setEditingRank(null);
     } catch (err) {
       console.error('Error saving rank:', err);
+      setRankFormError('Seviye kaydedilirken bir ağ hatası oluştu.');
     } finally {
       setIsSavingRank(false);
     }
@@ -248,70 +368,42 @@ export default function AnalyticsPage() {
   };
 
   const handleResetDefaultRanks = async () => {
+    const ok = await confirm({
+      title: 'Seviyeleri Sıfırla',
+      message: 'Tüm özel seviye kademeleri silinip varsayılan 7 seviyeye döndürülecek. Devam edilsin mi?',
+      confirmText: 'Varsayılanlara Sıfırla',
+      variant: 'warning',
+    });
+    if (!ok) return;
     try {
-      await apiFetch('/api/athlete-ranks', {
+      const res = await apiFetch('/api/athlete-ranks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'reset_defaults' }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Seviyeler sıfırlanamadı.');
+        return;
+      }
       await loadRanks();
-    } catch {}
-  };
-
-  useEffect(() => {
-    if (selectedUserId === undefined) return;
-    loadData();
-  }, [selectedUserId]);
-
-  const fetchUsers = async () => {
-    try {
-      const res = await apiFetch('/api/users?lite=1');
-      const data = await res.json();
-      setUsers(Array.isArray(data) ? data : []);
-    } catch {}
-  };
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const sessionUrl = selectedUserId ? `/api/workout-sessions?userId=${selectedUserId}` : '/api/workout-sessions';
-      const completionUrl = selectedUserId ? `/api/exercise-completions?userId=${selectedUserId}&limit=500` : '/api/exercise-completions?limit=500';
-      const weightUrl = selectedUserId ? `/api/weight-logs?userId=${selectedUserId}` : '/api/weight-logs';
-
-      const [sessionsRes, programsRes, completionsRes, weightRes] = await Promise.all([
-        apiFetch(sessionUrl),
-        apiFetch('/api/programs'),
-        apiFetch(completionUrl),
-        apiFetch(weightUrl),
-      ]);
-
-      const sessionsData = await sessionsRes.json();
-      const programsData = await programsRes.json();
-      const completionsData = await completionsRes.json();
-      const weightData = await weightRes.json();
-
-      setSessions(Array.isArray(sessionsData) ? sessionsData : []);
-      setPrograms(Array.isArray(programsData) ? programsData : []);
-      setCompletions(Array.isArray(completionsData) ? completionsData : []);
-      setWeightLogs(Array.isArray(weightData) ? weightData : []);
-    } catch (error) {
-      console.error('Error loading analytics data:', error);
-    } finally {
-      setLoading(false);
+    } catch {
+      alert('Seviyeler sıfırlanırken bir hata oluştu.');
     }
   };
 
   // Date filtering helper (Europe/Istanbul calendar day parity)
   const todayStr = getLocalDateString(new Date());
-  const todayMid = new Date(`${todayStr}T12:00:00`).getTime();
+  const todayMid = new Date(`${todayStr}T12:00:00Z`).getTime();
   const filterByTime = (dateStr: string) => {
     if (timeRange === 'all') return true;
-    if (!dateStr) return false;
-    const itemMid = new Date(`${getLocalDateString(dateStr)}T12:00:00`).getTime();
-    if (Number.isNaN(itemMid)) return true;
+    const itemYmd = getLocalDateString(dateStr);
+    if (!itemYmd) return false;
+    const itemMid = new Date(`${itemYmd}T12:00:00Z`).getTime();
+    if (Number.isNaN(itemMid)) return false;
     const diffDays = (todayMid - itemMid) / (1000 * 3600 * 24);
-    if (timeRange === '7d') return diffDays >= 0 && diffDays <= 7;
-    if (timeRange === '30d') return diffDays >= 0 && diffDays <= 30;
+    if (timeRange === '7d') return diffDays >= 0 && diffDays <= 6;
+    if (timeRange === '30d') return diffDays >= 0 && diffDays <= 29;
     return true;
   };
 
@@ -367,8 +459,8 @@ export default function AnalyticsPage() {
   // Daily Activity Chart Bars (7 or 14 Istanbul calendar days depending on range)
   const daysToShow = timeRange === '30d' ? 14 : 7;
   const daysList = Array.from({ length: daysToShow }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (daysToShow - 1 - i));
+    const d = new Date(`${todayStr}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - (daysToShow - 1 - i));
     return getLocalDateString(d);
   });
 
@@ -389,7 +481,8 @@ export default function AnalyticsPage() {
   filteredCompletions.forEach(c => {
     if (c.notes) {
       const key = String(c.exercises?.name || `Hareket #${c.exerciseId}`).trim().toLowerCase();
-      prNoteMap[`${key}|${Number(c.weight) || 0}`] = c.notes;
+      const { weight } = calculateCompletionVolume(c);
+      prNoteMap[`${key}|${weight}`] = c.notes;
     }
   });
   const prList = calculateExercisePRs(filteredCompletions).slice(0, 6);
@@ -397,14 +490,15 @@ export default function AnalyticsPage() {
   // Top Exercises by Volume
   const exerciseVolumeMap: Record<string, { name: string; volume: number; sets: number; maxWeight: number }> = {};
   filteredCompletions.forEach(c => {
-    const name = c.exercises?.name || `Hareket #${c.exerciseId}`;
+    const displayName = (c.exercises?.name || `Hareket #${c.exerciseId}`).trim();
+    const key = displayName.toLowerCase();
     const { weight, sets, volume } = calculateCompletionVolume(c);
-    if (!exerciseVolumeMap[name]) {
-      exerciseVolumeMap[name] = { name, volume: 0, sets: 0, maxWeight: 0 };
+    if (!exerciseVolumeMap[key]) {
+      exerciseVolumeMap[key] = { name: displayName, volume: 0, sets: 0, maxWeight: 0 };
     }
-    exerciseVolumeMap[name].volume += volume;
-    exerciseVolumeMap[name].sets += sets;
-    exerciseVolumeMap[name].maxWeight = Math.max(exerciseVolumeMap[name].maxWeight, weight);
+    exerciseVolumeMap[key].volume += volume;
+    exerciseVolumeMap[key].sets += sets;
+    exerciseVolumeMap[key].maxWeight = Math.max(exerciseVolumeMap[key].maxWeight, weight);
   });
   const topVolumeExercises = Object.values(exerciseVolumeMap).sort((a, b) => b.volume - a.volume).slice(0, 5);
   const maxExerciseVolume = Math.max(...topVolumeExercises.map(e => e.volume), 1);
@@ -412,10 +506,18 @@ export default function AnalyticsPage() {
   // Recent Exercise Stream
   const recentCompletions = completions.slice(0, 7);
 
-  // Body Weight Tracker Snapshot
-  const latestWeight = weightLogs.length > 0 ? weightLogs[0].weight : null;
-  const initialWeight = weightLogs.length > 1 ? weightLogs[weightLogs.length - 1].weight : null;
-  const weightChange = latestWeight && initialWeight ? Number((latestWeight - initialWeight).toFixed(1)) : null;
+  // Body Weight Tracker Snapshot (strictly scoped to single selected athlete)
+  const scopedWeightLogs =
+    selectedUserId !== null && selectedUserId !== undefined
+      ? weightLogs.filter((w) => Number(w.userId) === selectedUserId)
+      : [];
+  const latestWeight = scopedWeightLogs.length > 0 ? scopedWeightLogs[0].weight : null;
+  const initialWeight =
+    scopedWeightLogs.length > 1 ? scopedWeightLogs[scopedWeightLogs.length - 1].weight : null;
+  const weightChange =
+    latestWeight !== null && initialWeight !== null
+      ? Number((latestWeight - initialWeight).toFixed(1))
+      : null;
 
   // Cumulative Athlete Rank, Estimated Calories & Muscle Distribution (mobile parity)
   const allTimeVolumeKg = completions.reduce((sum, c) => sum + calculateCompletionVolume(c).volume, 0);
@@ -486,12 +588,14 @@ export default function AnalyticsPage() {
               onChange={(e) => {
                 const val = e.target.value;
                 if (val) {
-                  const id = parseInt(val);
+                  const id = parseInt(val, 10);
+                  selectedUserIdRef.current = id;
                   setSelectedUserId(id);
-                  localStorage.setItem('selectedUserId', id.toString());
+                  setStoredSelectedUserId(id);
                 } else {
+                  selectedUserIdRef.current = null;
                   setSelectedUserId(null);
-                  localStorage.removeItem('selectedUserId');
+                  setStoredSelectedUserId(null);
                 }
               }}
             >
@@ -662,9 +766,11 @@ export default function AnalyticsPage() {
                 <span className="text-xs text-gray-400 font-medium">Vücut Ağırlığı</span>
               </div>
               <p className="text-3xl font-extrabold text-white">
-                {latestWeight ? `${latestWeight} kg` : '-'}
+                {latestWeight !== null ? `${latestWeight} kg` : '-'}
               </p>
-              {weightChange !== null && (
+              {selectedUserId === null ? (
+                <p className="text-xs text-gray-500 mt-1">Tek sporcu seçin</p>
+              ) : weightChange !== null && (
                 <div className="flex items-center gap-1 mt-1">
                   {weightChange >= 0 ? (
                     <span className="text-xs text-green-400 font-semibold flex items-center">
@@ -749,7 +855,7 @@ export default function AnalyticsPage() {
                           )}
                         </span>
                         <span className="text-gray-500">
-                          {pr.date ? new Date(pr.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' }) : ''}
+                          {pr.date ? formatIstanbulLocaleDate(pr.date, { day: 'numeric', month: 'short' }) : ''}
                         </span>
                       </div>
 
@@ -796,7 +902,7 @@ export default function AnalyticsPage() {
                         />
                       </div>
                       <span className="text-xs text-gray-500 font-medium">
-                        {new Date(`${day.date}T12:00:00`).toLocaleDateString('tr-TR', { weekday: 'short' })}
+                        {formatIstanbulLocaleDate(day.date, { weekday: 'short' })}
                       </span>
                     </div>
                   );
@@ -1120,7 +1226,7 @@ export default function AnalyticsPage() {
                         min="0"
                         required
                         value={rankMinKg}
-                        onChange={(e) => setRankMinKg(Number(e.target.value) || 0)}
+                        onChange={(e) => setRankMinKg(e.target.value)}
                         className="w-full bg-[#202020] border border-[#333] rounded-xl px-3.5 py-2 text-white text-sm focus:outline-none focus:border-[#FFD700]"
                       />
                     </div>
@@ -1131,11 +1237,17 @@ export default function AnalyticsPage() {
                         min="1"
                         required
                         value={rankMaxKg}
-                        onChange={(e) => setRankMaxKg(Number(e.target.value) || 1000)}
+                        onChange={(e) => setRankMaxKg(e.target.value)}
                         className="w-full bg-[#202020] border border-[#333] rounded-xl px-3.5 py-2 text-white text-sm focus:outline-none focus:border-[#FFD700]"
                       />
                     </div>
                   </div>
+
+                  {rankFormError && (
+                    <div className="text-xs text-red-300 bg-red-500/15 border border-red-500/30 rounded-xl px-3 py-2">
+                      {rankFormError}
+                    </div>
+                  )}
 
                   {/* Description */}
                   <div>

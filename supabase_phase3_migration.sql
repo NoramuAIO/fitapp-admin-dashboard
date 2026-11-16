@@ -39,19 +39,44 @@ CREATE TABLE IF NOT EXISTS public.workout_schedules (
   "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Başlangıç Varsayılan Bildirim Kuralları
+-- Başlangıç Varsayılan Bildirim Kuralları (Idempotent)
 INSERT INTO public.notification_rules (title, subtitle, message, category, scheduled_time, days_of_week, voice_enabled, voice_script, is_active)
-VALUES
-  ('🏋️‍♂️ Antrenman Zamanı!', 'Günün Hedefi', 'Bugün üst vücut antrenmanın var. Ayakkabılarını bağla ve salona doğru yola çık!', 'antrenman', '18:00', '1,2,3,4,5', TRUE, 'Günün en verimli anı geldi! Bugün antrenmanında sınırlarını zorlama zamanı. Unutma, şampiyonlar pes etmeyenlerdir.', TRUE),
-  ('🔥 Sabah Motivasyonu', 'Güne Başlarken', 'Her yeni gün yeni bir şans. Bugün kendin için bir iyilik yap ve hedefine odaklan.', 'motivasyon', '09:00', '0,1,2,3,4,5,6', TRUE, 'Günaydın şampiyon! Bugün yapacağın her tekrar, içeceğin her bardak su seni hedefine bir adım daha yaklaştıracak.', TRUE),
-  ('🪥 Diş Fırçalama Hatırlatıcısı', 'Gece Rutini', 'Günü bitirmeden önce dişlerini fırçalamayı unutma! Sağlıklı bir gülüş her şeydir.', 'dis_fircalama', '23:00', '0,1,2,3,4,5,6', FALSE, NULL, TRUE),
-  ('🚶‍♂️ Temiz Hava Yürüyüşü', 'Adım Hedefi', 'Akşam yürüyüşü için harika bir hava var. 20 dakikalık bir yürüyüşle zihnini boşalt.', 'yuruyus', '20:00', '1,3,5', TRUE, 'Temiz hava ve hafif bir yürüyüş günün yorgunluğunu silip atacak. Kulaklığını tak ve adımlarını say.', TRUE)
-ON CONFLICT DO NOTHING;
+SELECT v.title, v.subtitle, v.message, v.category, v.scheduled_time, v.days_of_week, v.voice_enabled, v.voice_script, v.is_active
+FROM (
+  VALUES
+    ('🏋️‍♂️ Antrenman Zamanı!', 'Günün Hedefi', 'Bugün üst vücut antrenmanın var. Ayakkabılarını bağla ve salona doğru yola çık!', 'antrenman', '18:00', '1,2,3,4,5', TRUE, 'Günün en verimli anı geldi! Bugün antrenmanında sınırlarını zorlama zamanı. Unutma, şampiyonlar pes etmeyenlerdir.', TRUE),
+    ('🔥 Sabah Motivasyonu', 'Güne Başlarken', 'Her yeni gün yeni bir şans. Bugün kendin için bir iyilik yap ve hedefine odaklan.', 'motivasyon', '09:00', '0,1,2,3,4,5,6', TRUE, 'Günaydın şampiyon! Bugün yapacağın her tekrar, içeceğin her bardak su seni hedefine bir adım daha yaklaştıracak.', TRUE),
+    ('🪥 Diş Fırçalama Hatırlatıcısı', 'Gece Rutini', 'Günü bitirmeden önce dişlerini fırçalamayı unutma! Sağlıklı bir gülüş her şeydir.', 'dis_fircalama', '23:00', '0,1,2,3,4,5,6', FALSE, NULL, TRUE),
+    ('🚶‍♂️ Temiz Hava Yürüyüşü', 'Adım Hedefi', 'Akşam yürüyüşü için harika bir hava var. 20 dakikalık bir yürüyüşle zihnini boşalt.', 'yuruyus', '20:00', '1,3,5', TRUE, 'Temiz hava ve hafif bir yürüyüş günün yorgunluğunu silip atacak. Kulaklığını tak ve adımlarını say.', TRUE)
+) AS v(title, subtitle, message, category, scheduled_time, days_of_week, voice_enabled, voice_script, is_active)
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.notification_rules r WHERE r.title = v.title AND r.scheduled_time = v.scheduled_time
+);
 
--- Başlangıç Varsayılan Custom Widget'ları
+-- Başlangıç Varsayılan Custom Widget'ları (Idempotent)
 INSERT INTO public.custom_widgets (title, widget_type, target_time, custom_content, is_active, display_order)
-VALUES
-  ('⏱️ Antrenmana Ne Kadar Kaldı?', 'countdown', '18:00:00', 'Günün antrenmanı seni bekliyor!', TRUE, 1),
-  ('💬 Günün Motivasyon Sözü', 'custom_text', NULL, '«Disiplin; ne istediğin ile şu an ne istediğin arasındaki bilinçli tercihtir.»', TRUE, 2),
-  ('🎯 Kilo Hedefi Takibi', 'weight_goal', NULL, 'Hedefe giden yolda kararlı adımlarla ilerle!', TRUE, 3)
-ON CONFLICT DO NOTHING;
+SELECT v.title, v.widget_type, v.target_time, v.custom_content, v.is_active, v.display_order
+FROM (
+  VALUES
+    ('⏱️ Antrenmana Ne Kadar Kaldı?', 'countdown', '18:00:00', 'Günün antrenmanı seni bekliyor!', TRUE, 1),
+    ('💬 Günün Motivasyon Sözü', 'custom_text', NULL, '«Disiplin; ne istediğin ile şu an ne istediğin arasındaki bilinçli tercihtir.»', TRUE, 2),
+    ('🎯 Kilo Hedefi Takibi', 'weight_goal', NULL, 'Hedefe giden yolda kararlı adımlarla ilerle!', TRUE, 3)
+) AS v(title, widget_type, target_time, custom_content, is_active, display_order)
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.custom_widgets w WHERE w.widget_type = v.widget_type AND w.title = v.title
+);
+
+-- ============================================================
+-- GÜVENLİK & ŞEMA İYİLEŞTİRMESİ (Faz 4)
+-- NOT: RLS açmadan önce backend ortamında SUPABASE_SERVICE_ROLE_KEY tanımlanmalıdır!
+-- ============================================================
+ALTER TABLE public.programs ADD COLUMN IF NOT EXISTS "orderIndex" INTEGER DEFAULT 0;
+ALTER TABLE public.goals ALTER COLUMN "targetValue" TYPE NUMERIC(10, 2);
+ALTER TABLE public.goals ALTER COLUMN "currentValue" TYPE NUMERIC(10, 2);
+ALTER TABLE public.goals ALTER COLUMN "endDate" DROP NOT NULL;
+ALTER TABLE public.workout_sessions ALTER COLUMN "startTime" TYPE TEXT;
+
+-- Service Role key tanımlandıktan sonra RLS etkinleştirmek için:
+-- ALTER TABLE public.notification_rules ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.custom_widgets ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.workout_schedules ENABLE ROW LEVEL SECURITY;

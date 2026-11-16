@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { apiFetch } from '@/lib/clientCache';
 
 export interface Exercise {
     id: number;
@@ -53,25 +54,38 @@ export default function ExerciseSelectorModal({
 }: ExerciseSelectorModalProps) {
     const [exerciseSearchQuery, setExerciseSearchQuery] = useState('');
     const [selectedExerciseIds, setSelectedExerciseIds] = useState<number[]>([]);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setSelectedExerciseIds([]);
+            setExerciseSearchQuery('');
+            setIsSubmitting(false);
+        }
+    }, [isOpen]);
 
     if (!isOpen || !programId) return null;
 
     const program = programs.find(p => p.id === programId);
     const workout = workoutId ? program?.workouts?.find(w => w.id === workoutId) : null;
     
-    // Get existing exercise names from the workout or program
+    // Get existing exercise names from the workout or program (case-insensitive)
     const existingExerciseNames = new Set(
-        workout 
+        (workout
             ? workout.exercises?.map(e => e.name) || []
             : program?.workouts?.flatMap(w => w.exercises?.map(e => e.name) || []) || []
+        )
+            .filter(Boolean)
+            .map(name => name.trim().toLowerCase())
     );
 
     const seenNames = new Set<string>();
     const availableExercises = allExercises.filter(exercise => {
         if (!exercise?.name) return false;
-        if (existingExerciseNames.has(exercise.name)) return false;
-        if (seenNames.has(exercise.name.toLowerCase())) return false;
-        seenNames.add(exercise.name.toLowerCase());
+        const normalizedName = exercise.name.trim().toLowerCase();
+        if (existingExerciseNames.has(normalizedName)) return false;
+        if (seenNames.has(normalizedName)) return false;
+        seenNames.add(normalizedName);
         return true;
     });
 
@@ -80,11 +94,18 @@ export default function ExerciseSelectorModal({
         exercise.description?.toLowerCase().includes(exerciseSearchQuery.toLowerCase())
     );
 
+    const allFilteredSelected =
+        filteredExercises.length > 0 &&
+        filteredExercises.every(e => selectedExerciseIds.includes(e.id));
+
     const toggleSelectAll = (exercises: Exercise[]) => {
-        if (selectedExerciseIds.length === exercises.length) {
-            setSelectedExerciseIds([]);
+        const ids = exercises.map(e => e.id);
+        const allSelected = ids.length > 0 && ids.every(id => selectedExerciseIds.includes(id));
+        if (allSelected) {
+            const idSet = new Set(ids);
+            setSelectedExerciseIds(prev => prev.filter(id => !idSet.has(id)));
         } else {
-            setSelectedExerciseIds(exercises.map(e => e.id));
+            setSelectedExerciseIds(prev => Array.from(new Set([...prev, ...ids])));
         }
     };
 
@@ -97,52 +118,62 @@ export default function ExerciseSelectorModal({
     };
 
     const handleAddSelectedExercises = async () => {
+        if (isSubmitting) return;
         if (selectedExerciseIds.length === 0) {
             alert('Lütfen en az bir hareket seçin');
             return;
         }
 
+        setIsSubmitting(true);
         let added = 0;
         let skipped = 0;
 
-        for (const exerciseId of selectedExerciseIds) {
-            const exercise = allExercises.find(e => e.id === exerciseId);
-            if (!exercise) continue;
+        try {
+            for (const exerciseId of selectedExerciseIds) {
+                const exercise = allExercises.find(e => e.id === exerciseId);
+                if (!exercise) continue;
 
-            if (existingExerciseNames.has(exercise.name)) {
-                skipped++;
-                continue;
-            }
-
-            try {
-                const response = await fetch('/api/exercises', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        workoutId,
-                        programId,
-                        name: exercise.name,
-                        sets: exercise.sets || 3,
-                        reps: exercise.reps || 10,
-                        duration: exercise.duration || null,
-                        description: exercise.description || null,
-                        imageUrl: exercise.imageUrl || null,
-                        muscleGroup: exercise.muscleGroup || null,
-                    }),
-                });
-
-                if (response.ok) {
-                    added++;
+                const normalizedName = exercise.name.trim().toLowerCase();
+                if (existingExerciseNames.has(normalizedName)) {
+                    skipped++;
+                    continue;
                 }
-            } catch (error) {
-                console.error('Error adding exercise:', error);
-                skipped++;
-            }
-        }
 
-        alert(`${added} hareket eklendi${skipped > 0 ? `, ${skipped} atlandı (zaten mevcut)` : ''}`);
-        await onSuccess();
-        handleClose();
+                try {
+                    const response = await apiFetch('/api/exercises', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            workoutId,
+                            programId,
+                            name: exercise.name.trim(),
+                            sets: exercise.sets || 3,
+                            reps: exercise.reps || 10,
+                            duration: exercise.duration || null,
+                            description: exercise.description || null,
+                            imageUrl: exercise.imageUrl || null,
+                            muscleGroup: exercise.muscleGroup || null,
+                        }),
+                    });
+
+                    if (response.ok) {
+                        added++;
+                        existingExerciseNames.add(normalizedName);
+                    } else {
+                        skipped++;
+                    }
+                } catch (error) {
+                    console.error('Error adding exercise:', error);
+                    skipped++;
+                }
+            }
+
+            alert(`${added} hareket eklendi${skipped > 0 ? `, ${skipped} atlandı (zaten mevcut)` : ''}`);
+            await onSuccess();
+            handleClose();
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const handleClose = () => {
@@ -188,7 +219,7 @@ export default function ExerciseSelectorModal({
                     <div className="flex items-center gap-3">
                         <input
                             type="checkbox"
-                            checked={selectedExerciseIds.length === filteredExercises.length && filteredExercises.length > 0}
+                            checked={allFilteredSelected}
                             onChange={() => toggleSelectAll(filteredExercises)}
                             className="w-5 h-5 rounded border-[#2A2A2A] bg-[#0F0F0F] checked:bg-[#6366F1]"
                         />
@@ -198,10 +229,10 @@ export default function ExerciseSelectorModal({
                     </div>
                     <button
                         onClick={handleAddSelectedExercises}
-                        disabled={selectedExerciseIds.length === 0}
+                        disabled={selectedExerciseIds.length === 0 || isSubmitting}
                         className="bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5558E3] hover:to-[#7C3AED] disabled:from-gray-600 disabled:to-gray-700 text-white px-6 py-2 rounded-xl font-semibold transition-all"
                     >
-                        Seçilenleri Ekle ({selectedExerciseIds.length})
+                        {isSubmitting ? 'Ekleniyor...' : `Seçilenleri Ekle (${selectedExerciseIds.length})`}
                     </button>
                 </div>
 
@@ -268,10 +299,10 @@ export default function ExerciseSelectorModal({
                 <div className="flex gap-3 pt-4 border-t border-[#2A2A2A]">
                     <button
                         onClick={handleAddSelectedExercises}
-                        disabled={selectedExerciseIds.length === 0}
+                        disabled={selectedExerciseIds.length === 0 || isSubmitting}
                         className="flex-1 bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5558E3] hover:to-[#7C3AED] disabled:from-gray-600 disabled:to-gray-700 text-white py-3 rounded-xl font-semibold transition-all"
                     >
-                        Seçilenleri Ekle ({selectedExerciseIds.length})
+                        {isSubmitting ? 'Ekleniyor...' : `Seçilenleri Ekle (${selectedExerciseIds.length})`}
                     </button>
                     <button
                         onClick={handleClose}

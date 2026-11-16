@@ -1,8 +1,22 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import {
+  parsePositiveInt,
+  requireApiAuth,
+  resolveScopedUserId,
+} from '@/lib/apiAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
+const ALLOWED_WIDGET_TYPES = new Set([
+  'countdown',
+  'custom_text',
+  'weight_goal',
+  'special_day',
+  'workout_schedule',
+]);
 
 interface CustomWidget {
   id: number;
@@ -16,11 +30,10 @@ interface CustomWidget {
   createdAt?: string;
 }
 
-// Helper to parse userId and clean content
 function parseWidgetUser(item: any): CustomWidget {
-  let rawContent = item.custom_content || '';
+  let rawContent = item.custom_content ?? '';
   let userId: number | null = null;
-  if (rawContent.startsWith('[USER:')) {
+  if (typeof rawContent === 'string' && rawContent.startsWith('[USER:')) {
     const match = rawContent.match(/^\[USER:([0-9]+)\]\s*([\s\S]*)$/);
     if (match) {
       userId = parseInt(match[1], 10);
@@ -30,18 +43,25 @@ function parseWidgetUser(item: any): CustomWidget {
   return {
     ...item,
     userId,
-    custom_content: rawContent,
+    custom_content: rawContent || null,
   };
 }
 
-// Fallback in-memory store (empty by default so deleted widgets never resurrect)
-let fallbackWidgets: CustomWidget[] = [];
-
 export async function GET(request: Request) {
+  const guard = await requireApiAuth(request);
+  if (!guard.ok) return guard.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const onlyActive = searchParams.get('active') === 'true';
-    const targetUserId = searchParams.get('userId') ? parseInt(searchParams.get('userId')!, 10) : null;
+    const rawUserId = searchParams.get('userId');
+    const parsedUserId = rawUserId ? parsePositiveInt(rawUserId) : null;
+    if (rawUserId && !parsedUserId) {
+      return NextResponse.json({ error: 'Geçersiz userId' }, { status: 400 });
+    }
+    const scoped = resolveScopedUserId(guard.auth, parsedUserId);
+    if (!scoped.ok) return scoped.response;
+    const targetUserId = scoped.userId;
 
     let query = supabase
       .from('custom_widgets')
@@ -55,140 +75,118 @@ export async function GET(request: Request) {
     }
 
     const { data, error } = await query;
+    if (error) throw error;
 
-    let rawList: any[] = [];
-    if (!error && data) {
-      rawList = data;
-    } else {
-      rawList = fallbackWidgets.filter(
-        w => w.widget_type !== ('athlete_rank' as any) && w.widget_type !== ('workout_schedule_data' as any)
-      );
-      if (onlyActive) rawList = rawList.filter(w => w.is_active);
+    let parsedList: CustomWidget[] = (data || []).map(parseWidgetUser);
+
+    if (targetUserId !== null) {
+      parsedList = parsedList.filter((w) => w.userId === targetUserId || w.userId === null);
     }
 
-    // Parse userId and clean content
-    let parsedList: CustomWidget[] = rawList.map(parseWidgetUser);
-
-    // Filter by user if userId param provided: return widgets meant for this user + global ones (userId == null)
-    if (targetUserId !== null && !isNaN(targetUserId)) {
-      parsedList = parsedList.filter(w => w.userId === targetUserId || w.userId === null);
-    }
-
-    return NextResponse.json(parsedList, {
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-      },
-    });
+    return NextResponse.json(parsedList, { headers: NO_STORE_HEADERS });
   } catch (e) {
     console.error('GET widgets error:', e);
-    return NextResponse.json(fallbackWidgets, {
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-      },
-    });
+    return NextResponse.json(
+      { error: 'Widget verileri yüklenemedi' },
+      { status: 500, headers: NO_STORE_HEADERS }
+    );
   }
 }
 
 export async function POST(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
 
-    // Support delete via POST to avoid any browser/proxy DELETE method restrictions
     if (body.action === 'delete' && body.id !== undefined) {
-      const numericId = Number(body.id);
-      if (isNaN(numericId)) {
+      const numericId = parsePositiveInt(body.id);
+      if (!numericId) {
         return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
       }
       const { data: deletedRows, error: dbError } = await supabase
         .from('custom_widgets')
         .delete()
         .eq('id', numericId)
+        .neq('widget_type', 'athlete_rank')
+        .neq('widget_type', 'workout_schedule_data')
         .select();
 
       if (dbError) {
-        console.error('Supabase POST-delete widget error:', dbError);
         return NextResponse.json({ error: dbError.message }, { status: 500 });
       }
-      fallbackWidgets = fallbackWidgets.filter((w) => Number(w.id) !== numericId);
-      return NextResponse.json({
-        success: true,
-        deletedId: numericId,
-        deletedRows: deletedRows?.length || 0,
-      });
+      if (!deletedRows || deletedRows.length === 0) {
+        return NextResponse.json({ error: 'Widget not found' }, { status: 404 });
+      }
+      return NextResponse.json(
+        {
+          success: true,
+          deletedId: numericId,
+          deletedRows: deletedRows.length,
+        },
+        { headers: NO_STORE_HEADERS }
+      );
     }
 
     const { title, widget_type, target_time, custom_content, is_active, display_order, userId } = body;
 
-    if (!title || !widget_type) {
-      return NextResponse.json({ error: 'Title and widget_type are required' }, { status: 400 });
+    if (!title || !widget_type || !ALLOWED_WIDGET_TYPES.has(String(widget_type))) {
+      return NextResponse.json({ error: 'Valid title and widget_type are required' }, { status: 400 });
     }
 
-    const cleanUserId = userId ? parseInt(String(userId), 10) : null;
+    const cleanUserId = userId ? parsePositiveInt(userId) : null;
+    const baseContent = custom_content ?? '';
     const finalContent = cleanUserId
-      ? `[USER:${cleanUserId}] ${custom_content || ''}`
+      ? `[USER:${cleanUserId}] ${baseContent}`
       : (custom_content || null);
 
     const insertPayload = {
-      title,
+      title: String(title).trim(),
       widget_type,
       target_time: target_time || null,
       custom_content: finalContent,
       is_active: is_active !== undefined ? Boolean(is_active) : true,
-      display_order: display_order !== undefined ? Number(display_order) : fallbackWidgets.length + 1,
+      display_order: display_order !== undefined ? Number(display_order) : 1,
     };
 
-    try {
-      const { data, error } = await supabase
-        .from('custom_widgets')
-        .insert([insertPayload])
-        .select()
-        .single();
+    const { data, error } = await supabase
+      .from('custom_widgets')
+      .insert([insertPayload])
+      .select()
+      .single();
 
-      if (!error && data) {
-        const parsed = parseWidgetUser(data);
-        fallbackWidgets.push(parsed);
-        return NextResponse.json(parsed, { status: 201 });
-      }
-      if (error) {
-        console.error('Supabase POST widget error:', error);
-      }
-    } catch (err) {
-      console.error('Supabase POST widget exception:', err);
-    }
-
-    const newWidget: CustomWidget = {
-      id: Date.now(),
-      title,
-      widget_type,
-      target_time: target_time || null,
-      custom_content: custom_content || null,
-      userId: cleanUserId,
-      is_active: is_active !== undefined ? Boolean(is_active) : true,
-      display_order: display_order !== undefined ? Number(display_order) : fallbackWidgets.length + 1,
-      createdAt: new Date().toISOString(),
-    };
-    fallbackWidgets.push(newWidget);
-    fallbackWidgets.sort((a, b) => a.display_order - b.display_order);
-    return NextResponse.json(newWidget, { status: 201 });
+    if (error) throw error;
+    return NextResponse.json(parseWidgetUser(data), { status: 201, headers: NO_STORE_HEADERS });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to create widget: ' + (error as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to create widget: ' + (error as Error).message },
+      { status: 500, headers: NO_STORE_HEADERS }
+    );
   }
 }
 
 export async function PUT(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
     const { id, userId, ...updates } = body;
 
-    if (!id) {
-      return NextResponse.json({ error: 'Widget ID is required' }, { status: 400 });
+    const numericId = parsePositiveInt(id);
+    if (!numericId) {
+      return NextResponse.json({ error: 'Valid Widget ID is required' }, { status: 400 });
     }
 
-    const numericId = Number(id);
-    const cleanUserId = userId !== undefined ? (userId ? parseInt(String(userId), 10) : null) : undefined;
+    if (updates.widget_type !== undefined && !ALLOWED_WIDGET_TYPES.has(String(updates.widget_type))) {
+      return NextResponse.json({ error: 'Invalid widget_type' }, { status: 400 });
+    }
+
+    const cleanUserId = userId !== undefined ? (userId ? parsePositiveInt(userId) : null) : undefined;
 
     const updateData: Record<string, any> = {};
-    if (updates.title !== undefined) updateData.title = updates.title;
+    if (updates.title !== undefined) updateData.title = String(updates.title).trim();
     if (updates.widget_type !== undefined) updateData.widget_type = updates.widget_type;
     if (updates.target_time !== undefined) updateData.target_time = updates.target_time;
     if (updates.is_active !== undefined) updateData.is_active = Boolean(updates.is_active);
@@ -198,72 +196,56 @@ export async function PUT(request: Request) {
       let existingUserId: number | null = null;
       let existingBaseContent = '';
       if (cleanUserId === undefined || updates.custom_content === undefined) {
-        try {
-          const { data: existingRow } = await supabase
-            .from('custom_widgets')
-            .select('custom_content')
-            .eq('id', numericId)
-            .maybeSingle();
-          if (existingRow) {
-            const parsedExisting = parseWidgetUser(existingRow);
-            existingUserId = parsedExisting.userId ?? null;
-            existingBaseContent = parsedExisting.custom_content ?? '';
-          }
-        } catch {}
+        const { data: existingRow } = await supabase
+          .from('custom_widgets')
+          .select('custom_content')
+          .eq('id', numericId)
+          .neq('widget_type', 'athlete_rank')
+          .neq('widget_type', 'workout_schedule_data')
+          .maybeSingle();
+        if (existingRow) {
+          const parsedExisting = parseWidgetUser(existingRow);
+          existingUserId = parsedExisting.userId ?? null;
+          existingBaseContent = parsedExisting.custom_content ?? '';
+        }
       }
 
       const targetUserId = cleanUserId !== undefined ? cleanUserId : existingUserId;
       const baseContent =
-        updates.custom_content !== undefined ? updates.custom_content : existingBaseContent;
+        updates.custom_content !== undefined ? (updates.custom_content ?? '') : existingBaseContent;
 
-      if (targetUserId) {
-        updateData.custom_content = `[USER:${targetUserId}] ${baseContent}`;
-      } else {
-        updateData.custom_content = baseContent;
-      }
+      updateData.custom_content = targetUserId
+        ? `[USER:${targetUserId}] ${baseContent}`
+        : (baseContent || null);
     }
 
-    try {
-      const { data, error } = await supabase
-        .from('custom_widgets')
-        .update(updateData)
-        .eq('id', numericId)
-        .select()
-        .maybeSingle();
+    const { data, error } = await supabase
+      .from('custom_widgets')
+      .update(updateData)
+      .eq('id', numericId)
+      .neq('widget_type', 'athlete_rank')
+      .neq('widget_type', 'workout_schedule_data')
+      .select()
+      .maybeSingle();
 
-      if (error) {
-        console.error('Supabase PUT widget error:', error);
-      } else if (data) {
-        const parsed = parseWidgetUser(data);
-        const idx = fallbackWidgets.findIndex((w) => w.id === numericId);
-        if (idx !== -1) {
-          fallbackWidgets[idx] = { ...fallbackWidgets[idx], ...parsed };
-        }
-        return NextResponse.json(parsed);
-      }
-    } catch (err) {
-      console.error('Supabase PUT widget exception:', err);
+    if (error) throw error;
+    if (!data) {
+      return NextResponse.json({ error: 'Widget not found' }, { status: 404 });
     }
 
-    const idx = fallbackWidgets.findIndex((w) => w.id === numericId);
-    if (idx !== -1) {
-      fallbackWidgets[idx] = {
-        ...fallbackWidgets[idx],
-        ...updateData,
-        userId: cleanUserId !== undefined ? cleanUserId : fallbackWidgets[idx].userId,
-        custom_content: updates.custom_content !== undefined ? updates.custom_content : fallbackWidgets[idx].custom_content,
-      };
-      fallbackWidgets.sort((a, b) => a.display_order - b.display_order);
-      return NextResponse.json(fallbackWidgets[idx]);
-    }
-
-    return NextResponse.json({ error: 'Widget not found' }, { status: 404 });
+    return NextResponse.json(parseWidgetUser(data), { headers: NO_STORE_HEADERS });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to update widget: ' + (error as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to update widget: ' + (error as Error).message },
+      { status: 500, headers: NO_STORE_HEADERS }
+    );
   }
 }
 
 export async function DELETE(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const { searchParams } = new URL(request.url);
     let id = searchParams.get('id');
@@ -275,32 +257,34 @@ export async function DELETE(request: Request) {
       } catch {}
     }
 
-    if (!id) {
-      return NextResponse.json({ error: 'ID is required' }, { status: 400 });
-    }
-
-    const numericId = Number(id);
-    if (isNaN(numericId)) {
-      return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+    const numericId = parsePositiveInt(id);
+    if (!numericId) {
+      return NextResponse.json({ error: 'Valid ID is required' }, { status: 400 });
     }
 
     const { data: deletedRows, error: dbError } = await supabase
       .from('custom_widgets')
       .delete()
       .eq('id', numericId)
+      .neq('widget_type', 'athlete_rank')
+      .neq('widget_type', 'workout_schedule_data')
       .select();
 
     if (dbError) {
-      console.error('Supabase DELETE widget error:', dbError);
       return NextResponse.json({ error: dbError.message }, { status: 500 });
     }
+    if (!deletedRows || deletedRows.length === 0) {
+      return NextResponse.json({ error: 'Widget not found' }, { status: 404 });
+    }
 
-    fallbackWidgets = fallbackWidgets.filter((w) => Number(w.id) !== numericId);
-    return NextResponse.json({
-      success: true,
-      deletedId: numericId,
-      deletedRows: deletedRows?.length || 0,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        deletedId: numericId,
+        deletedRows: deletedRows.length,
+      },
+      { headers: NO_STORE_HEADERS }
+    );
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete widget' }, { status: 500 });
   }

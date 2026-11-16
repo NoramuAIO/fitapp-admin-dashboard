@@ -1,8 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Search, Clock } from 'lucide-react';
 import { apiFetch } from '@/lib/clientCache';
+import {
+  getStoredSelectedUserId,
+  setStoredSelectedUserId,
+  subscribeUserSelected,
+} from '@/lib/userSelection';
 
 interface User {
   id: number;
@@ -12,15 +18,25 @@ interface User {
 }
 
 export default function Header() {
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const router = useRouter();
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [currentTime, setCurrentTime] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    loadSelectedUser();
+    setSelectedUserId(getStoredSelectedUserId());
+    loadUsers();
     updateTime();
     const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
+    const unsub = subscribeUserSelected((uid) => {
+      setSelectedUserId(uid);
+      loadUsers(true);
+    });
+    return () => {
+      clearInterval(interval);
+      unsub();
+    };
   }, []);
 
   const updateTime = () => {
@@ -28,63 +44,66 @@ export default function Header() {
     setCurrentTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
   };
 
-  const loadSelectedUser = async () => {
+  const loadUsers = async (force = false) => {
     try {
-      const res = await apiFetch('/api/users?lite=1');
+      const res = await apiFetch('/api/users?lite=1', { forceRefresh: force });
+      if (!res.ok) return;
       const allUsers = await res.json();
       if (Array.isArray(allUsers)) {
         setUsers(allUsers);
-        const savedUserId = localStorage.getItem('selectedUserId');
-        if (savedUserId) {
-          const user = allUsers.find((u: User) => u.id === parseInt(savedUserId));
-          if (user) setSelectedUser(user);
+        const currentStored = getStoredSelectedUserId();
+        if (currentStored !== null && !allUsers.some((u: User) => Number(u.id) === currentStored)) {
+          setStoredSelectedUserId(null);
+          setSelectedUserId(null);
         }
       }
     } catch {}
   };
 
-  const getInitials = (name: string) =>
-    name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  const selectedUser = selectedUserId
+    ? users.find((u) => Number(u.id) === selectedUserId) || null
+    : null;
 
   return (
     <header className="h-16 border-b border-[#1E1E1E] bg-[#0A0A0A] flex items-center justify-between px-6 shrink-0 z-50">
-      {/* Search */}
-      <div className="relative max-w-md w-full">
+      <form
+        className="relative max-w-md w-full"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const q = searchQuery.trim();
+          router.push(q ? `/exercises?search=${encodeURIComponent(q)}` : '/exercises');
+        }}
+      >
         <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
         <input
           type="text"
-          placeholder="Ara..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Hareketlerde ara..."
           className="w-full bg-[#141414] border border-[#2A2A2A] text-white placeholder-gray-600 rounded-xl px-4 py-2 pl-9 text-sm focus:outline-none focus:border-[#6366F1] transition-colors"
         />
-      </div>
+      </form>
 
-      {/* Right Side */}
       <div className="flex items-center gap-3">
-        {/* Clock */}
         <div className="flex items-center gap-2 bg-[#141414] border border-[#2A2A2A] rounded-xl px-4 py-2 select-none">
           <Clock size={14} className="text-[#6366F1]" />
           <span className="text-white font-semibold text-sm tabular-nums">{currentTime}</span>
         </div>
 
-        {/* Global User Selector */}
         <div className="relative">
           <select
+            aria-label="Küresel kullanıcı filtresi"
             className="appearance-none bg-[#141414] border border-[#2A2A2A] text-white rounded-xl px-4 py-2 pr-10 text-sm focus:outline-none focus:border-[#6366F1] cursor-pointer"
             value={selectedUser?.id ?? ''}
             onChange={(e) => {
               const val = e.target.value;
-              if (val) {
-                localStorage.setItem('selectedUserId', val);
-              } else {
-                localStorage.removeItem('selectedUserId');
-              }
-              // Dispatch event so other components refresh
-              window.dispatchEvent(new Event('userSelected'));
-              window.location.reload(); // Hard reload for data freshness across all pages
+              const nextId = val ? parseInt(val, 10) : null;
+              setSelectedUserId(nextId);
+              setStoredSelectedUserId(nextId);
             }}
           >
             <option value="">Kullanıcı Seç (Genel)</option>
-            {users.map(u => (
+            {users.map((u) => (
               <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </select>

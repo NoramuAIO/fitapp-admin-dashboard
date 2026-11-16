@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ChevronRight, Plus, Trash2, ListPlus, Edit2, Check, X } from 'lucide-react';
+import { apiFetch } from '@/lib/clientCache';
 import AddExerciseForm from './AddExerciseForm';
 import ExerciseItem from './ExerciseItem';
 import { Exercise, Workout } from './ExerciseSelectorModal';
@@ -52,18 +53,19 @@ export default function WorkoutItem({
         setDayNumberInput(workout.dayNumber ? String(workout.dayNumber) : '');
     }, [workout.name, workout.dayNumber]);
 
-    const isAddFormVisible = showAddExercise || localShowAdd;
+    const usesControlledAdd = Boolean(onShowAddExercise && onCloseAddExercise);
+    const isAddFormVisible = usesControlledAdd ? showAddExercise : localShowAdd;
 
     const handleToggleAddForm = () => {
         if (isCollapsed) {
             onToggleCollapse();
         }
         if (isAddFormVisible) {
-            onCloseAddExercise?.();
-            setLocalShowAdd(false);
+            if (usesControlledAdd) onCloseAddExercise?.();
+            else setLocalShowAdd(false);
         } else {
-            onShowAddExercise?.();
-            setLocalShowAdd(true);
+            if (usesControlledAdd) onShowAddExercise?.();
+            else setLocalShowAdd(true);
         }
     };
 
@@ -91,7 +93,7 @@ export default function WorkoutItem({
         if (!trimmed) return;
         setIsSavingName(true);
         try {
-            const response = await fetch('/api/workouts', {
+            const response = await apiFetch('/api/workouts', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -132,7 +134,7 @@ export default function WorkoutItem({
                 workoutId: workout.id,
             }));
 
-            const response = await fetch('/api/exercises/reorder', {
+            const response = await apiFetch('/api/exercises/reorder', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ exercises: reorderPayload }),
@@ -140,15 +142,18 @@ export default function WorkoutItem({
 
             if (!response.ok) {
                 // Fallback to individual updates
-                await Promise.all(
+                const fallbackResults = await Promise.all(
                     newExercises.map((ex, index) =>
-                        fetch(`/api/exercises/${ex.id}`, {
+                        apiFetch(`/api/exercises/${ex.id}`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ orderIndex: index }),
                         })
                     )
                 );
+                if (fallbackResults.some((r) => !r.ok)) {
+                    throw new Error('Sıralama kaydedilemedi');
+                }
             }
             await onUpdate();
         } catch (error) {
@@ -221,21 +226,24 @@ export default function WorkoutItem({
         <div
             className={`bg-[#1A1A1A] rounded-2xl p-5 border transition-all ${isDragOver ? 'border-[#6366F1] border-dashed' : 'border-[#2A2A2A]'}`}
             onDragOver={(e) => {
+                if (!draggedExerciseId) return;
                 e.preventDefault();
                 setIsDragOver(true);
             }}
             onDragLeave={() => setIsDragOver(false)}
             onDrop={async (e) => {
+                if (!draggedExerciseId) {
+                    setIsDragOver(false);
+                    return;
+                }
                 e.preventDefault();
                 setIsDragOver(false);
-                if (draggedExerciseId) {
-                    const draggedIndex = localExercises.findIndex((ex) => ex.id === draggedExerciseId);
-                    if (draggedIndex !== -1 && draggedIndex !== localExercises.length - 1) {
-                        const newExercises = [...localExercises];
-                        const [removed] = newExercises.splice(draggedIndex, 1);
-                        newExercises.push(removed);
-                        await handleReorder(newExercises);
-                    }
+                const draggedIndex = localExercises.findIndex((ex) => ex.id === draggedExerciseId);
+                if (draggedIndex !== -1 && draggedIndex !== localExercises.length - 1) {
+                    const newExercises = [...localExercises];
+                    const [removed] = newExercises.splice(draggedIndex, 1);
+                    newExercises.push(removed);
+                    await handleReorder(newExercises);
                 }
             }}
         >
@@ -299,7 +307,7 @@ export default function WorkoutItem({
                         <div>
                             <div className="flex items-center gap-2">
                                 <h4 className="text-white font-bold">{workout.name}</h4>
-                                {workout.dayNumber && (
+                                {Boolean(workout.dayNumber && workout.dayNumber > 0) && (
                                     <span className="text-xs font-semibold bg-white/5 text-gray-400 px-2 py-0.5 rounded-md border border-white/10">Gün {workout.dayNumber}</span>
                                 )}
                                 <button

@@ -16,10 +16,12 @@ export interface ApiFetchOptions extends RequestInit {
 }
 
 const DEFAULT_TTL_MS = 15_000;
+const MAX_CACHE_ENTRIES = 200;
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
 
 const responseCache = new Map<string, CachedResponseEntry>();
 const inFlightRequests = new Map<string, Promise<CachedResponseEntry>>();
+let mutationEpoch = 0;
 
 function buildResponse(entry: CachedResponseEntry): Response {
   const headers = new Headers(entry.headers);
@@ -35,13 +37,20 @@ function buildResponse(entry: CachedResponseEntry): Response {
  * Invalidate cached GET entries. When urlPrefix is omitted, clears the entire client API cache.
  */
 export function invalidateApiCache(urlPrefix?: string): void {
+  mutationEpoch += 1;
   if (!urlPrefix) {
     responseCache.clear();
+    inFlightRequests.clear();
     return;
   }
   for (const key of responseCache.keys()) {
     if (key.startsWith(urlPrefix)) {
       responseCache.delete(key);
+    }
+  }
+  for (const key of inFlightRequests.keys()) {
+    if (key.startsWith(urlPrefix)) {
+      inFlightRequests.delete(key);
     }
   }
 }
@@ -63,17 +72,22 @@ export async function apiFetch(
     !forceRefresh &&
     ttlMs > 0;
 
+  const fetchOptions: RequestInit = {
+    ...fetchInit,
+    cache: 'no-store',
+  };
+
   if (method !== 'GET') {
     invalidateApiCache();
     try {
-      return await fetch(input, fetchInit);
+      return await fetch(input, fetchOptions);
     } finally {
       invalidateApiCache();
     }
   }
 
   if (!isCacheableGet) {
-    return fetch(input, fetchInit);
+    return fetch(input, fetchOptions);
   }
 
   const now = Date.now();
@@ -91,8 +105,9 @@ export async function apiFetch(
     return buildResponse(entry);
   }
 
+  const startEpoch = mutationEpoch;
   const flightPromise = (async (): Promise<CachedResponseEntry> => {
-    const res = await fetch(input, fetchInit);
+    const res = await fetch(input, fetchOptions);
     const bodyText = NULL_BODY_STATUSES.has(res.status) ? '' : await res.text();
     const entry: CachedResponseEntry = {
       status: res.status,
@@ -102,7 +117,11 @@ export async function apiFetch(
       expiresAt: Date.now() + ttlMs,
     };
 
-    if (res.ok) {
+    if (res.ok && mutationEpoch === startEpoch) {
+      if (responseCache.size >= MAX_CACHE_ENTRIES) {
+        const oldestKey = responseCache.keys().next().value;
+        if (oldestKey) responseCache.delete(oldestKey);
+      }
       responseCache.set(input, entry);
     }
     return entry;

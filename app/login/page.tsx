@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Mail, Lock, ShieldCheck, ArrowRight, Activity } from 'lucide-react';
+import { invalidateApiCache } from '@/lib/clientCache';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -23,14 +24,14 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (response.ok) {
-        // Başarılı giriş
+        invalidateApiCache();
         router.push('/');
         router.refresh();
       } else {
-        setError(data.error || 'Giriş başarısız. Bilgilerinizi kontrol edin.');
+        setError(data?.error || 'Giriş başarısız. Bilgilerinizi kontrol edin.');
       }
     } catch (err) {
       setError('Bağlantı sırasında bir hata oluştu.');
@@ -59,7 +60,7 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label htmlFor="email" className="block text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">
-              E-posta Adresİ
+              E-posta Adresi
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -79,7 +80,7 @@ export default function LoginPage() {
 
           <div>
             <label htmlFor="password" className="block text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">
-              Şİfre
+              Şifre
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">

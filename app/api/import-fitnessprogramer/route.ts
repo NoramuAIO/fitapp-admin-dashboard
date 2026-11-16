@@ -1,72 +1,15 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { escapeIlikePattern, parsePositiveInt, requireApiAuth } from '@/lib/apiAuth';
+import { parseCsvMatrix } from '@/lib/csv';
 
-function parseCSVData(csvData: string): string[][] {
-  const rows: string[][] = [];
-  let currentRow: string[] = [];
-  let currentField = '';
-  let inQuotes = false;
-  
-  for (let i = 0; i < csvData.length; i++) {
-    const char = csvData[i];
-    const nextChar = csvData[i + 1];
-    
-    // Handle quotes
-    if (char === '"') {
-      if (inQuotes && nextChar === '"') {
-        // Escaped quote - add one quote and skip next
-        currentField += '"';
-        i++;
-        continue;
-      } else {
-        // Toggle quote state
-        inQuotes = !inQuotes;
-        continue;
-      }
-    }
-    
-    // Only process special characters when not in quotes
-    if (!inQuotes) {
-      if (char === ',') {
-        // Field separator
-        currentRow.push(currentField);
-        currentField = '';
-        continue;
-      }
-      
-      if (char === '\n' || char === '\r') {
-        // Skip carriage returns
-        if (char === '\r') continue;
-        
-        // End of row
-        if (currentField || currentRow.length > 0) {
-          currentRow.push(currentField);
-          if (currentRow.length >= 3) { // At least name, gif_url, overview
-            rows.push(currentRow);
-          }
-          currentRow = [];
-          currentField = '';
-        }
-        continue;
-      }
-    }
-    
-    // Add character to current field
-    currentField += char;
-  }
-  
-  // Add last field and row if exists
-  if (currentField || currentRow.length > 0) {
-    currentRow.push(currentField);
-    if (currentRow.length >= 3) {
-      rows.push(currentRow);
-    }
-  }
-  
-  return rows;
-}
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function POST(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
     const { csvData, programId } = body;
@@ -75,7 +18,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'CSV data is required' }, { status: 400 });
     }
 
-    const rows = parseCSVData(csvData);
+    const parsedProgramId = programId ? parsePositiveInt(programId) : null;
+    const rows = parseCsvMatrix(csvData).filter((r) => r.length >= 3);
     let imported = 0;
     let skipped = 0;
     const errors: string[] = [];
@@ -101,12 +45,13 @@ export async function POST(request: Request) {
           continue;
         }
 
-        // Check if exercise already exists
+        // Check if exercise already exists safely
         const { data: existing } = await supabase
           .from('exercises')
           .select('id')
-          .ilike('name', cleanName)
-          .single();
+          .ilike('name', escapeIlikePattern(cleanName))
+          .limit(1)
+          .maybeSingle();
 
         if (existing) {
           skipped++;
@@ -123,12 +68,13 @@ export async function POST(request: Request) {
         const { error } = await supabase
           .from('exercises')
           .insert([{
-            programId: programId || null,
+            programId: parsedProgramId,
             name: cleanName,
             sets: 3,
             reps: 10,
             description: fullDescription.trim() || null,
             imageUrl: gifUrl?.trim() || null,
+            muscleGroup: muscleGroup?.trim() || null,
             orderIndex: i - 1
           }]);
 

@@ -19,6 +19,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
+import { apiFetch } from '@/lib/clientCache';
 
 interface NotificationRule {
   id: number;
@@ -70,27 +71,38 @@ export default function NotificationAdminPage() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [voiceScript, setVoiceScript] = useState('');
   const [isPlayingVoice, setIsPlayingVoice] = useState(false);
+  const [playingText, setPlayingText] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [testSuccess, setTestSuccess] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
     loadRules();
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
   }, []);
 
   const loadRules = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/notifications/rules');
+      const res = await apiFetch('/api/notifications/rules', { forceRefresh: true });
+      if (!res.ok) throw new Error('Kurallar yüklenemedi');
       const data = await res.json();
       setRules(Array.isArray(data) ? data : []);
     } catch {
       setRules([]);
+      setErrorMsg('Bildirim kuralları sunucudan alınamadı.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleOpenModal = (rule?: NotificationRule) => {
+    setErrorMsg(null);
     if (rule) {
       setEditingRule(rule);
       setTitle(rule.title);
@@ -98,7 +110,11 @@ export default function NotificationAdminPage() {
       setMessage(rule.message);
       setCategory(rule.category);
       setScheduledTime(rule.scheduled_time);
-      setSelectedDays(rule.days_of_week ? rule.days_of_week.split(',') : ['1', '2', '3', '4', '5']);
+      setSelectedDays(
+        rule.days_of_week && rule.days_of_week.trim()
+          ? rule.days_of_week.split(',').filter(Boolean)
+          : ['1', '2', '3', '4', '5']
+      );
       setVoiceEnabled(rule.voice_enabled);
       setVoiceScript(rule.voice_script || '');
     } else {
@@ -123,54 +139,73 @@ export default function NotificationAdminPage() {
 
   const handleSaveRule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !message || !scheduledTime) return;
+    if (!title.trim() || !message.trim() || !scheduledTime) return;
+    if (selectedDays.length === 0) {
+      alert('En az bir bildirim günü seçmelisiniz.');
+      return;
+    }
 
     const payload = {
-      title,
-      subtitle: subtitle || null,
-      message,
+      title: title.trim(),
+      subtitle: subtitle ? subtitle.trim() : null,
+      message: message.trim(),
       category,
       scheduled_time: scheduledTime,
       days_of_week: selectedDays.join(','),
       voice_enabled: voiceEnabled,
-      voice_script: voiceEnabled ? (voiceScript || message) : null,
+      voice_script: voiceEnabled ? (voiceScript.trim() || message.trim()) : null,
       is_active: editingRule ? editingRule.is_active : true,
     };
 
+    setIsSaving(true);
+    setErrorMsg(null);
     try {
-      if (editingRule) {
-        await fetch('/api/notifications/rules', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: editingRule.id, ...payload }),
-        });
-      } else {
-        await fetch('/api/notifications/rules', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+      const res = editingRule
+        ? await apiFetch('/api/notifications/rules', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: editingRule.id, ...payload }),
+          })
+        : await apiFetch('/api/notifications/rules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Kural kaydedilemedi!');
       }
+
       setShowModal(false);
       setSuccessMsg(editingRule ? 'Kural başarıyla güncellendi!' : 'Yeni bildirim kuralı oluşturuldu!');
       setTimeout(() => setSuccessMsg(null), 3000);
       loadRules();
-    } catch (err) {
-      alert('Kural kaydedilemedi!');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Kural kaydedilemedi!');
+      alert(err?.message || 'Kural kaydedilemedi!');
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleToggleActive = async (rule: NotificationRule) => {
     try {
-      await fetch('/api/notifications/rules', {
+      const res = await apiFetch('/api/notifications/rules', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: rule.id, is_active: !rule.is_active }),
       });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Durum güncellenemedi');
+      }
       setRules((prev) =>
         prev.map((r) => (r.id === rule.id ? { ...r, is_active: !r.is_active } : r))
       );
-    } catch {}
+    } catch (err: any) {
+      alert(err?.message || 'Kural durumu değiştirilemedi.');
+    }
   };
 
   const handleDeleteRule = async (id: number) => {
@@ -182,7 +217,6 @@ export default function NotificationAdminPage() {
     if (!ok) return;
 
     const numericId = Number(id);
-    // Optimistic instant UI removal
     setRules((prev) => prev.filter((r) => Number(r.id) !== numericId));
     if (editingRule && Number(editingRule.id) === numericId) {
       setShowModal(false);
@@ -190,14 +224,14 @@ export default function NotificationAdminPage() {
     }
 
     try {
-      let res = await fetch('/api/notifications/rules', {
+      let res = await apiFetch('/api/notifications/rules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete', id: numericId }),
       });
 
       if (!res.ok) {
-        res = await fetch(`/api/notifications/rules?id=${numericId}`, {
+        res = await apiFetch(`/api/notifications/rules?id=${numericId}`, {
           method: 'DELETE',
         });
       }
@@ -210,6 +244,7 @@ export default function NotificationAdminPage() {
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
       console.error('Delete error:', err);
+      alert(err?.message || 'Kural silinemedi.');
       loadRules();
     }
   };
@@ -221,21 +256,30 @@ export default function NotificationAdminPage() {
       return;
     }
 
-    if (isPlayingVoice) {
+    const spoken = (textToSpeak || message || '').trim();
+    if (isPlayingVoice && playingText === spoken) {
       window.speechSynthesis.cancel();
       setIsPlayingVoice(false);
+      setPlayingText(null);
       return;
     }
 
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(textToSpeak || message);
+    const utterance = new SpeechSynthesisUtterance(spoken);
     utterance.lang = 'tr-TR';
     utterance.rate = 0.95;
     utterance.pitch = 1.0;
 
-    utterance.onend = () => setIsPlayingVoice(false);
-    utterance.onerror = () => setIsPlayingVoice(false);
+    utterance.onend = () => {
+      setIsPlayingVoice(false);
+      setPlayingText(null);
+    };
+    utterance.onerror = () => {
+      setIsPlayingVoice(false);
+      setPlayingText(null);
+    };
 
+    setPlayingText(spoken);
     setIsPlayingVoice(true);
     window.speechSynthesis.speak(utterance);
   };
@@ -252,22 +296,24 @@ export default function NotificationAdminPage() {
     };
 
     try {
-      const res = await fetch('/api/notifications/test', {
+      const res = await apiFetch('/api/notifications/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Test bildirimi gönderilemedi.');
+      }
       setTestSuccess(`«${payload.title}» başarıyla gönderildi ve test edildi!`);
 
-      // Also speak voice coach in browser if voice_enabled
       if (payload.voice_enabled && (payload.voice_script || payload.message)) {
         handlePlayVoice(payload.voice_script || payload.message);
       }
 
       setTimeout(() => setTestSuccess(null), 4000);
-    } catch {
-      alert('Test bildirimi gönderilemedi.');
+    } catch (err: any) {
+      alert(err?.message || 'Test bildirimi gönderilemedi.');
     }
   };
 
@@ -695,17 +741,24 @@ export default function NotificationAdminPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowModal(false)}
+                    onClick={() => {
+                      if (typeof window !== 'undefined' && window.speechSynthesis) {
+                        window.speechSynthesis.cancel();
+                        setIsPlayingVoice(false);
+                        setPlayingText(null);
+                      }
+                      setShowModal(false);
+                    }}
                     className="px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors"
                   >
                     İptal
                   </button>
                   <button
                     type="submit"
-                    disabled={!title || !message || !scheduledTime}
+                    disabled={isSaving || !title.trim() || !message.trim() || !scheduledTime || selectedDays.length === 0}
                     className="bg-[#4ECDC4] hover:bg-[#45B8B0] disabled:opacity-40 text-gray-950 font-bold px-6 py-2.5 rounded-xl text-sm transition-all shadow-lg shadow-[#4ECDC4]/20"
                   >
-                    {editingRule ? 'Güncelle' : 'Kaydet'}
+                    {isSaving ? 'Kaydediliyor...' : editingRule ? 'Güncelle' : 'Kaydet'}
                   </button>
                 </div>
               </div>

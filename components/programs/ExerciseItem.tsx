@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { GripVertical, Edit2, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
+import { apiFetch } from '@/lib/clientCache';
 import { Exercise } from './ExerciseSelectorModal';
 
 interface ExerciseItemProps {
@@ -39,29 +40,65 @@ export default function ExerciseItem({
     const [isEditing, setIsEditing] = useState(false);
     const [isDraggable, setIsDraggable] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     const [editData, setEditData] = useState({
         name: exercise.name,
-        sets: exercise.sets,
-        reps: exercise.reps,
+        sets: String(exercise.sets ?? 3),
+        reps: String(exercise.reps ?? 10),
         duration: exercise.duration || '',
         description: exercise.description || '',
         muscleGroup: exercise.muscleGroup || ''
     });
 
+    useEffect(() => {
+        if (!isEditing) {
+            setEditData({
+                name: exercise.name,
+                sets: String(exercise.sets ?? 3),
+                reps: String(exercise.reps ?? 10),
+                duration: exercise.duration || '',
+                description: exercise.description || '',
+                muscleGroup: exercise.muscleGroup || '',
+            });
+        }
+    }, [exercise, isEditing]);
+
     const handleSave = async () => {
+        if (isSaving) return;
+        const trimmedName = editData.name.trim();
+        if (!trimmedName) {
+            alert('Hareket adı boş bırakılamaz.');
+            return;
+        }
+        setIsSaving(true);
         try {
-            const response = await fetch(`/api/exercises/${exercise.id}`, {
+            const parsedSets = Math.max(1, parseInt(editData.sets, 10) || 1);
+            const parsedReps = Math.max(1, parseInt(editData.reps, 10) || 1);
+            const response = await apiFetch(`/api/exercises/${exercise.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(editData),
+                body: JSON.stringify({
+                    name: trimmedName,
+                    sets: parsedSets,
+                    reps: parsedReps,
+                    duration: editData.duration.trim() || null,
+                    description: editData.description.trim() || null,
+                    muscleGroup: editData.muscleGroup.trim() || null,
+                }),
             });
 
             if (response.ok) {
                 await onUpdate();
                 setIsEditing(false);
+            } else {
+                const err = await response.json().catch(() => ({}));
+                alert(err.error || 'Hareket güncellenemedi.');
             }
         } catch (error) {
             console.error('Error updating exercise:', error);
+            alert('Hareket güncellenirken bir hata oluştu.');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -105,8 +142,9 @@ export default function ExerciseItem({
                         <label className="text-xs text-gray-500 mb-1 block">Set</label>
                         <input
                             type="number"
+                            min="1"
                             value={editData.sets}
-                            onChange={(e) => setEditData({ ...editData, sets: parseInt(e.target.value) || 0 })}
+                            onChange={(e) => setEditData({ ...editData, sets: e.target.value })}
                             className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
                             placeholder="3"
                         />
@@ -115,8 +153,9 @@ export default function ExerciseItem({
                         <label className="text-xs text-gray-500 mb-1 block">Tekrar</label>
                         <input
                             type="number"
+                            min="1"
                             value={editData.reps}
-                            onChange={(e) => setEditData({ ...editData, reps: parseInt(e.target.value) || 0 })}
+                            onChange={(e) => setEditData({ ...editData, reps: e.target.value })}
                             className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
                             placeholder="10"
                         />
@@ -145,15 +184,17 @@ export default function ExerciseItem({
                 <div className="flex justify-end gap-2">
                     <button
                         onClick={() => setIsEditing(false)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-white bg-[#2A2A2A] hover:bg-[#333]"
+                        disabled={isSaving}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-white bg-[#2A2A2A] hover:bg-[#333] disabled:opacity-50"
                     >
                         İptal
                     </button>
                     <button
                         onClick={handleSave}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#6366F1] hover:bg-[#5558DD]"
+                        disabled={isSaving}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#6366F1] hover:bg-[#5558DD] disabled:opacity-50"
                     >
-                        Kaydet
+                        {isSaving ? 'Kaydediliyor...' : 'Kaydet'}
                     </button>
                 </div>
             </div>

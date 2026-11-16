@@ -1,28 +1,31 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { requireApiAuth } from '@/lib/apiAuth';
 
-export async function DELETE() {
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+export async function DELETE(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
-    // Check count first
-    const { count } = await supabase
-      .from('exercise_progress')
-      .select('*', { count: 'exact', head: true });
-
-    // Delete all exercise progress records
-    const { error } = await supabase
-      .from('exercise_progress')
+    const { data, error } = await supabase
+      .from('exercise_completions')
       .delete()
-      .neq('id', 0);
+      .neq('id', 0)
+      .select('id');
 
     if (error) throw error;
-    
-    return NextResponse.json({ 
-      success: true, 
-      deletedCount: count || 0,
-      message: `${count || 0} ilerleme kaydı silindi` 
+    const deletedCount = Array.isArray(data) ? data.length : 0;
+
+    return NextResponse.json({
+      success: true,
+      deletedCount,
+      message: `${deletedCount} ilerleme kaydı silindi`,
     });
   } catch (error) {
-    console.error('Error deleting exercise progress:', error);
+    console.error('Error deleting exercise completions:', error);
     return NextResponse.json(
       { error: 'İlerleme kayıtları silinirken hata oluştu: ' + (error as Error).message },
       { status: 500 }
@@ -30,6 +33,6 @@ export async function DELETE() {
   }
 }
 
-export async function POST() {
-  return DELETE();
+export async function POST(request: Request) {
+  return DELETE(request);
 }

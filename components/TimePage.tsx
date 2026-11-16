@@ -10,6 +10,12 @@ import {
   getLocalDateString,
 } from '@/lib/fitnessCalculations';
 import { apiFetch } from '@/lib/clientCache';
+import {
+  formatIstanbulLocaleDate,
+  getStoredSelectedUserId,
+  setStoredSelectedUserId,
+  subscribeUserSelected,
+} from '@/lib/userSelection';
 
 interface WorkoutSession {
   id: number;
@@ -43,14 +49,11 @@ export default function TimePage() {
 
   useEffect(() => {
     fetchUsers();
-    const syncSelectedUser = () => {
-      const saved = localStorage.getItem('selectedUserId');
-      const parsed = saved ? parseInt(saved, 10) : NaN;
-      setSelectedUserId(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+    const syncSelectedUser = (uid?: number | null) => {
+      setSelectedUserId(uid !== undefined ? uid : getStoredSelectedUserId());
     };
     syncSelectedUser();
-    window.addEventListener('userSelected', syncSelectedUser);
-    return () => window.removeEventListener('userSelected', syncSelectedUser);
+    return subscribeUserSelected(syncSelectedUser);
   }, []);
 
   useEffect(() => {
@@ -61,6 +64,7 @@ export default function TimePage() {
   const fetchUsers = async () => {
     try {
       const res = await apiFetch('/api/users?lite=1');
+      if (!res.ok) return;
       const data = await res.json();
       setUsers(Array.isArray(data) ? data : []);
     } catch {}
@@ -69,8 +73,14 @@ export default function TimePage() {
   const loadSessions = async () => {
     try {
       setLoading(true);
-      const url = selectedUserId ? `/api/workout-sessions?userId=${selectedUserId}` : '/api/workout-sessions';
+      const url = selectedUserId
+        ? `/api/workout-sessions?userId=${selectedUserId}&limit=2000`
+        : '/api/workout-sessions?limit=2000';
       const response = await apiFetch(url);
+      if (!response.ok) {
+        setSessions([]);
+        return;
+      }
       const data = await response.json();
       setSessions(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -81,32 +91,37 @@ export default function TimePage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('tr-TR', {
-      day: '2-digit', month: 'long', year: 'numeric',
+    return formatIstanbulLocaleDate(dateString, {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
     });
   };
 
   const getFilteredSessions = () => {
     let filtered = [...sessions];
-    
-    // Category filter
+
     if (categoryFilter === 'workout') {
       filtered = filtered.filter(isRealWorkoutSession);
     } else if (categoryFilter === 'duration') {
       filtered = filtered.filter(isManualTimerSession);
     }
 
-    // Time filter (Europe/Istanbul calendar day parity)
-    const now = new Date();
-    const todayStr = getLocalDateString(now);
+    const todayStr = getLocalDateString(new Date());
+    const todayNoonMs = new Date(`${todayStr}T12:00:00Z`).getTime();
     if (filter === 'today') {
-      filtered = filtered.filter(s => s.startTime && getLocalDateString(s.startTime) === todayStr);
-    } else if (filter === 'week') {
-      const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      filtered = filtered.filter(s => new Date(s.startTime) >= lastWeek);
-    } else if (filter === 'month') {
-      const lastMonth = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      filtered = filtered.filter(s => new Date(s.startTime) >= lastMonth);
+      filtered = filtered.filter(
+        (s) => s.startTime && getLocalDateString(s.startTime) === todayStr
+      );
+    } else if (filter === 'week' || filter === 'month') {
+      const maxDays = filter === 'week' ? 6 : 29;
+      filtered = filtered.filter((s) => {
+        const ymd = s.startTime ? getLocalDateString(s.startTime) : '';
+        if (!ymd) return false;
+        const sMs = new Date(`${ymd}T12:00:00Z`).getTime();
+        const diffDays = Math.round((todayNoonMs - sMs) / (1000 * 60 * 60 * 24));
+        return diffDays >= 0 && diffDays <= maxDays;
+      });
     }
 
     // Text search
@@ -157,14 +172,9 @@ export default function TimePage() {
               value={selectedUserId ?? ''}
               onChange={(e) => {
                 const val = e.target.value;
-                if (val) {
-                  const id = parseInt(val);
-                  setSelectedUserId(id);
-                  localStorage.setItem('selectedUserId', id.toString());
-                } else {
-                  setSelectedUserId(null);
-                  localStorage.removeItem('selectedUserId');
-                }
+                const id = val ? parseInt(val, 10) : null;
+                setSelectedUserId(id);
+                setStoredSelectedUserId(id);
               }}
             >
               <option value="">Tüm Kullanıcılar</option>

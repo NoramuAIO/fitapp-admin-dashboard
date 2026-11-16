@@ -5,6 +5,12 @@ import { Scale, TrendingDown, TrendingUp, Trash2, BarChart3, Plus, X, Calendar, 
 import { useConfirm } from '@/components/ConfirmModal';
 import { getLocalDateString } from '@/lib/fitnessCalculations';
 import { apiFetch } from '@/lib/clientCache';
+import {
+  formatIstanbulLocaleDate,
+  getStoredSelectedUserId,
+  setStoredSelectedUserId,
+  subscribeUserSelected,
+} from '@/lib/userSelection';
 
 interface WeightLog {
   id: number;
@@ -73,24 +79,26 @@ export default function BodyAdminPage() {
 
   useEffect(() => {
     fetchUsers();
-    const syncSelectedUser = () => {
-      const saved = localStorage.getItem('selectedUserId');
-      setSelectedUserId(saved ? parseInt(saved, 10) : null);
+    const syncSelectedUser = (uid?: number | null) => {
+      setSelectedUserId(uid !== undefined ? uid : getStoredSelectedUserId());
     };
     syncSelectedUser();
-    window.addEventListener('userSelected', syncSelectedUser);
-    return () => window.removeEventListener('userSelected', syncSelectedUser);
+    return subscribeUserSelected(syncSelectedUser);
   }, []);
 
   useEffect(() => {
     if (selectedUserId) {
       loadData(selectedUserId);
+    } else {
+      setWeightLogs([]);
+      setFatLogs([]);
     }
   }, [selectedUserId]);
 
   const fetchUsers = async () => {
     try {
       const res = await apiFetch('/api/users?lite=1');
+      if (!res.ok) return;
       const data = await res.json();
       setUsers(Array.isArray(data) ? data : []);
     } catch { setUsers([]); }
@@ -103,8 +111,8 @@ export default function BodyAdminPage() {
         apiFetch(`/api/weight-logs?userId=${userId}`),
         apiFetch(`/api/body-fat-logs?userId=${userId}`),
       ]);
-      const wData = await wRes.json();
-      const fData = await fRes.json();
+      const wData = wRes.ok ? await wRes.json().catch(() => []) : [];
+      const fData = fRes.ok ? await fRes.json().catch(() => []) : [];
       setWeightLogs(Array.isArray(wData) ? wData : []);
       setFatLogs(Array.isArray(fData) ? fData : []);
     } catch { setWeightLogs([]); setFatLogs([]); }
@@ -120,10 +128,7 @@ export default function BodyAdminPage() {
     if (!ok) return;
 
     const numericId = Number(id);
-    // Optimistic instant UI removal
     setWeightLogs(prev => prev.filter(w => Number(w.id) !== numericId));
-    setSuccessToast('Kilo kaydı başarıyla silindi!');
-    setTimeout(() => setSuccessToast(null), 3000);
 
     try {
       let res = await apiFetch('/api/weight-logs', {
@@ -134,8 +139,14 @@ export default function BodyAdminPage() {
       if (!res.ok) {
         res = await apiFetch(`/api/weight-logs?id=${numericId}`, { method: 'DELETE' });
       }
+      if (!res.ok) {
+        throw new Error('Kilo kaydı sunucudan silinemedi');
+      }
+      setSuccessToast('Kilo kaydı başarıyla silindi!');
+      setTimeout(() => setSuccessToast(null), 3000);
     } catch (err) {
       console.error('Delete weight log error:', err);
+      alert('Kilo kaydı silinemedi!');
       if (selectedUserId) loadData(selectedUserId);
     }
   };
@@ -149,10 +160,7 @@ export default function BodyAdminPage() {
     if (!ok) return;
 
     const numericId = Number(id);
-    // Optimistic instant UI removal
     setFatLogs(prev => prev.filter(f => Number(f.id) !== numericId));
-    setSuccessToast('Yağ oranı kaydı başarıyla silindi!');
-    setTimeout(() => setSuccessToast(null), 3000);
 
     try {
       let res = await apiFetch('/api/body-fat-logs', {
@@ -163,15 +171,27 @@ export default function BodyAdminPage() {
       if (!res.ok) {
         res = await apiFetch(`/api/body-fat-logs?id=${numericId}`, { method: 'DELETE' });
       }
+      if (!res.ok) {
+        throw new Error('Yağ oranı kaydı sunucudan silinemedi');
+      }
+      setSuccessToast('Yağ oranı kaydı başarıyla silindi!');
+      setTimeout(() => setSuccessToast(null), 3000);
     } catch (err) {
       console.error('Delete fat log error:', err);
+      alert('Yağ oranı kaydı silinemedi!');
       if (selectedUserId) loadData(selectedUserId);
     }
   };
 
   const handleCreateWeightLog = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedUserId || !newWeight || !newDate) return;
+    if (!selectedUserId || !newDate) return;
+
+    const parsedWeight = parseFloat(String(newWeight).trim().replace(',', '.'));
+    if (!Number.isFinite(parsedWeight) || parsedWeight <= 0 || parsedWeight >= 500) {
+      alert('Lütfen geçerli bir kilo değeri girin (ör. 74,5).');
+      return;
+    }
 
     setSubmittingWeight(true);
     let finalNotes = newNotes.trim();
@@ -188,7 +208,7 @@ export default function BodyAdminPage() {
         body: JSON.stringify({
           userId: selectedUserId,
           date: newDate,
-          weight: parseFloat(newWeight),
+          weight: parsedWeight,
           notes: finalNotes || undefined,
         }),
       });
@@ -201,7 +221,8 @@ export default function BodyAdminPage() {
         setNewDate(getLocalDateString());
         loadData(selectedUserId);
       } else {
-        alert('Kilo kaydı eklenemedi!');
+        const errBody = await res.json().catch(() => ({}));
+        alert(errBody.error || 'Kilo kaydı eklenemedi!');
       }
     } catch (err) {
       console.error(err);
@@ -222,9 +243,11 @@ export default function BodyAdminPage() {
   const prevFat = fatLogs[1]?.fatPercent;
   const fDiff = latestFat && prevFat ? (latestFat - prevFat).toFixed(1) : null;
 
-  // Chronological logs for chart (oldest to newest)
+  // Chronological logs for chart (oldest to newest) using calendar date string & id tie-breaker
   const chronologicalWeightLogs = useMemo(() => {
-    return [...weightLogs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    return [...weightLogs].sort(
+      (a, b) => getLocalDateString(a.date).localeCompare(getLocalDateString(b.date)) || Number(a.id) - Number(b.id)
+    );
   }, [weightLogs]);
 
   // Chart coordinate calculations
@@ -319,7 +342,10 @@ export default function BodyAdminPage() {
         <div className="flex items-center gap-3">
           {selectedUserId && (
             <button
-              onClick={() => setShowAddWeightModal(true)}
+              onClick={() => {
+                setNewDate(getLocalDateString());
+                setShowAddWeightModal(true);
+              }}
               className="flex items-center gap-2 bg-[#4ECDC4] hover:bg-[#45B8B0] text-gray-950 font-bold px-4 py-2.5 rounded-xl text-sm transition-all shadow-lg shadow-[#4ECDC4]/20"
             >
               <Plus size={16} className="stroke-[2.5]" />
@@ -332,15 +358,9 @@ export default function BodyAdminPage() {
             value={selectedUserId ?? ''}
             onChange={(e) => {
               const val = e.target.value;
-              if (val) {
-                const id = parseInt(val);
-                setSelectedUserId(id);
-                localStorage.setItem('selectedUserId', id.toString());
-              } else {
-                setSelectedUserId(null);
-                localStorage.removeItem('selectedUserId');
-              }
-              window.dispatchEvent(new Event('userSelected'));
+              const id = val ? parseInt(val, 10) : null;
+              setSelectedUserId(id);
+              setStoredSelectedUserId(id);
             }}
           >
             <option value="">Kullanıcı Seç</option>
@@ -371,9 +391,9 @@ export default function BodyAdminPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {[
               { label: 'Güncel Kilo', value: latestWeight ? `${latestWeight} kg` : '—', color: tealAccent, icon: Scale },
-              { label: 'Kilo Değişim', value: wDiff ? `${parseFloat(wDiff) > 0 ? '+' : ''}${wDiff} kg` : '—', color: parseFloat(wDiff ?? '0') > 0 ? '#FF6B4A' : '#5DD97C', icon: parseFloat(wDiff ?? '0') > 0 ? TrendingUp : TrendingDown },
+              { label: 'Kilo Değişim', value: wDiff ? `${parseFloat(wDiff) > 0 ? '+' : ''}${wDiff} kg` : '—', color: parseFloat(wDiff ?? '0') > 0 ? '#FF6B4A' : parseFloat(wDiff ?? '0') < 0 ? '#5DD97C' : '#9CA3AF', icon: parseFloat(wDiff ?? '0') > 0 ? TrendingUp : TrendingDown },
               { label: 'Güncel Yağ', value: latestFat ? `${latestFat}%` : '—', color: orangeAccent, icon: BarChart3 },
-              { label: 'Yağ Değişim', value: fDiff ? `${parseFloat(fDiff) > 0 ? '+' : ''}${fDiff}%` : '—', color: parseFloat(fDiff ?? '0') > 0 ? '#FF6B4A' : '#5DD97C', icon: parseFloat(fDiff ?? '0') > 0 ? TrendingUp : TrendingDown },
+              { label: 'Yağ Değişim', value: fDiff ? `${parseFloat(fDiff) > 0 ? '+' : ''}${fDiff}%` : '—', color: parseFloat(fDiff ?? '0') > 0 ? '#FF6B4A' : parseFloat(fDiff ?? '0') < 0 ? '#5DD97C' : '#9CA3AF', icon: parseFloat(fDiff ?? '0') > 0 ? TrendingUp : TrendingDown },
             ].map((stat, i) => {
               const Icon = stat.icon;
               return (
@@ -532,7 +552,7 @@ export default function BodyAdminPage() {
                           fontWeight={isHovered ? '700' : '500'}
                           textAnchor="middle"
                         >
-                          {new Date(p.log.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
+                          {formatIstanbulLocaleDate(p.log.date, { day: 'numeric', month: 'short' })}
                         </text>
                       </g>
                     );
@@ -557,7 +577,7 @@ export default function BodyAdminPage() {
                       <div className="bg-[#1E1E1E] text-white border border-[#383838] px-3.5 py-2.5 rounded-xl shadow-2xl flex flex-col gap-1 min-w-[150px]">
                         <div className="flex items-center justify-between gap-2 border-b border-[#2E2E2E] pb-1.5">
                           <span className="text-xs text-gray-400">
-                            {new Date(p.log.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                            {formatIstanbulLocaleDate(p.log.date, { day: 'numeric', month: 'long', year: 'numeric' })}
                           </span>
                           {diff && (
                             <span
@@ -694,7 +714,7 @@ export default function BodyAdminPage() {
                           </div>
 
                           <p className="text-sm text-gray-400 mt-0.5">
-                            {new Date(log.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                            {formatIstanbulLocaleDate(log.date, { day: 'numeric', month: 'long', year: 'numeric' })}
                           </p>
                           {cleanNotes && <p className="text-xs text-gray-400 mt-1 italic">&quot;{cleanNotes}&quot;</p>}
                         </div>
@@ -750,7 +770,7 @@ export default function BodyAdminPage() {
                             {log.weight && <span className="text-xs text-gray-500">{log.weight} kg</span>}
                           </div>
                           <p className="text-sm text-gray-400 mt-0.5">
-                            {new Date(log.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                            {formatIstanbulLocaleDate(log.date, { day: 'numeric', month: 'long', year: 'numeric' })}
                           </p>
                           {log.notes && <p className="text-xs text-gray-400 mt-0.5 italic">{log.notes}</p>}
                         </div>

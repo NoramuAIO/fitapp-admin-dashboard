@@ -1,52 +1,67 @@
-import getDatabase from '@/lib/db';
+import { supabase } from '@/lib/supabase';
 import { NextRequest, NextResponse } from 'next/server';
+import { parseNonNegativeInt, parsePositiveInt, requireApiAuth } from '@/lib/apiAuth';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function POST(request: NextRequest) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
     const { programData } = body;
 
-    if (!programData) {
-      return NextResponse.json({ error: 'programData is required' }, { status: 400 });
+    if (!programData || !String(programData.name || '').trim()) {
+      return NextResponse.json({ error: 'Valid programData is required' }, { status: 400 });
     }
 
-    const db = getDatabase();
+    const { data: newProgram, error: progErr } = await supabase
+      .from('programs')
+      .insert([{ name: String(programData.name).trim(), isPrimary: false }])
+      .select()
+      .single();
 
-    // Create program
-    const programResult = await db.query(
-      'INSERT INTO programs (name, description, "isPrimary") VALUES ($1, $2, $3) RETURNING *',
-      [programData.name, programData.description || null, false]
-    );
+    if (progErr) throw progErr;
 
-    const newProgram = programResult.rows[0];
+    if (Array.isArray(programData.days)) {
+      for (let i = 0; i < programData.days.length; i++) {
+        const day = programData.days[i];
+        const dayTitle = String(day.dayName || day.name || `Gün ${i + 1}`).trim();
+        const { data: newDay, error: dayErr } = await supabase
+          .from('program_days')
+          .insert([{
+            programId: newProgram.id,
+            dayNumber: parsePositiveInt(day.dayNumber) ?? (i + 1),
+            dayName: dayTitle,
+            name: dayTitle,
+            orderIndex: parseNonNegativeInt(day.orderIndex) ?? i,
+          }])
+          .select()
+          .single();
 
-    // Create days and exercises
-    if (programData.days && Array.isArray(programData.days)) {
-      for (const day of programData.days) {
-        const dayResult = await db.query(
-          'INSERT INTO program_days ("programId", "dayNumber", "dayName", "orderIndex") VALUES ($1, $2, $3, $4) RETURNING *',
-          [newProgram.id, day.dayNumber, day.dayName, day.orderIndex]
-        );
+        if (dayErr) throw dayErr;
 
-        const newDay = dayResult.rows[0];
+        if (Array.isArray(day.exercises)) {
+          const exRows = day.exercises
+            .filter((ex: any) => String(ex?.name || '').trim())
+            .map((ex: any, j: number) => ({
+              dayId: newDay.id,
+              programId: newProgram.id,
+              name: String(ex.name).trim(),
+              sets: parseNonNegativeInt(ex.sets) ?? 3,
+              reps: parseNonNegativeInt(ex.reps) ?? 10,
+              duration: ex.duration || null,
+              description: ex.description || null,
+              imageUrl: ex.imageUrl || null,
+              muscleGroup: ex.muscleGroup || null,
+              orderIndex: parseNonNegativeInt(ex.orderIndex) ?? j,
+            }));
 
-        if (day.exercises && Array.isArray(day.exercises)) {
-          for (const exercise of day.exercises) {
-            await db.query(
-              'INSERT INTO exercises ("dayId", "programId", name, sets, reps, duration, description, "imageUrl", "muscleGroup", "orderIndex") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
-              [
-                newDay.id,
-                newProgram.id,
-                exercise.name,
-                exercise.sets,
-                exercise.reps,
-                exercise.duration || null,
-                exercise.description || null,
-                exercise.imageUrl || null,
-                exercise.muscleGroup || null,
-                exercise.orderIndex
-              ]
-            );
+          if (exRows.length > 0) {
+            const { error: exErr } = await supabase.from('exercises').insert(exRows);
+            if (exErr) throw exErr;
           }
         }
       }

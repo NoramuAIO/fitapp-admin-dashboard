@@ -5,6 +5,12 @@ import { useRouter } from 'next/navigation';
 import { User, Mail, Calendar, Activity, Dumbbell, Trash2, Search, UserCheck, BarChart2 } from 'lucide-react';
 import { useConfirm } from '@/components/ConfirmModal';
 import { apiFetch } from '@/lib/clientCache';
+import { normalizeUtcTimestamp } from '@/lib/fitnessCalculations';
+import {
+  formatIstanbulLocaleDate,
+  getStoredSelectedUserId,
+  setStoredSelectedUserId,
+} from '@/lib/userSelection';
 
 interface UserModel {
   id: number;
@@ -50,10 +56,7 @@ export default function UsersPage() {
     if (!ok) return;
 
     const numericId = Number(id);
-    // Optimistic instant removal
     setUsers((prev) => prev.filter((u) => u.id !== numericId));
-    setSuccessToast('Kullanıcı başarıyla silindi!');
-    setTimeout(() => setSuccessToast(null), 3000);
 
     try {
       let res = await apiFetch('/api/users', {
@@ -64,23 +67,34 @@ export default function UsersPage() {
       if (!res.ok) {
         res = await apiFetch(`/api/users?id=${numericId}`, { method: 'DELETE' });
       }
+      if (!res.ok) {
+        throw new Error('Kullanıcı sunucudan silinemedi');
+      }
+      if (getStoredSelectedUserId() === numericId) {
+        setStoredSelectedUserId(null);
+      }
+      setSuccessToast('Kullanıcı başarıyla silindi!');
+      setTimeout(() => setSuccessToast(null), 3000);
     } catch (error) {
       console.error('Error deleting user:', error);
+      alert('Kullanıcı silinirken bir hata oluştu!');
       fetchUsers();
     }
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('tr-TR', {
+    return formatIstanbulLocaleDate(dateString, {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
     });
   };
 
-  const filteredUsers = users.filter(u => 
-    u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    u.email.toLowerCase().includes(searchTerm.toLowerCase())
+  const normalizedTerm = searchTerm.trim().toLowerCase();
+  const filteredUsers = users.filter(
+    (u) =>
+      String(u.name || '').toLowerCase().includes(normalizedTerm) ||
+      String(u.email || '').toLowerCase().includes(normalizedTerm)
   );
 
   return (
@@ -143,8 +157,11 @@ export default function UsersPage() {
             <p className="text-gray-400 text-sm">Yeni Kayıt (Son 7 Gün)</p>
             <h3 className="text-2xl font-bold text-white">
               {users.filter(u => {
-                const diffTime = Math.abs(new Date().getTime() - new Date(u.created_at).getTime());
-                return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) <= 7;
+                const norm = normalizeUtcTimestamp(u.created_at) || u.created_at;
+                const createdMs = new Date(norm).getTime();
+                if (Number.isNaN(createdMs)) return false;
+                const diffDays = (Date.now() - createdMs) / (1000 * 60 * 60 * 24);
+                return diffDays >= 0 && diffDays <= 7;
               }).length}
             </h3>
           </div>
@@ -175,9 +192,9 @@ export default function UsersPage() {
                     <td className="p-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] flex items-center justify-center text-white font-bold shrink-0">
-                          {user.name.charAt(0).toUpperCase()}
+                          {(uName => (uName ? uName.charAt(0).toUpperCase() : '?'))(String(user.name || user.email || '').trim())}
                         </div>
-                        <span className="text-white font-medium">{user.name}</span>
+                        <span className="text-white font-medium">{user.name || user.email || `Kullanıcı #${user.id}`}</span>
                       </div>
                     </td>
                     <td className="p-4">
@@ -206,7 +223,7 @@ export default function UsersPage() {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => {
-                            localStorage.setItem('selectedUserId', user.id.toString());
+                            setStoredSelectedUserId(user.id);
                             router.push(`/analytics?userId=${user.id}`);
                           }}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-[#6366F1]/10 hover:bg-[#6366F1]/20 text-[#6366F1] border border-[#6366F1]/30 rounded-lg text-xs font-semibold transition-colors"

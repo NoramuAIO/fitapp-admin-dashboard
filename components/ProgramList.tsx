@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Download, Upload, Plus, CheckCircle2 } from 'lucide-react'
 import AddProgramModal from './programs/AddProgramModal'
 import ExerciseSelectorModal, { Exercise, Program } from './programs/ExerciseSelectorModal'
@@ -8,6 +8,7 @@ import ImportModal from './programs/ImportModal'
 import ProgramItem from './programs/ProgramItem'
 import { useConfirm } from '@/components/ConfirmModal'
 import { apiFetch, invalidateApiCache } from '@/lib/clientCache'
+import { getStoredSelectedUserId, subscribeUserSelected } from '@/lib/userSelection'
 
 export default function ProgramList() {
   const { confirm } = useConfirm()
@@ -31,26 +32,20 @@ export default function ProgramList() {
   const [draggedProgram, setDraggedProgram] = useState<number | null>(null)
   const [dragOverProgram, setDragOverProgram] = useState<number | null>(null)
 
-  useEffect(() => {
-    fetchPrograms()
-    fetchAllExercises()
-    fetchUsers()
-  }, [])
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const response = await apiFetch('/api/users?lite=1')
+      if (!response.ok) return
       const data = await response.json()
       setUsers(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Error fetching users:', error)
     }
-  }
+  }, [])
 
-  const fetchPrograms = async (forceRefresh = false) => {
+  const fetchPrograms = useCallback(async (forceRefresh = false) => {
     try {
-      // Get selected user ID from local storage
-      const selectedUserId = typeof window !== 'undefined' ? localStorage.getItem('selectedUserId') : null
+      const selectedUserId = getStoredSelectedUserId()
       const queryParams = selectedUserId ? `?userId=${selectedUserId}` : ''
       
       // Fetch programs and all workouts in parallel (eliminates N+1 workout requests)
@@ -59,8 +54,8 @@ export default function ProgramList() {
         apiFetch('/api/workouts', { forceRefresh }),
       ])
       const [programsData, allWorkoutsData] = await Promise.all([
-        programsResponse.json(),
-        workoutsResponse.json(),
+        programsResponse.ok ? programsResponse.json() : [],
+        workoutsResponse.ok ? workoutsResponse.json() : [],
       ])
 
       const pList = Array.isArray(programsData) ? programsData : []
@@ -84,17 +79,38 @@ export default function ProgramList() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const fetchAllExercises = async () => {
+  const fetchAllExercises = useCallback(async (forceRefresh = false) => {
     try {
-      const response = await apiFetch('/api/exercises')
+      const response = await apiFetch('/api/exercises', { forceRefresh })
+      if (!response.ok) return
       const data = await response.json()
       setAllExercises(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Error fetching exercises:', error)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    fetchPrograms()
+    fetchAllExercises()
+    fetchUsers()
+    const unsubscribeUser = subscribeUserSelected(() => {
+      fetchPrograms(true)
+    })
+    const onRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      fetchPrograms(true)
+    }
+    window.addEventListener('focus', onRefresh)
+    document.addEventListener('visibilitychange', onRefresh)
+    return () => {
+      unsubscribeUser()
+      window.removeEventListener('focus', onRefresh)
+      document.removeEventListener('visibilitychange', onRefresh)
+    }
+  }, [fetchPrograms, fetchAllExercises, fetchUsers])
 
   // --- Program Delete (Optimistic UI + Safe Cascade) ---
   const handleDeleteProgram = async (id: number) => {
@@ -214,7 +230,14 @@ export default function ProgramList() {
 
   const handleExport = async (format: 'json' | 'csv', type: 'all' | 'programs' | 'exercises' | 'workouts') => {
     try {
-      const response = await fetch(`/api/export?format=${format}&type=${type}`)
+      const response = await apiFetch(`/api/export?format=${format}&type=${type}`, {
+        forceRefresh: true,
+      })
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        alert(err.error || `Dışa aktarma başarısız (${response.status})`)
+        return
+      }
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -263,7 +286,7 @@ export default function ProgramList() {
     setPrograms(newPrograms)
 
     try {
-      await Promise.all(
+      const responses = await Promise.all(
         newPrograms.map((prog, idx) =>
           apiFetch(`/api/programs/${prog.id}`, {
             method: 'PUT',
@@ -275,6 +298,9 @@ export default function ProgramList() {
           })
         )
       )
+      if (responses.some((r) => !r.ok)) {
+        await fetchPrograms(true)
+      }
     } catch (error) {
       console.error('Error updating program order:', error)
       await fetchPrograms(true)
@@ -286,7 +312,7 @@ export default function ProgramList() {
 
   const refreshPrograms = async () => {
     invalidateApiCache()
-    await fetchPrograms(true)
+    await Promise.all([fetchPrograms(true), fetchAllExercises(true)])
   }
 
   const toggleProgramCollapse = (programId: number) => {

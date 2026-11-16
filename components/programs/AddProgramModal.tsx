@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Globe, User } from 'lucide-react';
+import { apiFetch } from '@/lib/clientCache';
 
 interface AddProgramModalProps {
     isOpen: boolean;
@@ -12,9 +13,12 @@ export default function AddProgramModal({ isOpen, onClose, onSuccess, users }: A
     const [programType, setProgramType] = useState<'general' | 'user-specific' | null>(null);
     const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
     const [newProgram, setNewProgram] = useState({ name: '', isPrimary: false });
+    const [loading, setLoading] = useState(false);
 
     const handleAddProgram = async () => {
-        if (!newProgram.name.trim()) {
+        if (loading) return;
+        const trimmedName = newProgram.name.trim();
+        if (!trimmedName) {
             alert('Program adı gerekli');
             return;
         }
@@ -24,13 +28,15 @@ export default function AddProgramModal({ isOpen, onClose, onSuccess, users }: A
             return;
         }
 
+        setLoading(true);
         try {
             const payload = {
                 ...newProgram,
+                name: trimmedName,
                 userId: programType === 'user-specific' ? selectedUserId : null
             };
 
-            const response = await fetch('/api/programs', {
+            const response = await apiFetch('/api/programs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
@@ -44,13 +50,20 @@ export default function AddProgramModal({ isOpen, onClose, onSuccess, users }: A
                 setSelectedUserId(null);
                 setNewProgram({ name: '', isPrimary: false });
                 onClose();
+            } else {
+                const err = await response.json().catch(() => ({}));
+                alert(err.error || 'Program oluşturulamadı');
             }
         } catch (error) {
             console.error('Error adding program:', error);
+            alert('Program oluşturulurken bir hata oluştu');
+        } finally {
+            setLoading(false);
         }
     };
 
     const handleCancel = () => {
+        if (loading) return;
         setProgramType(null);
         setSelectedUserId(null);
         setNewProgram({ name: '', isPrimary: false });
@@ -60,8 +73,9 @@ export default function AddProgramModal({ isOpen, onClose, onSuccess, users }: A
     if (!isOpen) return null;
 
     return (
-        <div className="bg-[#1A1A1A] rounded-2xl p-6 border border-[#2A2A2A]">
-            <h3 className="text-xl font-bold text-white mb-4">Yeni Program Ekle</h3>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-[#1A1A1A] rounded-2xl p-6 border border-[#2A2A2A] max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+                <h3 className="text-xl font-bold text-white mb-4">Yeni Program Ekle</h3>
 
             {!programType ? (
                 <div className="space-y-3">
@@ -163,28 +177,32 @@ export default function AddProgramModal({ isOpen, onClose, onSuccess, users }: A
                     <div className="flex space-x-3">
                         <button
                             onClick={handleAddProgram}
-                            className="flex-1 bg-[#5DD97C] hover:bg-green-600 text-white py-3 rounded-xl font-medium transition-colors"
+                            disabled={loading}
+                            className="flex-1 bg-[#5DD97C] hover:bg-green-600 disabled:opacity-50 text-white py-3 rounded-xl font-medium transition-colors"
                         >
-                            ✓ Programı Oluştur
+                            {loading ? 'Oluşturuluyor...' : '✓ Programı Oluştur'}
                         </button>
                         <button
                             onClick={() => {
                                 setProgramType(null);
                                 setSelectedUserId(null);
                             }}
-                            className="px-6 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white py-3 rounded-xl font-medium transition-colors"
+                            disabled={loading}
+                            className="px-6 bg-[#2A2A2A] hover:bg-[#3A3A3A] disabled:opacity-50 text-white py-3 rounded-xl font-medium transition-colors"
                         >
                             ← Geri
                         </button>
                         <button
                             onClick={handleCancel}
-                            className="px-6 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white py-3 rounded-xl font-medium transition-colors"
+                            disabled={loading}
+                            className="px-6 bg-[#2A2A2A] hover:bg-[#3A3A3A] disabled:opacity-50 text-white py-3 rounded-xl font-medium transition-colors"
                         >
                             İptal
                         </button>
                     </div>
                 </div>
             )}
+            </div>
         </div>
     );
 }

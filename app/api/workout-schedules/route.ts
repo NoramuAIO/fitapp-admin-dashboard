@@ -1,7 +1,12 @@
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { verifyAdminSessionToken, verifyUserToken } from '@/lib/auth';
+import {
+  isValidYmdDate,
+  parseNonNegativeInt,
+  parsePositiveInt,
+  requireApiAuth,
+  resolveScopedUserId,
+} from '@/lib/apiAuth';
 import {
   REST_DAY_LABEL,
   UserWorkoutSchedule,
@@ -11,9 +16,9 @@ import {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
 const SCHEDULE_WIDGET_TYPE = 'workout_schedule_data';
 const inMemorySchedules = new Map<number, UserWorkoutSchedule>();
-let primaryTableAvailable = true;
 
 function isMissingScheduleTableError(error: any): boolean {
   if (!error) return false;
@@ -22,9 +27,86 @@ function isMissingScheduleTableError(error: any): boolean {
   return (
     code === '42P01' ||
     code === 'PGRST205' ||
-    /workout_schedules/i.test(message) ||
-    /does not exist|schema cache/i.test(message)
+    /could not find the table|relation .* does not exist/i.test(message)
   );
+}
+
+async function enrichScheduleNames(schedule: UserWorkoutSchedule): Promise<UserWorkoutSchedule> {
+  try {
+    const workoutIds = new Set<number>();
+    const programIds = new Set<number>();
+
+    for (const day of schedule.weeklySchedule || []) {
+      for (const w of day.workouts || []) {
+        if (w.workoutId) workoutIds.add(Number(w.workoutId));
+        if (w.programId) programIds.add(Number(w.programId));
+      }
+    }
+    for (const ov of Object.values(schedule.overrides || {})) {
+      if (!ov.isRestDay) {
+        if (ov.workoutId) workoutIds.add(Number(ov.workoutId));
+        if (ov.programId) programIds.add(Number(ov.programId));
+      }
+    }
+
+    if (workoutIds.size === 0 && programIds.size === 0) return schedule;
+
+    const [{ data: daysData }, { data: progsData }] = await Promise.all([
+      workoutIds.size > 0
+        ? supabase.from('program_days').select('id, name, dayName, programId').in('id', Array.from(workoutIds))
+        : Promise.resolve({ data: [] as any[] }),
+      programIds.size > 0
+        ? supabase.from('programs').select('id, name').in('id', Array.from(programIds))
+        : Promise.resolve({ data: [] as any[] }),
+    ]);
+
+    const dayMap = new Map<number, { name: string; programId?: number }>();
+    for (const d of daysData || []) {
+      const resolved = String(d.name || d.dayName || '').trim();
+      if (resolved) dayMap.set(Number(d.id), { name: resolved, programId: d.programId });
+    }
+    const progMap = new Map<number, string>();
+    for (const p of progsData || []) {
+      const resolved = String(p.name || '').trim();
+      if (resolved) progMap.set(Number(p.id), resolved);
+    }
+
+    const weeklySchedule = schedule.weeklySchedule.map((day) => ({
+      ...day,
+      workouts: day.workouts.map((w) => {
+        const liveDay = w.workoutId ? dayMap.get(Number(w.workoutId)) : undefined;
+        const pid = w.programId ?? liveDay?.programId ?? null;
+        const liveProgName = pid ? progMap.get(Number(pid)) : undefined;
+        return {
+          ...w,
+          workoutName: liveDay?.name || w.workoutName,
+          programId: pid,
+          programName: liveProgName || w.programName || null,
+        };
+      }),
+    }));
+
+    const overrides: Record<string, any> = {};
+    for (const [k, ov] of Object.entries(schedule.overrides || {})) {
+      if (ov.isRestDay) {
+        overrides[k] = ov;
+        continue;
+      }
+      const liveDay = ov.workoutId ? dayMap.get(Number(ov.workoutId)) : undefined;
+      const pid = ov.programId ?? liveDay?.programId ?? null;
+      const liveProgName = pid ? progMap.get(Number(pid)) : undefined;
+      overrides[k] = {
+        ...ov,
+        workoutName: liveDay?.name || ov.workoutName || null,
+        programId: pid,
+        programName: liveProgName || ov.programName || null,
+      };
+    }
+
+    return { ...schedule, weeklySchedule, overrides };
+  } catch {
+    return schedule;
+  }
 }
 
 function parsePositiveUserId(value: unknown): number | null {
@@ -46,52 +128,48 @@ async function authorizeScheduleRequest(
   | { ok: true; userId: number | null }
   | { ok: false; status: number; error: string }
 > {
-  const cookieStore = await cookies();
-  const adminCookie = cookieStore.get('admin-auth')?.value;
-  const isAdmin = await verifyAdminSessionToken(adminCookie);
-  if (isAdmin) {
-    return { ok: true, userId: requestedUserId };
+  const guard = await requireApiAuth(request);
+  if (!guard.ok) {
+    const body = await guard.response.clone().json().catch(() => ({}));
+    return {
+      ok: false,
+      status: guard.response.status,
+      error: body?.error || 'Yetkisiz erişim',
+    };
   }
 
-  const authHeader = request.headers.get('authorization');
-  if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
-    const token = authHeader.slice(7).trim();
-    const tokenUser = await verifyUserToken(token);
-    if (!tokenUser) {
-      return { ok: false, status: 401, error: 'Geçersiz oturum belirteci' };
-    }
-    if (requestedUserId !== null && requestedUserId !== tokenUser.userId) {
-      return { ok: false, status: 403, error: 'Başka bir kullanıcının programına erişilemez' };
-    }
-    return { ok: true, userId: requestedUserId ?? tokenUser.userId };
+  const scoped = resolveScopedUserId(guard.auth, requestedUserId);
+  if (!scoped.ok) {
+    const body = await scoped.response.clone().json().catch(() => ({}));
+    return {
+      ok: false,
+      status: scoped.response.status,
+      error: body?.error || 'Erişim reddedildi',
+    };
   }
 
-  return { ok: true, userId: requestedUserId };
+  return { ok: true, userId: scoped.userId };
 }
 
 async function loadScheduleFromStore(userId: number): Promise<UserWorkoutSchedule> {
   // 1. Primary table: workout_schedules
-  if (primaryTableAvailable) {
-    try {
-      const { data, error } = await supabase
-        .from('workout_schedules')
-        .select('*')
-        .eq('userId', userId)
-        .maybeSingle();
+  try {
+    const { data, error } = await supabase
+      .from('workout_schedules')
+      .select('*')
+      .eq('userId', userId)
+      .maybeSingle();
 
-      if (error && isMissingScheduleTableError(error)) {
-        primaryTableAvailable = false;
-      } else if (!error && data) {
-        const normalized = normalizeUserSchedule(data, userId);
-        inMemorySchedules.set(userId, normalized);
-        return normalized;
-      }
-    } catch (err) {
-      if (isMissingScheduleTableError(err)) {
-        primaryTableAvailable = false;
-      }
-      console.warn('workout_schedules table read fallback:', err);
+    if (!error && data) {
+      const normalized = await enrichScheduleNames(normalizeUserSchedule(data, userId));
+      inMemorySchedules.set(userId, normalized);
+      return normalized;
     }
+    if (error && !isMissingScheduleTableError(error)) {
+      console.warn('workout_schedules table read warning:', error);
+    }
+  } catch (err) {
+    console.warn('workout_schedules table read fallback:', err);
   }
 
   // 2. Fallback table: custom_widgets metadata row
@@ -105,7 +183,7 @@ async function loadScheduleFromStore(userId: number): Promise<UserWorkoutSchedul
 
     if (!widgetErr && widgetRow?.custom_content) {
       const parsed = JSON.parse(widgetRow.custom_content);
-      const normalized = normalizeUserSchedule(parsed, userId);
+      const normalized = await enrichScheduleNames(normalizeUserSchedule(parsed, userId));
       inMemorySchedules.set(userId, normalized);
       return normalized;
     }
@@ -133,65 +211,54 @@ async function persistScheduleToStore(
   inMemorySchedules.set(userId, normalized);
 
   // 1. Try primary table: workout_schedules
-  if (primaryTableAvailable) {
-    try {
-      const { data: existing, error: findErr } = await supabase
-        .from('workout_schedules')
-        .select('id')
-        .eq('userId', userId)
-        .maybeSingle();
+  try {
+    const { data: existing, error: findErr } = await supabase
+      .from('workout_schedules')
+      .select('id')
+      .eq('userId', userId)
+      .maybeSingle();
 
-      if (findErr && isMissingScheduleTableError(findErr)) {
-        primaryTableAvailable = false;
-      } else if (!findErr) {
-        if (existing?.id) {
-          const { data: updated, error: updateErr } = await supabase
-            .from('workout_schedules')
-            .update({
+    if (!findErr) {
+      if (existing?.id) {
+        const { data: updated, error: updateErr } = await supabase
+          .from('workout_schedules')
+          .update({
+            weeklySchedule: normalized.weeklySchedule,
+            overrides: normalized.overrides,
+            updatedAt: normalized.updatedAt,
+          })
+          .eq('id', existing.id)
+          .select()
+          .maybeSingle();
+
+        if (!updateErr && updated) {
+          const result = await enrichScheduleNames(normalizeUserSchedule(updated, userId));
+          inMemorySchedules.set(userId, result);
+          return result;
+        }
+      } else {
+        const { data: inserted, error: insertErr } = await supabase
+          .from('workout_schedules')
+          .insert([
+            {
+              userId,
               weeklySchedule: normalized.weeklySchedule,
               overrides: normalized.overrides,
               updatedAt: normalized.updatedAt,
-            })
-            .eq('id', existing.id)
-            .select()
-            .maybeSingle();
+            },
+          ])
+          .select()
+          .maybeSingle();
 
-          if (updateErr && isMissingScheduleTableError(updateErr)) {
-            primaryTableAvailable = false;
-          } else if (!updateErr && updated) {
-            const result = normalizeUserSchedule(updated, userId);
-            inMemorySchedules.set(userId, result);
-            return result;
-          }
-        } else {
-          const { data: inserted, error: insertErr } = await supabase
-            .from('workout_schedules')
-            .insert([
-              {
-                userId,
-                weeklySchedule: normalized.weeklySchedule,
-                overrides: normalized.overrides,
-                updatedAt: normalized.updatedAt,
-              },
-            ])
-            .select()
-            .maybeSingle();
-
-          if (insertErr && isMissingScheduleTableError(insertErr)) {
-            primaryTableAvailable = false;
-          } else if (!insertErr && inserted) {
-            const result = normalizeUserSchedule(inserted, userId);
-            inMemorySchedules.set(userId, result);
-            return result;
-          }
+        if (!insertErr && inserted) {
+          const result = await enrichScheduleNames(normalizeUserSchedule(inserted, userId));
+          inMemorySchedules.set(userId, result);
+          return result;
         }
       }
-    } catch (err) {
-      if (isMissingScheduleTableError(err)) {
-        primaryTableAvailable = false;
-      }
-      console.warn('workout_schedules write fallback:', err);
     }
+  } catch (err) {
+    console.warn('workout_schedules write fallback:', err);
   }
 
   // 2. Fallback table: custom_widgets
@@ -284,8 +351,8 @@ async function handleUpsert(request: Request) {
     const current = await loadScheduleFromStore(userId);
 
     if (action === 'update_day') {
-      const dow = Number(body.dayOfWeek);
-      if (Number.isNaN(dow) || dow < 0 || dow > 6) {
+      const dow = parseNonNegativeInt(body.dayOfWeek);
+      if (dow === null || dow > 6) {
         return NextResponse.json({ error: 'Geçersiz gün (0-6)' }, { status: 400 });
       }
       const nextWeekly = current.weeklySchedule.map((day) => {
@@ -303,12 +370,12 @@ async function handleUpsert(request: Request) {
         ...current,
         weeklySchedule: nextWeekly,
       });
-      return NextResponse.json(saved);
+      return NextResponse.json(saved, { headers: NO_STORE_HEADERS });
     }
 
     if (action === 'set_override') {
       const dateStr = String(body?.date || '').trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      if (!isValidYmdDate(dateStr)) {
         return NextResponse.json({ error: 'Geçerli tarih (YYYY-AA-GG) gereklidir' }, { status: 400 });
       }
 
@@ -318,8 +385,8 @@ async function handleUpsert(request: Request) {
         [dateStr]: {
           date: dateStr,
           isRestDay,
-          workoutId: !isRestDay && body.workoutId ? Number(body.workoutId) : null,
-          programId: !isRestDay && body.programId ? Number(body.programId) : null,
+          workoutId: !isRestDay ? parsePositiveInt(body.workoutId) : null,
+          programId: !isRestDay ? parsePositiveInt(body.programId) : null,
           workoutName: isRestDay
             ? REST_DAY_LABEL
             : body.workoutName
@@ -336,7 +403,7 @@ async function handleUpsert(request: Request) {
         ...current,
         overrides: nextOverrides,
       });
-      return NextResponse.json(saved);
+      return NextResponse.json(saved, { headers: NO_STORE_HEADERS });
     }
 
     if (action === 'clear_override') {
@@ -352,7 +419,7 @@ async function handleUpsert(request: Request) {
         ...current,
         overrides: nextOverrides,
       });
-      return NextResponse.json(saved);
+      return NextResponse.json(saved, { headers: NO_STORE_HEADERS });
     }
 
     // Default full schedule replacement
@@ -361,7 +428,7 @@ async function handleUpsert(request: Request) {
       weeklySchedule: body.weeklySchedule ?? current.weeklySchedule,
       overrides: body.overrides ?? current.overrides,
     });
-    return NextResponse.json(saved);
+    return NextResponse.json(saved, { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error('POST/PUT /api/workout-schedules error:', error);
     return NextResponse.json(
@@ -403,11 +470,11 @@ export async function DELETE(request: Request) {
         ...current,
         overrides: nextOverrides,
       });
-      return NextResponse.json(saved);
+      return NextResponse.json(saved, { headers: NO_STORE_HEADERS });
     }
 
     const reset = await persistScheduleToStore(userId, normalizeUserSchedule(null, userId));
-    return NextResponse.json(reset);
+    return NextResponse.json(reset, { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error('DELETE /api/workout-schedules error:', error);
     return NextResponse.json(

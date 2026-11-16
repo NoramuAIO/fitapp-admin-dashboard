@@ -9,6 +9,11 @@ import {
   getLocalDateString,
 } from '@/lib/fitnessCalculations';
 import { apiFetch } from '@/lib/clientCache';
+import {
+  getStoredSelectedUserId,
+  setStoredSelectedUserId,
+  subscribeUserSelected,
+} from '@/lib/userSelection';
 
 interface Goal {
   id: number;
@@ -42,13 +47,14 @@ export default function GoalsPage() {
   
   // Modal state
   const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [formUserId, setFormUserId] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    targetValue: 0,
-    currentValue: 0,
+    targetValue: '' as string | number,
+    currentValue: '' as string | number,
     unit: 'kg',
     startDate: getLocalDateString(),
     endDate: '',
@@ -57,15 +63,11 @@ export default function GoalsPage() {
 
   useEffect(() => {
     fetchUsers();
-    const syncSelectedUser = () => {
-      if (typeof window === 'undefined') return;
-      const saved = localStorage.getItem('selectedUserId');
-      const parsed = saved ? parseInt(saved, 10) : NaN;
-      setSelectedUserId(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+    const syncSelectedUser = (uid?: number | null) => {
+      setSelectedUserId(uid !== undefined ? uid : getStoredSelectedUserId());
     };
     syncSelectedUser();
-    window.addEventListener('userSelected', syncSelectedUser);
-    return () => window.removeEventListener('userSelected', syncSelectedUser);
+    return subscribeUserSelected(syncSelectedUser);
   }, []);
 
   useEffect(() => {
@@ -76,6 +78,7 @@ export default function GoalsPage() {
   const fetchUsers = async () => {
     try {
       const res = await apiFetch('/api/users?lite=1');
+      if (!res.ok) return;
       const data = await res.json();
       setUsers(Array.isArray(data) ? data : []);
     } catch {}
@@ -90,8 +93,8 @@ export default function GoalsPage() {
         apiFetch(goalsUrl),
         apiFetch(weightUrl).catch(() => null),
       ]);
-      const data = await goalsRes.json();
-      const weightData = weightRes?.ok ? await weightRes.json() : [];
+      const data = goalsRes.ok ? await goalsRes.json().catch(() => []) : [];
+      const weightData = weightRes?.ok ? await weightRes.json().catch(() => []) : [];
       setGoals(Array.isArray(data) ? data : []);
       setWeightLogs(Array.isArray(weightData) ? weightData : []);
     } catch (error) {
@@ -103,13 +106,34 @@ export default function GoalsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const effectiveUserId = formUserId || selectedUserId || (users[0]?.id ?? 1);
-    
+    if (submitting) return;
+    const effectiveUserId = formUserId || selectedUserId || (users[0]?.id ?? null);
+    if (!effectiveUserId) {
+      alert('Hedef atamak için önce bir kullanıcı seçin veya oluşturun.');
+      return;
+    }
+
+    const parsedTarget = parseFloat(String(formData.targetValue).replace(',', '.'));
+    if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) {
+      alert('Lütfen geçerli bir pozitif hedef değeri girin.');
+      return;
+    }
+    const parsedCurrent =
+      formData.currentValue !== '' && formData.currentValue !== null && formData.currentValue !== undefined
+        ? parseFloat(String(formData.currentValue).replace(',', '.'))
+        : 0;
+
+    setSubmitting(true);
     try {
       const url = editingGoal ? `/api/goals/${editingGoal.id}` : '/api/goals';
       const method = editingGoal ? 'PUT' : 'POST';
-      
-      const payload = { ...formData, userId: effectiveUserId };
+
+      const payload = {
+        ...formData,
+        targetValue: parsedTarget,
+        currentValue: Number.isFinite(parsedCurrent) ? parsedCurrent : 0,
+        userId: effectiveUserId,
+      };
       const response = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -122,9 +146,15 @@ export default function GoalsPage() {
         setSuccessMsg(editingGoal ? 'Hedef başarıyla güncellendi!' : 'Yeni hedef başarıyla oluşturuldu!');
         setTimeout(() => setSuccessMsg(null), 3000);
         loadGoals();
+      } else {
+        const errBody = await response.json().catch(() => ({}));
+        alert(errBody.error || 'Hedef kaydedilemedi!');
       }
     } catch (error) {
       console.error('Error saving goal:', error);
+      alert('Hedef kaydedilirken bağlantı hatası oluştu.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -137,7 +167,6 @@ export default function GoalsPage() {
     if (!ok) return;
 
     const numericId = Number(id);
-    // Instant optimistic removal from UI
     setGoals((prev) => prev.filter((g) => Number(g.id) !== numericId));
 
     try {
@@ -156,6 +185,7 @@ export default function GoalsPage() {
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (error) {
       console.error('Error deleting goal:', error);
+      alert('Hedef silinemedi!');
       loadGoals();
     }
   };
@@ -166,29 +196,29 @@ export default function GoalsPage() {
     setFormData({
       title: goal.title,
       description: goal.description || '',
-      targetValue: goal.targetValue,
-      currentValue: goal.currentValue,
+      targetValue: String(goal.targetValue ?? ''),
+      currentValue: String(goal.currentValue ?? ''),
       unit: goal.unit,
-      startDate: goal.startDate ? goal.startDate.split('T')[0] : '',
-      endDate: goal.endDate ? goal.endDate.split('T')[0] : '',
-      status: goal.status
+      startDate: goal.startDate ? getLocalDateString(goal.startDate) : getLocalDateString(),
+      endDate: goal.endDate ? getLocalDateString(goal.endDate) : '',
+      status: goal.status,
     });
     setShowForm(true);
   };
 
   const openNewForm = () => {
-    const defaultUser = selectedUserId || (users[0]?.id ?? 1);
+    const defaultUser = selectedUserId || (users[0]?.id ?? null);
     setEditingGoal(null);
     setFormUserId(defaultUser);
     setFormData({
       title: 'Hedef Kilo',
       description: 'Hedeflenen vücut ağırlığı takibi',
-      targetValue: 70,
-      currentValue: 0,
+      targetValue: '70',
+      currentValue: '',
       unit: 'kg',
       startDate: getLocalDateString(),
       endDate: '',
-      status: 'active'
+      status: 'active',
     });
     setShowForm(true);
   };
@@ -225,14 +255,9 @@ export default function GoalsPage() {
               value={selectedUserId ?? ''}
               onChange={(e) => {
                 const val = e.target.value;
-                if (val) {
-                  const id = parseInt(val, 10);
-                  setSelectedUserId(id);
-                  if (typeof window !== 'undefined') localStorage.setItem('selectedUserId', id.toString());
-                } else {
-                  setSelectedUserId(null);
-                  if (typeof window !== 'undefined') localStorage.removeItem('selectedUserId');
-                }
+                const id = val ? parseInt(val, 10) : null;
+                setSelectedUserId(id);
+                setStoredSelectedUserId(id);
               }}
             >
               <option value="">🌍 Tüm Kullanıcılar</option>
@@ -424,9 +449,9 @@ export default function GoalsPage() {
                 <div>
                   <label className="block text-xs font-semibold text-gray-400 mb-1">Hedef Değer *</label>
                   <input
-                    type="number" required min="1" step="0.1"
+                    type="number" required min="0.1" step="0.1"
                     value={formData.targetValue}
-                    onChange={(e) => setFormData({...formData, targetValue: parseFloat(e.target.value) || 0})}
+                    onChange={(e) => setFormData({...formData, targetValue: e.target.value})}
                     className="w-full bg-[#1A1A1A] border border-[#2A2A2A] text-white rounded-xl px-4 py-2.5 text-sm focus:border-[#6366F1] focus:outline-none font-mono"
                   />
                 </div>
@@ -460,9 +485,9 @@ export default function GoalsPage() {
                   </label>
                   <input
                     type="number" min="0" step="0.1"
-                    value={formData.currentValue || ''}
+                    value={formData.currentValue}
                     placeholder={formData.unit === 'kg' ? 'Örn: 80 (Boş bırakılırsa son kilo kaydından alınır)' : '0'}
-                    onChange={(e) => setFormData({...formData, currentValue: parseFloat(e.target.value) || 0})}
+                    onChange={(e) => setFormData({...formData, currentValue: e.target.value})}
                     className="w-full bg-[#1A1A1A] border border-[#2A2A2A] text-white rounded-xl px-4 py-2.5 text-sm focus:border-[#6366F1] focus:outline-none font-mono"
                   />
                 </div>
@@ -508,8 +533,8 @@ export default function GoalsPage() {
                 <button type="button" onClick={() => setShowForm(false)} className="flex-1 px-4 py-2.5 bg-[#1F1F1F] text-gray-300 hover:text-white rounded-xl hover:bg-[#2A2A2A] transition-colors font-medium text-sm">
                   İptal
                 </button>
-                <button type="submit" className="flex-1 px-4 py-2.5 bg-[#6366F1] text-white rounded-xl hover:bg-[#5558DD] transition-colors font-bold text-sm shadow-lg shadow-[#6366F1]/20">
-                  {editingGoal ? 'Güncelle' : 'Kaydet'}
+                <button type="submit" disabled={submitting} className="flex-1 px-4 py-2.5 bg-[#6366F1] text-white rounded-xl hover:bg-[#5558DD] disabled:opacity-50 transition-colors font-bold text-sm shadow-lg shadow-[#6366F1]/20">
+                  {submitting ? 'Kaydediliyor...' : editingGoal ? 'Güncelle' : 'Kaydet'}
                 </button>
               </div>
             </form>

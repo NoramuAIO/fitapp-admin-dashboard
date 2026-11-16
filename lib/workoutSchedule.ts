@@ -1,5 +1,7 @@
 import {
   getLocalDateString,
+  getMondayFirstDayIndex,
+  normalizeUtcTimestamp,
   parseDurationToMinutes,
   isRealWorkoutSession,
   calculateCompletionVolume,
@@ -112,7 +114,14 @@ function formatYmdFromLocal(d: Date): string {
 }
 
 function normalizeLabelText(value?: string | null): string {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function stripParentheticalSuffix(value: string): string {
+  return value.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function sanitizeWorkoutItem(raw: any): ScheduledWorkoutItem | null {
@@ -138,7 +147,8 @@ function sanitizeWorkoutItem(raw: any): ScheduledWorkoutItem | null {
 
 function getSessionLocalDate(rawDate?: string | null): string {
   if (!rawDate) return '';
-  return getLocalDateString(rawDate);
+  const normalized = normalizeUtcTimestamp(rawDate) || rawDate;
+  return getLocalDateString(normalized);
 }
 
 function getSessionTimestamp(s: any): number {
@@ -149,11 +159,16 @@ function getSessionTimestamp(s: any): number {
     const noon = parseNoonDate(trimmed);
     return noon ? noon.getTime() : 0;
   }
-  const t = new Date(trimmed).getTime();
+  const normalized = normalizeUtcTimestamp(trimmed) || trimmed;
+  const t = new Date(normalized).getTime();
   return Number.isNaN(t) ? 0 : t;
 }
 
-function doesSessionMatchCandidate(session: any, candidate: ScheduledWorkoutItem): boolean {
+function doesSessionMatchCandidate(
+  session: any,
+  candidate: ScheduledWorkoutItem,
+  allowProgramFallback = true
+): boolean {
   if (!session || !candidate) return false;
   const sWorkoutId =
     session.workoutId !== undefined && session.workoutId !== null && Number(session.workoutId) > 0
@@ -174,14 +189,13 @@ function doesSessionMatchCandidate(session: any, candidate: ScheduledWorkoutItem
   if (cWorkoutName && sProgramName && sProgramName === cWorkoutName) {
     return true;
   }
-  if (
-    cWorkoutName &&
-    sWorkoutName &&
-    (sWorkoutName.includes(cWorkoutName) || cWorkoutName.includes(sWorkoutName))
-  ) {
+  const sCore = stripParentheticalSuffix(sWorkoutName);
+  const cCore = stripParentheticalSuffix(cWorkoutName);
+  if (cCore && sCore && sCore === cCore) {
     return true;
   }
   if (
+    allowProgramFallback &&
     cProgramName &&
     sProgramName &&
     sProgramName === cProgramName &&
@@ -261,7 +275,7 @@ export function normalizeUserSchedule(
   const overrides: Record<string, ScheduleOverride> = {};
   if (rawOverrides && typeof rawOverrides === 'object' && !Array.isArray(rawOverrides)) {
     for (const [key, val] of Object.entries(rawOverrides)) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !val || typeof val !== 'object') continue;
+      if (!parseNoonDate(key) || !val || typeof val !== 'object') continue;
       const v = val as any;
       const isRestDay = Boolean(v.isRestDay);
       const workoutName = isRestDay
@@ -269,11 +283,13 @@ export function normalizeUserSchedule(
         : v.workoutName
           ? String(v.workoutName).trim()
           : null;
+      const parsedWId = Number(v.workoutId);
+      const parsedPId = Number(v.programId);
       overrides[key] = {
         date: key,
         isRestDay,
-        workoutId: !isRestDay && v.workoutId ? Number(v.workoutId) : null,
-        programId: !isRestDay && v.programId ? Number(v.programId) : null,
+        workoutId: !isRestDay && Number.isInteger(parsedWId) && parsedWId > 0 ? parsedWId : null,
+        programId: !isRestDay && Number.isInteger(parsedPId) && parsedPId > 0 ? parsedPId : null,
         workoutName,
         programName: !isRestDay && v.programName ? String(v.programName).trim() : null,
         note: v.note !== undefined && v.note !== null && String(v.note).trim()
@@ -312,7 +328,7 @@ export function resolveAlternatingWorkout(
 
   // If one of the candidates was already completed on targetDateStr, return it for that date
   if (targetDateStr) {
-    const onDate = realSessions.filter((s) => getSessionLocalDate(s.startTime) === targetDateStr);
+    const onDate = realSessions.filter((s) => getSessionLocalDate(s.startTime || s.createdAt) === targetDateStr);
     for (const s of onDate) {
       const matched = validCandidates.find((c) => doesSessionMatchCandidate(s, c));
       if (matched) {
@@ -324,23 +340,32 @@ export function resolveAlternatingWorkout(
   // Only inspect sessions strictly before targetDateStr (if provided) so past dates remain consistent
   const eligibleSessions = targetDateStr
     ? realSessions.filter((s) => {
-        const sd = getSessionLocalDate(s.startTime);
+        const sd = getSessionLocalDate(s.startTime || s.createdAt);
         return sd !== '' && sd < targetDateStr;
       })
     : realSessions;
 
-  let mostRecentGlobalTs = -1;
+  // Never let an ambiguous program-only match claim multiple alternating workouts from the same program
+  const programIdCounts = new Map<number, number>();
+  for (const c of validCandidates) {
+    if (c.programId) {
+      programIdCounts.set(c.programId, (programIdCounts.get(c.programId) || 0) + 1);
+    }
+  }
+
+  let mostRecentGlobalTs = 0;
   let lastCompletedName: string | null = null;
 
   const candidateLastTs = validCandidates.map((candidate) => {
+    const allowProgramFallback = !candidate.programId || (programIdCounts.get(candidate.programId) || 0) <= 1;
     let latestTs = 0;
     for (const s of eligibleSessions) {
-      if (doesSessionMatchCandidate(s, candidate)) {
+      if (doesSessionMatchCandidate(s, candidate, allowProgramFallback)) {
         const ts = getSessionTimestamp(s);
-        if (ts >= latestTs) {
+        if (ts > 0 && ts >= latestTs) {
           latestTs = ts;
         }
-        if (ts > mostRecentGlobalTs) {
+        if (ts > 0 && ts > mostRecentGlobalTs) {
           mostRecentGlobalTs = ts;
           lastCompletedName = candidate.workoutName;
         }
@@ -366,8 +391,9 @@ export function resolveCalendarDay(
   todayStr: string = getLocalDateString(new Date()),
   currentMonth?: number
 ): ResolvedCalendarDay {
-  const parsed = parseNoonDate(dateStr) || new Date();
-  const normalizedDate = parseNoonDate(dateStr) ? dateStr : formatYmdFromLocal(parsed);
+  const resolvedYmd = getLocalDateString(dateStr) || todayStr;
+  const parsed = parseNoonDate(resolvedYmd) || parseNoonDate(todayStr) || new Date();
+  const normalizedDate = parseNoonDate(resolvedYmd) ? resolvedYmd : getLocalDateString(parsed);
   const dayOfWeek = parsed.getDay();
   const dayMeta = DAY_META_BY_INDEX.get(dayOfWeek) || { label: 'Pazartesi', short: 'Pzt' };
 
@@ -379,7 +405,7 @@ export function resolveCalendarDay(
 
   const realSessions = (sessions || []).filter(isRealWorkoutSession);
   const completedSessions = realSessions.filter(
-    (s) => getSessionLocalDate(s.startTime) === normalizedDate
+    (s) => (getSessionLocalDate(s.startTime || s.createdAt)) === normalizedDate
   );
 
   const sessionIds = new Set(completedSessions.map((s) => Number(s.id)).filter((id) => !Number.isNaN(id)));
@@ -510,7 +536,7 @@ export function getWeekCalendarDays(
   todayStr: string = getLocalDateString(new Date())
 ): ResolvedCalendarDay[] {
   const ref = parseNoonDate(referenceDateStr) || parseNoonDate(todayStr) || new Date();
-  const mondayOffset = (ref.getDay() + 6) % 7; // 0 if Monday, 6 if Sunday
+  const mondayOffset = getMondayFirstDayIndex(ref); // 0 if Monday, 6 if Sunday
   const monday = new Date(ref);
   monday.setDate(ref.getDate() - mondayOffset);
 
@@ -536,7 +562,7 @@ export function getMonthCalendarDays(
   todayStr: string = getLocalDateString(new Date())
 ): ResolvedCalendarDay[] {
   const firstOfMonth = new Date(year, monthZeroIndexed, 1, 12, 0, 0);
-  const mondayOffset = (firstOfMonth.getDay() + 6) % 7;
+  const mondayOffset = getMondayFirstDayIndex(firstOfMonth);
   const gridStart = new Date(firstOfMonth);
   gridStart.setDate(firstOfMonth.getDate() - mondayOffset);
 
@@ -596,7 +622,7 @@ export function getSmartTodayAndNextRecommendation(
   todayStr: string,
   schedule: UserWorkoutSchedule,
   sessions: any[] = [],
-  programs: any[] = []
+  _programs: any[] = []
 ): {
   todayDay: ResolvedCalendarDay;
   nextWorkout: ScheduledWorkoutItem | null;
@@ -624,7 +650,7 @@ export function getSmartTodayAndNextRecommendation(
     };
   }
 
-  // 2. Otherwise inspect next 7 days in the schedule
+  // 2. Otherwise inspect next 7 days in the fixed weekly schedule (never roll over missed past workouts onto today)
   const baseDate = parseNoonDate(todayStr) || new Date();
   for (let offset = 1; offset <= 7; offset++) {
     const d = new Date(baseDate);
@@ -646,30 +672,6 @@ export function getSmartTodayAndNextRecommendation(
         recommendationReason: reason,
       };
     }
-  }
-
-  // 3. Fallback when weekly schedule has no workout days configured yet: inspect user's primary program
-  const programList = Array.isArray(programs) ? programs : [];
-  const primaryProgram = programList.find((p) => p?.isPrimary) || programList[0];
-  const candidateWorkouts: ScheduledWorkoutItem[] = Array.isArray(primaryProgram?.workouts)
-    ? primaryProgram.workouts.map((w: any) => ({
-        workoutId: Number(w.id) || null,
-        programId: Number(primaryProgram.id) || null,
-        workoutName: String(w.name || 'Antrenman'),
-        programName: String(primaryProgram.name || ''),
-      }))
-    : [];
-
-  if (candidateWorkouts.length > 0) {
-    const alt = resolveAlternatingWorkout(candidateWorkouts, sessions, todayStr);
-    return {
-      todayDay,
-      nextWorkout: alt.selected,
-      nextWorkoutDayLabel: 'Öneri',
-      recommendationReason: alt.lastCompletedName
-        ? `${primaryProgram.name} rotasyon önerisi`
-        : `${primaryProgram.name} programından sıradaki antrenman`,
-    };
   }
 
   return {

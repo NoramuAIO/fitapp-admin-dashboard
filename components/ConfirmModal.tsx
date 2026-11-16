@@ -34,6 +34,10 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const resolverRef = useRef<((value: boolean) => void) | null>(null);
 
   const confirm = useCallback((opts?: ConfirmOptions | string): Promise<boolean> => {
+    if (resolverRef.current) {
+      resolverRef.current(false);
+      resolverRef.current = null;
+    }
     return new Promise<boolean>((resolve) => {
       resolverRef.current = resolve;
       if (typeof opts === 'string') {
@@ -68,14 +72,14 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(false);
   };
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     if (resolverRef.current) {
       resolverRef.current(false);
       resolverRef.current = null;
     }
     setIsOpen(false);
     setIsLoading(false);
-  };
+  }, []);
 
   // Close on Escape key
   useEffect(() => {
@@ -86,7 +90,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen]);
+  }, [isOpen, handleCancel]);
 
   const isDanger = options.variant === 'danger' || !options.variant;
   const isWarning = options.variant === 'warning';

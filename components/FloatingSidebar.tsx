@@ -6,19 +6,14 @@ import {
   Bell, LayoutGrid, CalendarDays
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { apiFetch, invalidateApiCache } from '@/lib/clientCache';
 
 export default function FloatingSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  if (!isMounted) return null;
 
   const menuItems = [
     { id: 'home', icon: Home, label: 'Ana Sayfa', href: '/' },
@@ -37,9 +32,11 @@ export default function FloatingSidebar() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/admin/logout', { method: 'POST' });
+      await apiFetch('/api/admin/logout', { method: 'POST' });
     } catch (e) {
       console.error('Logout error:', e);
+    } finally {
+      invalidateApiCache();
     }
     window.location.href = '/login';
   };
@@ -68,6 +65,8 @@ export default function FloatingSidebar() {
 
       {/* Toggle Button */}
       <button 
+        type="button"
+        aria-label={isExpanded ? 'Kenar çubuğunu daralt' : 'Kenar çubuğunu genişlet'}
         onClick={() => setIsExpanded(!isExpanded)}
         className="absolute -right-3 top-24 w-6 h-6 bg-[#2A2A2A] rounded-full border border-[#141414] flex items-center justify-center text-gray-400 hover:text-white transition-colors"
       >
@@ -115,8 +114,10 @@ export default function FloatingSidebar() {
       {/* Footer Actions */}
       <div className="p-3 border-t border-[#2A2A2A]/50 flex flex-col gap-2">
         <button 
+          type="button"
+          onClick={() => router.push('/settings')}
           className="group flex items-center rounded-xl p-3 hover:bg-white/5 transition-all"
-          title={!isExpanded ? 'Yardım' : undefined}
+          title={!isExpanded ? 'Yardım & Ayarlar' : undefined}
         >
           <HelpCircle size={22} className="shrink-0 text-gray-400 group-hover:text-gray-200" />
           <span 

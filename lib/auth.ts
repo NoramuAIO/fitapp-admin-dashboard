@@ -6,12 +6,22 @@ const ADMIN_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const USER_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function getSecretKey(): string {
-  return (
-    process.env.AUTH_SECRET ||
-    process.env.ADMIN_PASSWORD ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    'fitapp-default-fallback-secret-key'
-  );
+  const secret = process.env.AUTH_SECRET?.trim();
+  if (!secret) {
+    throw new Error('AUTH_SECRET environment variable is required');
+  }
+  return secret;
+}
+
+/**
+ * Constant-time string equality check using SHA-256 digests so length is never leaked.
+ */
+export async function constantTimeStringEqual(a: string, b: string): Promise<boolean> {
+  const [hashA, hashB] = await Promise.all([
+    globalThis.crypto.subtle.digest('SHA-256', encoder.encode(a)),
+    globalThis.crypto.subtle.digest('SHA-256', encoder.encode(b)),
+  ]);
+  return constantTimeEqual(new Uint8Array(hashA), new Uint8Array(hashB));
 }
 
 function toBase64Url(bytes: Uint8Array): string {

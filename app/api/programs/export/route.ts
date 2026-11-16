@@ -1,55 +1,54 @@
-import getDatabase from '@/lib/db';
+import { supabase } from '@/lib/supabase';
 import { NextRequest, NextResponse } from 'next/server';
+import { parsePositiveInt, requireApiAuth } from '@/lib/apiAuth';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
 
 export async function GET(request: NextRequest) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const { searchParams } = new URL(request.url);
-    const programId = searchParams.get('programId');
-
+    const programId = parsePositiveInt(searchParams.get('programId'));
     if (!programId) {
-      return NextResponse.json({ error: 'programId is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Valid programId is required' }, { status: 400 });
     }
 
-    const db = getDatabase();
-    
-    // Get program
-    const programResult = await db.query(
-      'SELECT * FROM programs WHERE id = $1',
-      [programId]
-    );
+    const { data: program, error: progErr } = await supabase
+      .from('programs')
+      .select('*')
+      .eq('id', programId)
+      .maybeSingle();
 
-    if (programResult.rows.length === 0) {
+    if (progErr) throw progErr;
+    if (!program) {
       return NextResponse.json({ error: 'Program not found' }, { status: 404 });
     }
 
-    const program = programResult.rows[0];
+    const { data: days, error: daysErr } = await supabase
+      .from('program_days')
+      .select('*, exercises(*)')
+      .eq('programId', programId)
+      .order('orderIndex', { ascending: true });
 
-    // Get days
-    const daysResult = await db.query(
-      'SELECT * FROM program_days WHERE "programId" = $1 ORDER BY "orderIndex" ASC',
-      [programId]
+    if (daysErr) throw daysErr;
+
+    const daysWithExercises = (days || []).map((day: any) => ({
+      ...day,
+      dayName: day.dayName || day.name,
+      exercises: (day.exercises || [])
+        .filter((e: any) => Number(e.orderIndex) !== -1)
+        .sort((a: any, b: any) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0)),
+    }));
+
+    return NextResponse.json(
+      { ...program, days: daysWithExercises },
+      { headers: NO_STORE_HEADERS }
     );
-
-    // Get exercises for each day
-    const daysWithExercises = await Promise.all(
-      daysResult.rows.map(async (day) => {
-        const exercisesResult = await db.query(
-          'SELECT * FROM exercises WHERE "dayId" = $1 ORDER BY "orderIndex" ASC',
-          [day.id]
-        );
-        return {
-          ...day,
-          exercises: exercisesResult.rows
-        };
-      })
-    );
-
-    const exportData = {
-      ...program,
-      days: daysWithExercises
-    };
-
-    return NextResponse.json(exportData);
   } catch (error) {
     console.error('Error exporting program:', error);
     return NextResponse.json({ error: 'Failed to export program' }, { status: 500 });

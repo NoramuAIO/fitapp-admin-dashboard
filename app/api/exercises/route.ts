@@ -1,7 +1,15 @@
-import { supabase } from '@/lib/supabase'
-import { NextResponse } from 'next/server'
+import { supabase } from '@/lib/supabase';
+import { NextResponse } from 'next/server';
+import { parseNonNegativeInt, parsePositiveInt, requireApiAuth } from '@/lib/apiAuth';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
 
 export async function GET(request: Request) {
+  const guard = await requireApiAuth(request);
+  if (!guard.ok) return guard.response;
   try {
     const { searchParams } = new URL(request.url)
     const includeArchived = searchParams.get('includeArchived') === 'true'
@@ -37,7 +45,7 @@ export async function GET(request: Request) {
       program_days: undefined
     }))
 
-    return NextResponse.json(formattedExercises)
+    return NextResponse.json(formattedExercises, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error('Error fetching exercises:', error)
     return NextResponse.json({ error: 'Failed to fetch exercises' }, { status: 500 })
@@ -45,89 +53,91 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
-    const body = await request.json()
-    const { 
-      workoutId,  // Yeni: antreman ID (opsiyonel)
-      programId,  // Artık opsiyonel, workoutId'den alınabilir
-      name, 
-      sets, 
-      reps, 
-      duration, 
-      description, 
-      imageUrl, 
-      orderIndex,
-      muscleGroup
-    } = body
-
-    if (!name) {
-      return NextResponse.json({ error: 'name is required' }, { status: 400 })
-    }
-
-    // workoutId varsa programId'yi otomatik al
-    let finalProgramId = programId
-    if (workoutId && !finalProgramId) {
-      const { data: workout } = await supabase
-        .from('program_days')
-        .select('programId')
-        .eq('id', workoutId)
-        .single()
-      
-      if (workout) {
-        finalProgramId = workout.programId
-      }
-    }
-
-    // Determine orderIndex: if not explicitly specified > 0, append to the end of the day's exercises
-    let finalOrderIndex = typeof orderIndex === 'number' && orderIndex > 0 ? orderIndex : undefined
-    if (finalOrderIndex === undefined) {
-      if (workoutId) {
-        const { data: maxOrder } = await supabase
-          .from('exercises')
-          .select('orderIndex')
-          .eq('dayId', workoutId)
-          .order('orderIndex', { ascending: false })
-          .limit(1)
-        if (maxOrder && maxOrder.length > 0 && typeof maxOrder[0].orderIndex === 'number') {
-          finalOrderIndex = maxOrder[0].orderIndex + 1
-        } else {
-          finalOrderIndex = 0
-        }
-      } else {
-        finalOrderIndex = 0
-      }
-    }
-
-    const insertData: any = {
+    const body = await request.json();
+    const {
+      workoutId,
+      programId,
       name,
       sets,
       reps,
+      duration,
+      description,
+      imageUrl,
+      orderIndex,
+      muscleGroup,
+    } = body;
+
+    const cleanName = typeof name === 'string' ? name.trim() : '';
+    if (!cleanName) {
+      return NextResponse.json({ error: 'name is required' }, { status: 400 });
+    }
+
+    const parsedWorkoutId = workoutId ? parsePositiveInt(workoutId) : null;
+    let finalProgramId = programId ? parsePositiveInt(programId) : null;
+    if (parsedWorkoutId && !finalProgramId) {
+      const { data: workout } = await supabase
+        .from('program_days')
+        .select('programId')
+        .eq('id', parsedWorkoutId)
+        .maybeSingle();
+
+      if (workout?.programId) {
+        finalProgramId = Number(workout.programId);
+      }
+    }
+
+    const explicitOrder = parseNonNegativeInt(orderIndex);
+    let finalOrderIndex: number;
+    if (explicitOrder !== null) {
+      finalOrderIndex = explicitOrder;
+    } else if (parsedWorkoutId) {
+      const { data: maxOrder } = await supabase
+        .from('exercises')
+        .select('orderIndex')
+        .eq('dayId', parsedWorkoutId)
+        .order('orderIndex', { ascending: false })
+        .limit(1);
+      finalOrderIndex =
+        maxOrder && maxOrder.length > 0 && typeof maxOrder[0].orderIndex === 'number'
+          ? maxOrder[0].orderIndex + 1
+          : 0;
+    } else {
+      finalOrderIndex = 0;
+    }
+
+    const insertData: any = {
+      name: cleanName,
+      sets: Math.max(0, Number(sets) || 0),
+      reps: Math.max(0, Number(reps) || 0),
       duration: duration || null,
       description: description || null,
       imageUrl: imageUrl || null,
       orderIndex: finalOrderIndex,
-      muscleGroup: muscleGroup || null
-    }
+      muscleGroup: muscleGroup || null,
+    };
 
-    // dayId olarak kaydet (Supabase'de workoutId yerine dayId kullanılıyor)
-    if (workoutId) {
-      insertData.dayId = workoutId
+    if (parsedWorkoutId) {
+      insertData.dayId = parsedWorkoutId;
     }
     if (finalProgramId) {
-      insertData.programId = finalProgramId
+      insertData.programId = finalProgramId;
     }
 
     const { data, error } = await supabase
       .from('exercises')
       .insert([insertData])
       .select()
-      .single()
+      .single();
 
-    if (error) throw error
+    if (error) throw error;
 
-    return NextResponse.json(data, { status: 201 })
+    return NextResponse.json(data, { status: 201, headers: NO_STORE_HEADERS });
   } catch (error) {
-    console.error('Error creating exercise:', error)
-    return NextResponse.json({ error: 'Failed to create exercise' }, { status: 500 })
+    console.error('Error creating exercise:', error);
+    return NextResponse.json({ error: 'Failed to create exercise' }, { status: 500 });
   }
 }

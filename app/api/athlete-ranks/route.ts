@@ -1,8 +1,12 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { parseNonNegativeInt, parsePositiveInt, requireApiAuth } from '@/lib/apiAuth';
+import { DEFAULT_ATHLETE_RANKS } from '@/lib/fitnessCalculations';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
 
 interface AthleteRank {
   id: number;
@@ -14,76 +18,66 @@ interface AthleteRank {
   description: string;
 }
 
-const DEFAULT_RANKS: AthleteRank[] = [
-  {
-    id: 1,
-    title: 'Demir Çırağı',
-    icon: '⚡',
-    color: '#5DD97C',
-    min_volume_kg: 0,
-    max_volume_kg: 300,
-    description: 'İlk antrenmanlarını yapan hevesli sporcu'
-  },
-  {
-    id: 2,
-    title: 'Bronz Kaldırıcı',
-    icon: '🥉',
-    color: '#FF6B4A',
-    min_volume_kg: 300,
-    max_volume_kg: 1000,
-    description: 'Temel hareketlerde düzenli efor gösteren sporcu'
-  },
-  {
-    id: 3,
-    title: 'Gümüş Güç',
-    icon: '🥈',
-    color: '#9B6FFF',
-    min_volume_kg: 1000,
-    max_volume_kg: 2500,
-    description: 'Disiplinli çalışan ve kuvvetlenen sporcu'
-  },
-  {
-    id: 4,
-    title: 'Altın Titan',
-    icon: '🥇',
-    color: '#F59E0B',
-    min_volume_kg: 2500,
-    max_volume_kg: 5000,
-    description: 'Salonda iz bırakan ağır ve kararlı kaldırıcı'
-  },
-  {
-    id: 5,
-    title: 'Platin Gladyatör',
-    icon: '💎',
-    color: '#4ECDC4',
-    min_volume_kg: 5000,
-    max_volume_kg: 10000,
-    description: 'Gelişmiş kuvvet, kondisyon ve kas hakimiyeti'
-  },
-  {
-    id: 6,
-    title: 'Elit Şampiyon',
-    icon: '🔥',
-    color: '#FF6B9D',
-    min_volume_kg: 10000,
-    max_volume_kg: 20000,
-    description: 'Zirveye oynayan profesyonel sporcu'
-  },
-  {
-    id: 7,
-    title: 'Efsanevi Titan',
-    icon: '🏆',
-    color: '#FFD700',
-    min_volume_kg: 20000,
-    max_volume_kg: 50000,
-    description: 'Efsaneleşmiş demir büken usta'
+function mapRankRow(item: any): AthleteRank {
+  let meta = { icon: '⚡', color: '#5DD97C' };
+  let content = { min_volume_kg: 0, max_volume_kg: 1000, description: '' };
+  try {
+    if (item.target_time) meta = JSON.parse(item.target_time);
+  } catch {}
+  try {
+    if (item.custom_content) content = JSON.parse(item.custom_content);
+  } catch {}
+
+  return {
+    id: item.id,
+    title: item.title,
+    icon: meta.icon || '⚡',
+    color: meta.color || '#5DD97C',
+    min_volume_kg: Number(content.min_volume_kg) || 0,
+    max_volume_kg: Number(content.max_volume_kg) || 1000,
+    description: content.description || '',
+  };
+}
+
+let seedInFlight: Promise<AthleteRank[]> | null = null;
+
+async function ensureSeededRanks(): Promise<AthleteRank[]> {
+  if (!seedInFlight) {
+    seedInFlight = (async () => {
+      const { data: recheck } = await supabase
+        .from('custom_widgets')
+        .select('*')
+        .eq('widget_type', 'athlete_rank')
+        .order('display_order', { ascending: true });
+      if (recheck && recheck.length > 0) {
+        return recheck.map(mapRankRow).sort((a, b) => a.min_volume_kg - b.min_volume_kg);
+      }
+      const seedRows = DEFAULT_ATHLETE_RANKS.map((r, i) => ({
+        title: r.title,
+        widget_type: 'athlete_rank',
+        target_time: JSON.stringify({ icon: r.icon, color: r.color }),
+        custom_content: JSON.stringify({
+          min_volume_kg: r.min_volume_kg,
+          max_volume_kg: r.max_volume_kg,
+          description: r.description,
+        }),
+        is_active: true,
+        display_order: i + 1,
+      }));
+      const { data: seeded, error } = await supabase.from('custom_widgets').insert(seedRows).select();
+      if (error) throw error;
+      return (seeded || []).map(mapRankRow).sort((a, b) => a.min_volume_kg - b.min_volume_kg);
+    })().finally(() => {
+      seedInFlight = null;
+    });
   }
-];
+  return seedInFlight;
+}
 
-let inMemoryRanks: AthleteRank[] = [...DEFAULT_RANKS];
+export async function GET(request: Request) {
+  const guard = await requireApiAuth(request);
+  if (!guard.ok) return guard.response;
 
-// GET: Return ordered list of athlete levels
-export async function GET() {
   try {
     const { data, error } = await supabase
       .from('custom_widgets')
@@ -91,125 +85,104 @@ export async function GET() {
       .eq('widget_type', 'athlete_rank')
       .order('display_order', { ascending: true });
 
-    if (!error && data && data.length > 0) {
-      const parsedRanks: AthleteRank[] = data.map((item) => {
-        let meta = { icon: '⚡', color: '#5DD97C' };
-        let content = { min_volume_kg: 0, max_volume_kg: 1000, description: '' };
-        try {
-          if (item.target_time) meta = JSON.parse(item.target_time);
-        } catch {}
-        try {
-          if (item.custom_content) content = JSON.parse(item.custom_content);
-        } catch {}
+    if (error) throw error;
 
-        return {
-          id: item.id,
-          title: item.title,
-          icon: meta.icon || '⚡',
-          color: meta.color || '#5DD97C',
-          min_volume_kg: content.min_volume_kg || 0,
-          max_volume_kg: content.max_volume_kg || 1000,
-          description: content.description || '',
-        };
-      }).sort((a, b) => a.min_volume_kg - b.min_volume_kg);
-
-      return NextResponse.json(parsedRanks);
+    if (data && data.length > 0) {
+      const parsedRanks = data.map(mapRankRow).sort((a, b) => a.min_volume_kg - b.min_volume_kg);
+      return NextResponse.json(parsedRanks, { headers: NO_STORE_HEADERS });
     }
 
-    // Auto-seed DEFAULT_RANKS if table has no ranks yet
-    if (!error && (!data || data.length === 0)) {
-      try {
-        const seedRows = DEFAULT_RANKS.map((r, i) => ({
-          title: r.title,
-          widget_type: 'athlete_rank',
-          target_time: JSON.stringify({ icon: r.icon, color: r.color }),
-          custom_content: JSON.stringify({ min_volume_kg: r.min_volume_kg, max_volume_kg: r.max_volume_kg, description: r.description }),
-          is_active: true,
-          display_order: i + 1,
-        }));
-        const { data: seeded } = await supabase.from('custom_widgets').insert(seedRows).select();
-        if (seeded && seeded.length > 0) {
-          const seededRanks: AthleteRank[] = seeded.map((item) => {
-            let meta = { icon: '⚡', color: '#5DD97C' };
-            let content = { min_volume_kg: 0, max_volume_kg: 1000, description: '' };
-            try { if (item.target_time) meta = JSON.parse(item.target_time); } catch {}
-            try { if (item.custom_content) content = JSON.parse(item.custom_content); } catch {}
-            return {
-              id: item.id,
-              title: item.title,
-              icon: meta.icon || '⚡',
-              color: meta.color || '#5DD97C',
-              min_volume_kg: content.min_volume_kg || 0,
-              max_volume_kg: content.max_volume_kg || 1000,
-              description: content.description || '',
-            };
-          }).sort((a, b) => a.min_volume_kg - b.min_volume_kg);
-          return NextResponse.json(seededRanks);
-        }
-      } catch (seedErr) {
-        console.error('Auto-seed athlete ranks failed:', seedErr);
-      }
-    }
-
-    return NextResponse.json(inMemoryRanks);
+    const seeded = await ensureSeededRanks();
+    return NextResponse.json(seeded, { headers: NO_STORE_HEADERS });
   } catch (err) {
     console.error('Error fetching athlete ranks:', err);
-    return NextResponse.json(inMemoryRanks);
+    return NextResponse.json(
+      { error: 'Seviyeler alınamadı' },
+      { status: 500, headers: NO_STORE_HEADERS }
+    );
   }
 }
 
-// POST: Add new rank, delete, or reset defaults
 export async function POST(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
 
-    // Support delete via POST
     if (body.action === 'delete' && body.id !== undefined) {
-      const numericId = Number(body.id);
-      if (isNaN(numericId)) {
+      const numericId = parsePositiveInt(body.id);
+      if (!numericId) {
         return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
       }
-      const { error } = await supabase.from('custom_widgets').delete().eq('id', numericId);
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+      const { data: delData, error } = await supabase
+        .from('custom_widgets')
+        .delete()
+        .eq('id', numericId)
+        .eq('widget_type', 'athlete_rank')
+        .select('id');
+
+      if (error) throw error;
+      if (!delData || delData.length === 0) {
+        return NextResponse.json({ error: 'Rank not found' }, { status: 404 });
       }
-      inMemoryRanks = inMemoryRanks.filter(r => Number(r.id) !== numericId);
-      return NextResponse.json({ success: true, deletedId: numericId });
+      return NextResponse.json({ success: true, deletedId: numericId }, { headers: NO_STORE_HEADERS });
     }
 
-    // Reset defaults action
     if (body.action === 'reset_defaults') {
-      try {
-        await supabase.from('custom_widgets').delete().eq('widget_type', 'athlete_rank');
-        for (let i = 0; i < DEFAULT_RANKS.length; i++) {
-          const r = DEFAULT_RANKS[i];
-          await supabase.from('custom_widgets').insert([{
-            title: r.title,
-            widget_type: 'athlete_rank',
-            target_time: JSON.stringify({ icon: r.icon, color: r.color }),
-            custom_content: JSON.stringify({ min_volume_kg: r.min_volume_kg, max_volume_kg: r.max_volume_kg, description: r.description }),
-            is_active: true,
-            display_order: i + 1,
-          }]);
-        }
-      } catch {}
-      inMemoryRanks = [...DEFAULT_RANKS];
-      return NextResponse.json(DEFAULT_RANKS);
+      const { error: clearErr } = await supabase
+        .from('custom_widgets')
+        .delete()
+        .eq('widget_type', 'athlete_rank');
+      if (clearErr) throw clearErr;
+
+      const seedRows = DEFAULT_ATHLETE_RANKS.map((r, i) => ({
+        title: r.title,
+        widget_type: 'athlete_rank',
+        target_time: JSON.stringify({ icon: r.icon, color: r.color }),
+        custom_content: JSON.stringify({
+          min_volume_kg: r.min_volume_kg,
+          max_volume_kg: r.max_volume_kg,
+          description: r.description,
+        }),
+        is_active: true,
+        display_order: i + 1,
+      }));
+      const { data: inserted, error: insertErr } = await supabase
+        .from('custom_widgets')
+        .insert(seedRows)
+        .select();
+      if (insertErr) throw insertErr;
+
+      return NextResponse.json(
+        (inserted || []).map(mapRankRow).sort((a, b) => a.min_volume_kg - b.min_volume_kg),
+        { headers: NO_STORE_HEADERS }
+      );
     }
 
     const { title, icon, color, min_volume_kg, max_volume_kg, description } = body;
+    const cleanTitle = typeof title === 'string' ? title.trim() : '';
+    const minVol = parseNonNegativeInt(min_volume_kg) ?? 0;
+    const maxVol = parsePositiveInt(max_volume_kg);
+
+    if (!cleanTitle || !maxVol || maxVol <= minVol) {
+      return NextResponse.json(
+        { error: 'Geçerli başlık ve max_volume_kg > min_volume_kg gereklidir' },
+        { status: 400 }
+      );
+    }
 
     const payload = {
-      title: title || 'Yeni Seviye',
+      title: cleanTitle,
       widget_type: 'athlete_rank',
       target_time: JSON.stringify({ icon: icon || '⚡', color: color || '#5DD97C' }),
       custom_content: JSON.stringify({
-        min_volume_kg: Number(min_volume_kg) || 0,
-        max_volume_kg: Number(max_volume_kg) || 1000,
+        min_volume_kg: minVol,
+        max_volume_kg: maxVol,
         description: description || '',
       }),
       is_active: true,
-      display_order: Number(min_volume_kg) || 1,
+      display_order: minVol,
     };
 
     const { data, error } = await supabase
@@ -218,88 +191,74 @@ export async function POST(request: Request) {
       .select()
       .single();
 
-    if (!error && data) {
-      return NextResponse.json({
-        id: data.id,
-        title: data.title,
-        icon: icon || '⚡',
-        color: color || '#5DD97C',
-        min_volume_kg: Number(min_volume_kg) || 0,
-        max_volume_kg: Number(max_volume_kg) || 1000,
-        description: description || '',
-      }, { status: 201 });
-    }
-
-    const newRank: AthleteRank = {
-      id: Date.now(),
-      title,
-      icon: icon || '⚡',
-      color: color || '#5DD97C',
-      min_volume_kg: Number(min_volume_kg) || 0,
-      max_volume_kg: Number(max_volume_kg) || 1000,
-      description: description || '',
-    };
-    inMemoryRanks.push(newRank);
-    inMemoryRanks.sort((a, b) => a.min_volume_kg - b.min_volume_kg);
-    return NextResponse.json(newRank, { status: 201 });
+    if (error) throw error;
+    return NextResponse.json(mapRankRow(data), { status: 201, headers: NO_STORE_HEADERS });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: (err as Error).message },
+      { status: 500, headers: NO_STORE_HEADERS }
+    );
   }
 }
 
-// PUT: Update rank
 export async function PUT(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
     const { id, title, icon, color, min_volume_kg, max_volume_kg, description } = body;
 
-    if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+    const numericId = parsePositiveInt(id);
+    if (!numericId) return NextResponse.json({ error: 'Valid ID is required' }, { status: 400 });
+
+    const cleanTitle = typeof title === 'string' ? title.trim() : '';
+    const minVol = parseNonNegativeInt(min_volume_kg) ?? 0;
+    const maxVol = parsePositiveInt(max_volume_kg);
+    if (!cleanTitle || !maxVol || maxVol <= minVol) {
+      return NextResponse.json(
+        { error: 'Geçerli başlık ve max_volume_kg > min_volume_kg gereklidir' },
+        { status: 400 }
+      );
+    }
 
     const updatePayload = {
-      title,
-      target_time: JSON.stringify({ icon, color }),
+      title: cleanTitle,
+      target_time: JSON.stringify({ icon: icon || '⚡', color: color || '#5DD97C' }),
       custom_content: JSON.stringify({
-        min_volume_kg: Number(min_volume_kg) || 0,
-        max_volume_kg: Number(max_volume_kg) || 1000,
+        min_volume_kg: minVol,
+        max_volume_kg: maxVol,
         description: description || '',
       }),
-      display_order: Number(min_volume_kg) || 1,
+      display_order: minVol,
     };
 
     const { data, error } = await supabase
       .from('custom_widgets')
       .update(updatePayload)
-      .eq('id', Number(id))
+      .eq('id', numericId)
+      .eq('widget_type', 'athlete_rank')
       .select()
       .maybeSingle();
 
-    if (!error && data) {
-      return NextResponse.json({
-        id: data.id,
-        title: data.title,
-        icon,
-        color,
-        min_volume_kg: Number(min_volume_kg) || 0,
-        max_volume_kg: Number(max_volume_kg) || 1000,
-        description: description || '',
-      });
+    if (error) throw error;
+    if (!data) {
+      return NextResponse.json({ error: 'Rank not found' }, { status: 404 });
     }
 
-    const idx = inMemoryRanks.findIndex(r => r.id === Number(id));
-    if (idx !== -1) {
-      inMemoryRanks[idx] = { id: Number(id), title, icon, color, min_volume_kg: Number(min_volume_kg), max_volume_kg: Number(max_volume_kg), description };
-      inMemoryRanks.sort((a, b) => a.min_volume_kg - b.min_volume_kg);
-      return NextResponse.json(inMemoryRanks[idx]);
-    }
-
-    return NextResponse.json({ error: 'Rank not found' }, { status: 404 });
+    return NextResponse.json(mapRankRow(data), { headers: NO_STORE_HEADERS });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: (err as Error).message },
+      { status: 500, headers: NO_STORE_HEADERS }
+    );
   }
 }
 
-// DELETE: Delete rank
 export async function DELETE(request: Request) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const { searchParams } = new URL(request.url);
     let id = searchParams.get('id');
@@ -311,22 +270,26 @@ export async function DELETE(request: Request) {
       } catch {}
     }
 
-    if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+    const numericId = parsePositiveInt(id);
+    if (!numericId) return NextResponse.json({ error: 'Valid ID is required' }, { status: 400 });
 
-    const numericId = Number(id);
-    if (isNaN(numericId)) {
-      return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+    const { data, error } = await supabase
+      .from('custom_widgets')
+      .delete()
+      .eq('id', numericId)
+      .eq('widget_type', 'athlete_rank')
+      .select('id');
+
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      return NextResponse.json({ error: 'Rank not found' }, { status: 404 });
     }
 
-    const { error } = await supabase.from('custom_widgets').delete().eq('id', numericId);
-    if (error) {
-      console.error('Supabase DELETE athlete rank error:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    inMemoryRanks = inMemoryRanks.filter(r => r.id !== numericId);
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true }, { headers: NO_STORE_HEADERS });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: (err as Error).message },
+      { status: 500, headers: NO_STORE_HEADERS }
+    );
   }
 }

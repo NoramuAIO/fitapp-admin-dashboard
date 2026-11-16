@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch, invalidateApiCache } from '@/lib/clientCache';
 
 interface ImportModalProps {
     isOpen: boolean;
@@ -10,13 +11,16 @@ export default function ImportModal({ isOpen, onClose, onSuccess }: ImportModalP
     const [importData, setImportData] = useState('');
     const [importFormat, setImportFormat] = useState<'json' | 'csv'>('json');
     const [importType, setImportType] = useState<'all' | 'programs' | 'workouts' | 'exercises'>('all');
+    const [isImporting, setIsImporting] = useState(false);
 
     const handleImport = async () => {
+        if (isImporting) return;
         if (!importData.trim()) {
             alert('Lütfen veri girin');
             return;
         }
 
+        setIsImporting(true);
         try {
             let parsedData;
 
@@ -31,7 +35,7 @@ export default function ImportModal({ isOpen, onClose, onSuccess }: ImportModalP
                 parsedData = importData;
             }
 
-            const response = await fetch('/api/import', {
+            const response = await apiFetch('/api/import', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -41,18 +45,17 @@ export default function ImportModal({ isOpen, onClose, onSuccess }: ImportModalP
                 }),
             });
 
-            const result = await response.json();
+            const result = await response.json().catch(() => ({}));
 
-            console.log('Import result:', result);
-
-            if (result.success) {
+            if (response.ok && result.success) {
                 alert('✅ Başarılı!\n\n' + result.message);
+                invalidateApiCache();
                 await onSuccess();
                 onClose();
                 setImportData('');
             } else {
                 let errorMsg = '❌ İçe aktarma başarısız!\n\n';
-                errorMsg += 'Hata: ' + (result.error || 'Bilinmeyen hata') + '\n';
+                errorMsg += 'Hata: ' + (result.error || `Sunucu hatası (${response.status})`) + '\n';
                 if (result.details) {
                     errorMsg += '\nDetay: ' + result.details;
                 }
@@ -61,6 +64,8 @@ export default function ImportModal({ isOpen, onClose, onSuccess }: ImportModalP
         } catch (error: any) {
             console.error('Import error:', error);
             alert('❌ İçe aktarma başarısız!\n\nHata: ' + (error.message || 'Bilinmeyen hata') + '\n\nKonsolu kontrol edin.');
+        } finally {
+            setIsImporting(false);
         }
     };
 
@@ -180,16 +185,19 @@ export default function ImportModal({ isOpen, onClose, onSuccess }: ImportModalP
                     <div className="flex gap-3">
                         <button
                             onClick={handleImport}
-                            className="flex-1 bg-purple-500 hover:bg-purple-600 text-white py-3 rounded-xl font-medium transition-colors"
+                            disabled={isImporting}
+                            className="flex-1 bg-purple-500 hover:bg-purple-600 disabled:opacity-50 text-white py-3 rounded-xl font-medium transition-colors"
                         >
-                            İçe Aktar
+                            {isImporting ? 'İçe Aktarılıyor...' : 'İçe Aktar'}
                         </button>
                         <button
                             onClick={() => {
+                                if (isImporting) return;
                                 onClose();
                                 setImportData('');
                             }}
-                            className="flex-1 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white py-3 rounded-xl font-medium transition-colors"
+                            disabled={isImporting}
+                            className="flex-1 bg-[#2A2A2A] hover:bg-[#3A3A3A] disabled:opacity-50 text-white py-3 rounded-xl font-medium transition-colors"
                         >
                             İptal
                         </button>

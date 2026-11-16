@@ -1,53 +1,72 @@
-import { supabase } from '@/lib/supabase'
-import { NextResponse } from 'next/server'
+import { supabase } from '@/lib/supabase';
+import { NextResponse } from 'next/server';
+import {
+  detachOrDeleteExercises,
+  parsePositiveInt,
+  requireApiAuth,
+} from '@/lib/apiAuth';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
 
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const { id } = await params
-    const body = await request.json()
-    const { 
-      workoutId, 
-      programId, 
-      name, 
-      sets, 
-      reps, 
-      duration, 
-      description, 
-      imageUrl, 
-      orderIndex,
-      muscleGroup
-    } = body
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
 
-    const updateData: any = {}
-    
-    // dayId olarak kaydet (Supabase'de workoutId yerine dayId kullanılıyor)
-    if (workoutId !== undefined) updateData.dayId = workoutId
-    if (programId !== undefined) updateData.programId = programId
-    if (name !== undefined) updateData.name = name
-    if (sets !== undefined) updateData.sets = sets
-    if (reps !== undefined) updateData.reps = reps
-    if (duration !== undefined) updateData.duration = duration
-    if (description !== undefined) updateData.description = description
-    if (imageUrl !== undefined) updateData.imageUrl = imageUrl
-    if (orderIndex !== undefined) updateData.orderIndex = orderIndex
-    if (muscleGroup !== undefined) updateData.muscleGroup = muscleGroup
+  try {
+    const { id } = await params;
+    const numericId = parsePositiveInt(id);
+    if (!numericId) {
+      return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
+    }
+
+    const body = await request.json();
+    const {
+      workoutId,
+      programId,
+      name,
+      sets,
+      reps,
+      duration,
+      description,
+      imageUrl,
+      orderIndex,
+      muscleGroup,
+    } = body;
+
+    const updateData: any = {};
+    if (workoutId !== undefined) updateData.dayId = workoutId ? parsePositiveInt(workoutId) : null;
+    if (programId !== undefined) updateData.programId = programId ? parsePositiveInt(programId) : null;
+    if (name !== undefined) updateData.name = String(name).trim();
+    if (sets !== undefined) updateData.sets = Math.max(0, Number(sets) || 0);
+    if (reps !== undefined) updateData.reps = Math.max(0, Number(reps) || 0);
+    if (duration !== undefined) updateData.duration = duration || null;
+    if (description !== undefined) updateData.description = description || null;
+    if (imageUrl !== undefined) updateData.imageUrl = imageUrl || null;
+    if (orderIndex !== undefined) updateData.orderIndex = Number(orderIndex) || 0;
+    if (muscleGroup !== undefined) updateData.muscleGroup = muscleGroup || null;
 
     const { data, error } = await supabase
       .from('exercises')
       .update(updateData)
-      .eq('id', parseInt(id, 10))
+      .eq('id', numericId)
       .select()
-      .single()
+      .maybeSingle();
 
-    if (error) throw error
+    if (error) throw error;
+    if (!data) {
+      return NextResponse.json({ error: 'Exercise not found' }, { status: 404 });
+    }
 
-    return NextResponse.json(data)
+    return NextResponse.json(data, { headers: NO_STORE_HEADERS });
   } catch (error) {
-    console.error('Error updating exercise:', error)
-    return NextResponse.json({ error: 'Failed to update exercise' }, { status: 500 })
+    console.error('Error updating exercise:', error);
+    return NextResponse.json({ error: 'Failed to update exercise' }, { status: 500 });
   }
 }
 
@@ -55,43 +74,24 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-    if (isNaN(numericId)) {
+    const numericId = parsePositiveInt(id);
+    if (!numericId) {
       return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
     }
 
-    // Preserve historical workout logs and PRs: never delete exercise_completions
-    const { count: completionCount } = await supabase
-      .from('exercise_completions')
-      .select('id', { count: 'exact', head: true })
-      .eq('exerciseId', numericId);
-
-    if ((completionCount || 0) > 0) {
-      // Detach from workout day and program so historical joins still resolve exercise name/muscleGroup
-      const { error: detachError } = await supabase
-        .from('exercises')
-        .update({ dayId: null, programId: null, orderIndex: -1 })
-        .eq('id', numericId);
-
-      if (detachError) throw detachError;
-
-      return NextResponse.json({ success: true, detached: true });
-    }
-
-    const { data, error } = await supabase
-      .from('exercises')
-      .delete()
-      .eq('id', numericId)
-      .select();
-
-    if (error) throw error;
-
-    return NextResponse.json({ success: true, deleted: data?.length || 0 });
+    await detachOrDeleteExercises([numericId]);
+    return NextResponse.json({ success: true }, { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error('Error deleting exercise:', error);
-    return NextResponse.json({ error: 'Failed to delete exercise: ' + (error as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to delete exercise: ' + (error as Error).message },
+      { status: 500, headers: NO_STORE_HEADERS }
+    );
   }
 }
 
@@ -99,6 +99,9 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const guard = await requireApiAuth(request, { requireAdmin: true });
+  if (!guard.ok) return guard.response;
+
   try {
     const body = await request.json();
     if (body.action === 'delete') {
