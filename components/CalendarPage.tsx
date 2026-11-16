@@ -134,6 +134,10 @@ export default function CalendarPage() {
   activeUserIdRef.current = activeUserId;
   const hasUnsavedWeeklyRef = useRef<boolean>(hasUnsavedWeeklyChanges);
   hasUnsavedWeeklyRef.current = hasUnsavedWeeklyChanges;
+  const selectedDayRef = useRef<ResolvedCalendarDay | null>(selectedDay);
+  selectedDayRef.current = selectedDay;
+  const savingRef = useRef<boolean>(saving);
+  savingRef.current = saving;
 
   const showToast = useCallback((type: 'success' | 'error', text: string) => {
     setToast({ type, text });
@@ -230,7 +234,13 @@ export default function CalendarPage() {
     };
     window.addEventListener('focus', onFocusOrVisible);
     document.addEventListener('visibilitychange', onFocusOrVisible);
+    const livePoll = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (savingRef.current || selectedDayRef.current || hasUnsavedWeeklyRef.current) return;
+      loadData(undefined, { silent: true, forceRefresh: true });
+    }, 15000);
     return () => {
+      clearInterval(livePoll);
       unsubscribeUser();
       window.removeEventListener('focus', onFocusOrVisible);
       document.removeEventListener('visibilitychange', onFocusOrVisible);
@@ -607,6 +617,18 @@ export default function CalendarPage() {
               ))}
             </select>
           </div>
+
+          {/* Manual Live Refresh */}
+          <button
+            type="button"
+            disabled={loading || saving}
+            onClick={() => loadData(activeUserIdRef.current, { silent: true, forceRefresh: true })}
+            title="Mobilden gelen değişiklikleri hemen yenile"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#141414] border border-[#2A2A2A] hover:border-[#6366F1]/50 text-xs font-semibold text-gray-300 hover:text-white transition-all disabled:opacity-50"
+          >
+            <RefreshCw size={14} />
+            <span>Yenile</span>
+          </button>
 
           {/* Primary Tab Switcher */}
           <div className="flex bg-[#141414] border border-[#2A2A2A] rounded-xl p-1">

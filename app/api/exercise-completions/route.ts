@@ -90,10 +90,16 @@ export async function GET(request: Request) {
 
     if (error) throw error;
 
-    const formatted = (data || []).map((row: any) => ({
-      ...row,
-      completedAt: normalizeUtcTimestamp(row.completedAt) || row.completedAt,
-    }));
+    const formatted = (data || []).map((row: any) => {
+      const ex = Array.isArray(row.exercises) ? row.exercises[0] : row.exercises;
+      return {
+        ...row,
+        exerciseName: row.exerciseName || ex?.name || null,
+        programId: row.programId ?? ex?.programId ?? null,
+        dayId: row.dayId ?? ex?.dayId ?? null,
+        completedAt: normalizeUtcTimestamp(row.completedAt) || row.completedAt,
+      };
+    });
 
     return NextResponse.json(formatted, { headers: NO_STORE_HEADERS });
   } catch (error) {
