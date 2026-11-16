@@ -10,10 +10,26 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { apiFetch, invalidateApiCache } from '@/lib/clientCache';
 
-export default function FloatingSidebar() {
+interface FloatingSidebarProps {
+  isExpanded?: boolean;
+  onToggle?: () => void;
+}
+
+export default function FloatingSidebar({
+  isExpanded: controlledExpanded,
+  onToggle,
+}: FloatingSidebarProps = {}) {
   const pathname = usePathname();
   const router = useRouter();
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [internalExpanded, setInternalExpanded] = useState(false);
+  const isExpanded = controlledExpanded ?? internalExpanded;
+  const handleToggle = () => {
+    if (onToggle) {
+      onToggle();
+    } else {
+      setInternalExpanded((prev) => !prev);
+    }
+  };
 
   const menuItems = [
     { id: 'home', icon: Home, label: 'Ana Sayfa', href: '/' },
@@ -43,19 +59,19 @@ export default function FloatingSidebar() {
 
   return (
     <aside 
-      className={`fixed left-4 top-4 bottom-4 z-50 rounded-3xl bg-[#141414]/90 backdrop-blur-xl border border-[#2A2A2A] shadow-2xl transition-all duration-300 flex flex-col ${
+      className={`fixed left-4 top-4 bottom-4 z-40 rounded-3xl bg-[#141414]/95 backdrop-blur-xl border border-[#2A2A2A] shadow-2xl transition-all duration-300 flex flex-col ${
         isExpanded ? 'w-64' : 'w-[72px]'
       }`}
     >
       {/* Header & Logo */}
-      <div className="h-20 flex items-center justify-between px-5 border-b border-[#2A2A2A]/50">
+      <div className="h-20 shrink-0 flex items-center justify-between px-5 border-b border-[#2A2A2A]/50">
         <div className="flex items-center overflow-hidden">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] flex items-center justify-center shrink-0">
             <span className="text-white font-bold text-sm">FA</span>
           </div>
           <span 
-            className={`font-bold text-white ml-3 whitespace-nowrap transition-opacity duration-300 ${
-              isExpanded ? 'opacity-100' : 'opacity-0 w-0'
+            className={`font-bold text-white whitespace-nowrap transition-opacity duration-300 ${
+              isExpanded ? 'ml-3 opacity-100' : 'ml-0 opacity-0 w-0'
             }`}
           >
             FitApp Admin
@@ -67,8 +83,8 @@ export default function FloatingSidebar() {
       <button 
         type="button"
         aria-label={isExpanded ? 'Kenar çubuğunu daralt' : 'Kenar çubuğunu genişlet'}
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="absolute -right-3 top-24 w-6 h-6 bg-[#2A2A2A] rounded-full border border-[#141414] flex items-center justify-center text-gray-400 hover:text-white transition-colors"
+        onClick={handleToggle}
+        className="absolute -right-3 top-24 z-10 w-6 h-6 bg-[#2A2A2A] rounded-full border border-[#141414] flex items-center justify-center text-gray-400 hover:text-white transition-colors shadow-md"
       >
         {isExpanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
       </button>

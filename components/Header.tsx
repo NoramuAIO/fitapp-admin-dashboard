@@ -65,9 +65,9 @@ export default function Header() {
     : null;
 
   return (
-    <header className="h-16 border-b border-[#1E1E1E] bg-[#0A0A0A] flex items-center justify-between px-6 shrink-0 z-50">
+    <header className="h-16 border-b border-[#1E1E1E] bg-[#0A0A0A] flex items-center justify-between gap-3 px-4 sm:px-6 shrink-0 z-30">
       <form
-        className="relative max-w-md w-full"
+        className="relative flex-1 min-w-0 max-w-md"
         onSubmit={(e) => {
           e.preventDefault();
           const q = searchQuery.trim();
@@ -84,7 +84,7 @@ export default function Header() {
         />
       </form>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         <div className="flex items-center gap-2 bg-[#141414] border border-[#2A2A2A] rounded-xl px-4 py-2 select-none">
           <Clock size={14} className="text-[#6366F1]" />
           <span className="text-white font-semibold text-sm tabular-nums">{currentTime}</span>
