@@ -131,7 +131,19 @@ export async function GET(request: Request) {
       let resolvedWorkoutName: string | null = null;
       let resolvedProgramId: number | null = session.programId ?? null;
 
-      const completions = completionsBySession[session.id];
+      const rawCompletions = completionsBySession[session.id];
+      const completions = (() => {
+        if (!rawCompletions || rawCompletions.length <= 1) return rawCompletions;
+        const deduped = new Map<string, any>();
+        for (const c of rawCompletions) {
+          const key = c.exerciseId ? `ex:${c.exerciseId}` : `id:${c.id}`;
+          const prev = deduped.get(key);
+          if (!prev || Number(c.id) > Number(prev.id)) {
+            deduped.set(key, c);
+          }
+        }
+        return Array.from(deduped.values());
+      })();
       if (completions && completions.length > 0) {
         completedExercises = completions.length;
         totalSets = completions.reduce((sum: number, c: any) => sum + (Number(c.sets) || 0), 0);

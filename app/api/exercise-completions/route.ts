@@ -286,6 +286,56 @@ export async function POST(request: Request) {
         ? Math.max(0, parseInt(String(reps), 10) || 0)
         : 0;
 
+    // Prevent duplicate completion rows for the same (userId, sessionId, exerciseId) on retries or Undo+re-complete
+    if (validSessionId && validExerciseId) {
+      const { data: existingRows, error: existingErr } = await supabase
+        .from('exercise_completions')
+        .select('id')
+        .eq('userId', validUserId)
+        .eq('sessionId', validSessionId)
+        .eq('exerciseId', validExerciseId)
+        .order('id', { ascending: true });
+
+      if (existingErr) throw existingErr;
+
+      if (existingRows && existingRows.length > 0) {
+        const primaryId = existingRows[0].id;
+        const extraIds = existingRows.slice(1).map((r: any) => r.id);
+
+        const { data: updated, error: updateErr } = await supabase
+          .from('exercise_completions')
+          .update({
+            sets: safeSets,
+            reps: safeReps,
+            weight: finalWeight,
+            notes: finalNotes,
+            completedAt: completedIso,
+          })
+          .eq('id', primaryId)
+          .eq('userId', validUserId)
+          .select()
+          .single();
+
+        if (updateErr) throw updateErr;
+
+        if (extraIds.length > 0) {
+          await supabase
+            .from('exercise_completions')
+            .delete()
+            .in('id', extraIds)
+            .eq('userId', validUserId);
+        }
+
+        return NextResponse.json(
+          {
+            ...updated,
+            completedAt: normalizeUtcTimestamp(updated?.completedAt) || updated?.completedAt,
+          },
+          { status: 200, headers: NO_STORE_HEADERS }
+        );
+      }
+    }
+
     const { data, error } = await supabase
       .from('exercise_completions')
       .insert([{
@@ -393,6 +443,94 @@ export async function PUT(request: Request) {
     console.error('Error updating exercise completion:', error);
     return NextResponse.json(
       { error: 'Failed to update exercise completion' },
+      { status: 500, headers: NO_STORE_HEADERS }
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  const guard = await requireApiAuth(request);
+  if (!guard.ok) return guard.response;
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const rawId = searchParams.get('id');
+    const completionId = rawId ? parsePositiveInt(rawId) : null;
+    if (rawId && !completionId) {
+      return NextResponse.json({ error: 'Geçersiz id' }, { status: 400 });
+    }
+
+    const rawSessionId = searchParams.get('sessionId');
+    const parsedSessionId = rawSessionId ? parsePositiveInt(rawSessionId) : null;
+    if (rawSessionId && !parsedSessionId) {
+      return NextResponse.json({ error: 'Geçersiz sessionId' }, { status: 400 });
+    }
+
+    const rawExerciseId = searchParams.get('exerciseId');
+    let parsedExerciseId = rawExerciseId ? parsePositiveInt(rawExerciseId) : null;
+    if (rawExerciseId && !parsedExerciseId) {
+      return NextResponse.json({ error: 'Geçersiz exerciseId' }, { status: 400 });
+    }
+
+    const rawUserId = searchParams.get('userId');
+    const parsedUserId = rawUserId ? parsePositiveInt(rawUserId) : null;
+    if (rawUserId && !parsedUserId) {
+      return NextResponse.json({ error: 'Geçersiz userId' }, { status: 400 });
+    }
+
+    const scoped = resolveScopedUserId(guard.auth, parsedUserId);
+    if (!scoped.ok) return scoped.response;
+
+    const exerciseNameParam = searchParams.get('exerciseName')?.trim();
+    if (!parsedExerciseId && exerciseNameParam) {
+      const { data: namedEx } = await supabase
+        .from('exercises')
+        .select('id')
+        .ilike('name', escapeIlikePattern(exerciseNameParam))
+        .limit(1)
+        .maybeSingle();
+      if (namedEx?.id) {
+        parsedExerciseId = Number(namedEx.id);
+      }
+    }
+
+    if (!completionId && !(parsedSessionId && parsedExerciseId)) {
+      if (parsedSessionId && exerciseNameParam && !parsedExerciseId) {
+        return NextResponse.json(
+          { deleted: true, count: 0 },
+          { status: 200, headers: NO_STORE_HEADERS }
+        );
+      }
+      return NextResponse.json(
+        { error: 'id veya sessionId+exerciseId gereklidir' },
+        { status: 400 }
+      );
+    }
+
+    let deleteQuery = supabase.from('exercise_completions').delete();
+    if (completionId) {
+      deleteQuery = deleteQuery.eq('id', completionId);
+    } else if (parsedSessionId && parsedExerciseId) {
+      deleteQuery = deleteQuery.eq('sessionId', parsedSessionId).eq('exerciseId', parsedExerciseId);
+    }
+
+    if (!guard.auth.isAdmin && guard.auth.userId) {
+      deleteQuery = deleteQuery.eq('userId', guard.auth.userId);
+    } else if (scoped.userId) {
+      deleteQuery = deleteQuery.eq('userId', scoped.userId);
+    }
+
+    const { data, error } = await deleteQuery.select('id');
+    if (error) throw error;
+
+    return NextResponse.json(
+      { deleted: true, count: data?.length ?? 0 },
+      { status: 200, headers: NO_STORE_HEADERS }
+    );
+  } catch (error) {
+    console.error('Error deleting exercise completion:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete exercise completion' },
       { status: 500, headers: NO_STORE_HEADERS }
     );
   }
