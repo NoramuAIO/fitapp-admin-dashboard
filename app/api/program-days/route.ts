@@ -26,7 +26,9 @@ export async function GET(request: NextRequest) {
       .from('program_days')
       .select('*')
       .eq('programId', programId)
-      .order('orderIndex', { ascending: true });
+      .order('orderIndex', { ascending: true })
+      .order('dayNumber', { ascending: true })
+      .order('id', { ascending: true });
 
     if (error) throw error;
 

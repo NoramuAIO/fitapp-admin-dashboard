@@ -45,7 +45,9 @@ export async function GET(request: Request) {
     let query = supabase
       .from('program_days')
       .select(lite ? 'id, programId, name, dayName, dayNumber, orderIndex' : '*, exercises(*)')
-      .order('orderIndex', { ascending: true });
+      .order('orderIndex', { ascending: true })
+      .order('dayNumber', { ascending: true })
+      .order('id', { ascending: true });
 
     if (programId) {
       query = query.eq('programId', programId);

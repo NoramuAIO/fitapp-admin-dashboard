@@ -17,6 +17,28 @@ export const revalidate = 0;
 
 const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
 
+// Tracks whether workout_sessions.startTime in Postgres is limited to VARCHAR(10) so we avoid generating 22001 Postgres error logs on UPDATE/INSERT
+let workoutSessionStartTimeIsVarchar10: boolean | null = null;
+
+function detectStartTimeConstraintFromRows(
+  rows: Array<{ startTime?: string | null }> | null | undefined
+): boolean | null {
+  if (!rows || rows.length === 0) return workoutSessionStartTimeIsVarchar10;
+  if (rows.some((r) => typeof r.startTime === 'string' && r.startTime.trim().length > 10)) {
+    workoutSessionStartTimeIsVarchar10 = false;
+    return false;
+  }
+  if (workoutSessionStartTimeIsVarchar10 === true) return true;
+  if (
+    rows.length >= 2 &&
+    rows.every((r) => /^\d{4}-\d{2}-\d{2}$/.test(String(r.startTime || '').trim()))
+  ) {
+    workoutSessionStartTimeIsVarchar10 = true;
+    return true;
+  }
+  return null;
+}
+
 export async function GET(request: Request) {
   const guard = await requireApiAuth(request);
   if (!guard.ok) return guard.response;
@@ -293,6 +315,12 @@ export async function POST(request: Request) {
         : new Date().toISOString();
     const resolvedStartTime = normalizeUtcTimestamp(rawStartTime) || rawStartTime;
     const localDateStart = getLocalDateString(resolvedStartTime) || getLocalDateString();
+    const safeDuration =
+      typeof duration === 'string'
+        ? duration.trim().slice(0, 50) || null
+        : duration !== undefined && duration !== null
+          ? String(duration).trim().slice(0, 50) || null
+          : null;
 
     let validProgramId: number | null = null;
     let resolvedWorkoutName: string | null = workoutName ? String(workoutName).trim() : null;
@@ -352,6 +380,8 @@ export async function POST(request: Request) {
         .order('createdAt', { ascending: false })
         .limit(40);
 
+      const detectedVarchar10 = detectStartTimeConstraintFromRows(candidateRows);
+
       const placeholder = (candidateRows || []).find((s: any) => {
         if (!isRealWorkoutSession(s)) return false;
         if (s.duration !== null && s.duration !== undefined && String(s.duration).trim() !== '') return false;
@@ -363,10 +393,12 @@ export async function POST(request: Request) {
       });
 
       if (placeholder) {
+        const placeholderDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(String(placeholder.startTime || '').trim());
+        const useDateOnlyOnUpdate = detectedVarchar10 === true || (detectedVarchar10 !== false && placeholderDateOnly);
         const updatePayload: any = {};
         if (validProgramId) updatePayload.programId = validProgramId;
-        if (duration) updatePayload.duration = duration;
-        updatePayload.startTime = resolvedStartTime;
+        if (safeDuration) updatePayload.duration = safeDuration;
+        updatePayload.startTime = useDateOnlyOnUpdate ? localDateStart : resolvedStartTime;
 
         let updateResult = await supabase
           .from('workout_sessions')
@@ -376,6 +408,7 @@ export async function POST(request: Request) {
           .single();
 
         if (updateResult.error?.code === '22001') {
+          workoutSessionStartTimeIsVarchar10 = true;
           updateResult = await supabase
             .from('workout_sessions')
             .update({ ...updatePayload, startTime: localDateStart })
@@ -390,11 +423,20 @@ export async function POST(request: Request) {
     }
 
     if (!data) {
+      if (workoutSessionStartTimeIsVarchar10 === null) {
+        const { data: probeRows } = await supabase
+          .from('workout_sessions')
+          .select('startTime')
+          .order('id', { ascending: false })
+          .limit(3);
+        detectStartTimeConstraintFromRows(probeRows);
+      }
+
       const insertPayload: any = {
         userId: parsedUserId,
         programId: validProgramId,
-        startTime: resolvedStartTime,
-        duration: duration || null,
+        startTime: workoutSessionStartTimeIsVarchar10 ? localDateStart : resolvedStartTime,
+        duration: safeDuration,
         category: isManual ? 'duration' : (category || 'workout'),
         createdAt: new Date().toISOString()
       };
@@ -407,6 +449,7 @@ export async function POST(request: Request) {
 
       // If startTime column is VARCHAR(10), fallback gracefully to local YYYY-MM-DD
       if (insertResult.error?.code === '22001') {
+        workoutSessionStartTimeIsVarchar10 = true;
         insertResult = await supabase
           .from('workout_sessions')
           .insert([{ ...insertPayload, startTime: localDateStart }])
