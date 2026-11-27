@@ -818,3 +818,52 @@ export function calculateGoalProgressPercent(
   if (target <= 0) return 0;
   return Math.min(100, Math.max(0, Math.round((current / target) * 100)));
 }
+
+/**
+ * Deduplicates completion rows per athlete so retry duplicates sharing the same
+ * (userId, sessionId, exerciseId) never inflate web KPI metrics above mobile.
+ */
+export function deduplicateCompletions<T extends Record<string, any>>(completions: T[]): T[] {
+  if (!Array.isArray(completions) || completions.length === 0) return [];
+  const map = new Map<string, T>();
+
+  completions.forEach((item, index) => {
+    const userId = Number(item?.userId ?? item?.user_id ?? 0);
+    const sessionId = Number(item?.sessionId ?? item?.session_id ?? 0);
+    const exerciseId = Number(item?.exerciseId ?? item?.exercise_id ?? 0);
+    const rawId = item?.id;
+
+    const key =
+      sessionId > 0 && exerciseId > 0
+        ? `u${userId}:sess_${sessionId}:ex_${exerciseId}`
+        : rawId !== undefined && rawId !== null
+          ? `u${userId}:row_${rawId}`
+          : `idx_${index}`;
+
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, item);
+      return;
+    }
+
+    const existingTime = existing?.completedAt ? new Date(existing.completedAt).getTime() : 0;
+    const candidateTime = item?.completedAt ? new Date(item.completedAt).getTime() : 0;
+    const existingId = Number(existing?.id) || 0;
+    const candidateId = Number(item?.id) || 0;
+
+    if (
+      candidateTime > existingTime ||
+      (candidateTime === existingTime && candidateId >= existingId)
+    ) {
+      map.set(key, item);
+    }
+  });
+
+  return Array.from(map.values()).sort((a, b) => {
+    const timeDiff =
+      (b?.completedAt ? new Date(b.completedAt).getTime() : 0) -
+      (a?.completedAt ? new Date(a.completedAt).getTime() : 0);
+    if (timeDiff !== 0) return timeDiff;
+    return (Number(b?.id) || 0) - (Number(a?.id) || 0);
+  });
+}

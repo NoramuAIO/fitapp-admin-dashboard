@@ -48,6 +48,7 @@ import {
   calculateWorkoutCalories,
   calculateMuscleDistribution,
   calculateAthleteRank,
+  deduplicateCompletions,
   extractCompletionDurationSeconds,
   getCompletionTrackingType,
 } from '@/lib/fitnessCalculations';
@@ -423,9 +424,11 @@ export default function AnalyticsPage() {
     return true;
   };
 
+  const uniqueCompletions = deduplicateCompletions(completions);
+
   // Filter sessions and completions based on time range
   const filteredSessions = sessions.filter(s => filterByTime(s.startTime));
-  const filteredCompletions = completions.filter(c => filterByTime(c.completedAt));
+  const filteredCompletions = uniqueCompletions.filter(c => filterByTime(c.completedAt));
 
   // Separate real workout sessions from manual timer logs
   const workoutSessions = filteredSessions.filter(isRealWorkoutSession);
@@ -454,10 +457,12 @@ export default function AnalyticsPage() {
 
   const avgVolumePerWorkout = totalWorkouts > 0 ? Math.round(totalVolumeKg / totalWorkouts) : 0;
 
-  // Separated Durations: pure workout duration vs gym stay duration
+  // Separated Durations: pure workout duration (with timed exercise floor) vs gym stay duration
   const workoutMinutes = workoutSessions.reduce((sum, s) => sum + parseDurationToMinutes(s.duration), 0);
-  const workoutHours = Math.floor(workoutMinutes / 60);
-  const remainingWorkoutMinutes = workoutMinutes % 60;
+  const timedMinutes = calculateDurationMinutesForCompletions(filteredCompletions);
+  const displayWorkoutMinutes = Math.max(workoutMinutes, timedMinutes);
+  const workoutHours = Math.floor(displayWorkoutMinutes / 60);
+  const remainingWorkoutMinutes = displayWorkoutMinutes % 60;
 
   const gymMinutes = durationSessions.reduce((sum, s) => sum + parseDurationToMinutes(s.duration), 0);
   const gymHours = Math.floor(gymMinutes / 60);
@@ -505,8 +510,7 @@ export default function AnalyticsPage() {
   });
   const prList = calculateExercisePRs(filteredCompletions).slice(0, 6);
   const durationPRList = calculateDurationPRs(filteredCompletions).slice(0, 6);
-  const timedMinutes = calculateDurationMinutesForCompletions(filteredCompletions);
-  const allTimeTimedMinutes = calculateDurationMinutesForCompletions(completions);
+  const allTimeTimedMinutes = calculateDurationMinutesForCompletions(uniqueCompletions);
   const allTimeWorkouts = sessions.filter(isRealWorkoutSession).length;
 
   // Top Exercises by Volume
@@ -526,7 +530,7 @@ export default function AnalyticsPage() {
   const maxExerciseVolume = Math.max(...topVolumeExercises.map(e => e.volume), 1);
 
   // Recent Exercise Stream
-  const recentCompletions = completions.slice(0, 7);
+  const recentCompletions = filteredCompletions.slice(0, 10);
 
   // Body Weight Tracker Snapshot (strictly scoped to single selected athlete)
   const scopedWeightLogs =
@@ -542,7 +546,7 @@ export default function AnalyticsPage() {
       : null;
 
   // Cumulative Athlete Rank, Estimated Calories & Muscle Distribution (mobile parity)
-  const allTimeVolumeKg = completions.reduce((sum, c) => sum + calculateCompletionVolume(c).volume, 0);
+  const allTimeVolumeKg = uniqueCompletions.reduce((sum, c) => sum + calculateCompletionVolume(c).volume, 0);
   const athleteRank = calculateAthleteRank(
     allTimeVolumeKg,
     ranks.length > 0 ? ranks : undefined,
@@ -550,7 +554,7 @@ export default function AnalyticsPage() {
     allTimeTimedMinutes
   );
   const estimatedCalories = calculateWorkoutCalories(
-    workoutMinutes,
+    displayWorkoutMinutes,
     totalVolumeKg,
     totalSets,
     latestWeight || 75,
