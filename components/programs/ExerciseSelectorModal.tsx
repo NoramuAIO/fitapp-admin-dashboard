@@ -7,6 +7,9 @@ export interface Exercise {
     sets: number;
     reps: number;
     duration?: string;
+    trackingType?: string;
+    durationSeconds?: number | null;
+    duration_seconds?: number | null;
     description?: string;
     imageUrl?: string;
     muscleGroup?: string;
@@ -147,9 +150,11 @@ export default function ExerciseSelectorModal({
                             workoutId,
                             programId,
                             name: exercise.name.trim(),
-                            sets: exercise.sets || 3,
-                            reps: exercise.reps || 10,
+                            sets: exercise.trackingType === 'duration_only' ? 1 : (exercise.sets ?? 3),
+                            reps: exercise.trackingType === 'weight_reps' ? (exercise.reps ?? 10) : 0,
                             duration: exercise.duration || null,
+                            trackingType: exercise.trackingType || 'weight_reps',
+                            durationSeconds: exercise.durationSeconds ?? exercise.duration_seconds ?? null,
                             description: exercise.description || null,
                             imageUrl: exercise.imageUrl || null,
                             muscleGroup: exercise.muscleGroup || null,
@@ -273,18 +278,39 @@ export default function ExerciseSelectorModal({
                                                     />
                                                 </div>
                                             )}
-                                            <h4 className="text-white font-semibold mb-2">{exercise.name}</h4>
+                                            <div className="flex items-center justify-between gap-2 mb-2">
+                                                <h4 className="text-white font-semibold">{exercise.name}</h4>
+                                                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#1F1F28] text-gray-300 border border-[#333]">
+                                                    {exercise.trackingType === 'duration_only'
+                                                        ? 'Sadece Süre'
+                                                        : exercise.trackingType === 'sets_duration'
+                                                            ? 'Set × Süre'
+                                                            : 'Ağırlık + Tekrar'}
+                                                </span>
+                                            </div>
                                             {exercise.description && (
                                                 <p className="text-sm text-gray-400 mb-2 line-clamp-2">{exercise.description}</p>
                                             )}
                                             <div className="flex gap-3 text-sm text-gray-400">
-                                                <span>{exercise.sets} set</span>
-                                                <span>•</span>
-                                                <span>{exercise.reps} tekrar</span>
-                                                {exercise.duration && (
+                                                {exercise.trackingType === 'duration_only' ? (
+                                                    <span>Süre: {exercise.duration || '10 dk'}</span>
+                                                ) : exercise.trackingType === 'sets_duration' ? (
                                                     <>
+                                                        <span>{exercise.sets} set</span>
                                                         <span>•</span>
-                                                        <span>{exercise.duration}</span>
+                                                        <span>{exercise.duration || '45 sn'}</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span>{exercise.sets} set</span>
+                                                        <span>•</span>
+                                                        <span>{exercise.reps} tekrar</span>
+                                                        {exercise.duration && (
+                                                            <>
+                                                                <span>•</span>
+                                                                <span>{exercise.duration}</span>
+                                                            </>
+                                                        )}
                                                     </>
                                                 )}
                                             </div>

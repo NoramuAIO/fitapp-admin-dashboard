@@ -1,5 +1,10 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import {
+  enrichExerciseWithTracking,
+  isMissingColumnError,
+  prepareExerciseWritePayload,
+} from '@/lib/exerciseApiHelpers';
 import { parseNonNegativeInt, parsePositiveInt, requireApiAuth } from '@/lib/apiAuth';
 
 export const dynamic = 'force-dynamic';
@@ -37,13 +42,15 @@ export async function GET(request: Request) {
         )
 
     // Flatten the data
-    const formattedExercises = visibleExercises.map((ex: any) => ({
-      ...ex,
-      workoutId: ex.dayId || ex.program_days?.id,
-      workout_name: ex.program_days?.name || ex.program_days?.dayName,
-      program_id: ex.programId || ex.program_days?.programId,
-      program_days: undefined
-    }))
+    const formattedExercises = visibleExercises.map((ex: any) =>
+      enrichExerciseWithTracking({
+        ...ex,
+        workoutId: ex.dayId || ex.program_days?.id,
+        workout_name: ex.program_days?.name || ex.program_days?.dayName,
+        program_id: ex.programId || ex.program_days?.programId,
+        program_days: undefined,
+      })
+    );
 
     return NextResponse.json(formattedExercises, { headers: NO_STORE_HEADERS })
   } catch (error) {
@@ -65,6 +72,10 @@ export async function POST(request: Request) {
       sets,
       reps,
       duration,
+      trackingType,
+      tracking_type,
+      durationSeconds,
+      duration_seconds,
       description,
       imageUrl,
       orderIndex,
@@ -109,11 +120,25 @@ export async function POST(request: Request) {
       finalOrderIndex = 0;
     }
 
+    const trackingPayload = prepareExerciseWritePayload({
+      name: cleanName,
+      sets,
+      reps,
+      duration,
+      trackingType,
+      tracking_type,
+      durationSeconds,
+      duration_seconds,
+      muscleGroup,
+    });
+
     const insertData: any = {
       name: cleanName,
-      sets: Math.max(0, Number(sets) || 0),
-      reps: Math.max(0, Number(reps) || 0),
-      duration: duration || null,
+      sets: trackingPayload.sets,
+      reps: trackingPayload.reps,
+      duration: trackingPayload.duration,
+      tracking_type: trackingPayload.trackingType,
+      duration_seconds: trackingPayload.durationSeconds,
       description: description || null,
       imageUrl: imageUrl || null,
       orderIndex: finalOrderIndex,
@@ -127,11 +152,26 @@ export async function POST(request: Request) {
       insertData.programId = finalProgramId;
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('exercises')
       .insert([insertData])
       .select()
       .single();
+
+    if (error && isMissingColumnError(error)) {
+      const { tracking_type: _tt, duration_seconds: _ds, ...legacyInsert } = insertData;
+      const fallbackRes = await supabase
+        .from('exercises')
+        .insert([legacyInsert])
+        .select()
+        .single();
+      data = fallbackRes.data;
+      error = fallbackRes.error;
+    }
+
+    if (data) {
+      data = enrichExerciseWithTracking(data);
+    }
 
     if (error) throw error;
 

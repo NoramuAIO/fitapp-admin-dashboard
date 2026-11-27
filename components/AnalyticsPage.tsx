@@ -42,11 +42,16 @@ import {
   parseDurationToMinutes,
   getLocalDateString,
   calculateCompletionVolume,
+  calculateDurationMinutesForCompletions,
+  calculateDurationPRs,
   calculateExercisePRs,
   calculateWorkoutCalories,
   calculateMuscleDistribution,
   calculateAthleteRank,
+  extractCompletionDurationSeconds,
+  getCompletionTrackingType,
 } from '@/lib/fitnessCalculations';
+import { formatDurationSeconds, stripDurationNoteTag } from '@/lib/exerciseTracking';
 
 interface WorkoutSession {
   id: number;
@@ -111,6 +116,7 @@ interface AthleteRank {
   color: string;
   min_volume_kg: number;
   max_volume_kg: number;
+  min_workouts?: number;
   description: string;
 }
 
@@ -133,7 +139,8 @@ export default function AnalyticsPage() {
   const [rankIcon, setRankIcon] = useState('⚡');
   const [rankColor, setRankColor] = useState('#5DD97C');
   const [rankMinKg, setRankMinKg] = useState('0');
-  const [rankMaxKg, setRankMaxKg] = useState('300');
+  const [rankMaxKg, setRankMaxKg] = useState('15000');
+  const [rankMinWorkouts, setRankMinWorkouts] = useState('0');
   const [rankDesc, setRankDesc] = useState('');
   const [rankFormError, setRankFormError] = useState<string | null>(null);
   const [isSavingRank, setIsSavingRank] = useState(false);
@@ -268,6 +275,7 @@ export default function AnalyticsPage() {
       setRankColor(r.color);
       setRankMinKg(String(r.min_volume_kg));
       setRankMaxKg(String(r.max_volume_kg));
+      setRankMinWorkouts(String(r.min_workouts ?? 0));
       setRankDesc(r.description);
     } else {
       setEditingRank(null);
@@ -276,8 +284,10 @@ export default function AnalyticsPage() {
       setRankColor('#5DD97C');
       const lastRank = ranks[ranks.length - 1];
       const nextMin = lastRank ? lastRank.max_volume_kg : 0;
+      const nextWorkouts = lastRank ? (lastRank.min_workouts ?? 0) + 10 : 0;
       setRankMinKg(String(nextMin));
-      setRankMaxKg(String(nextMin + 2500));
+      setRankMaxKg(String(nextMin + 50000));
+      setRankMinWorkouts(String(nextWorkouts));
       setRankDesc('');
     }
     setShowRankForm(true);
@@ -292,12 +302,17 @@ export default function AnalyticsPage() {
     }
     const minVal = Number(rankMinKg);
     const maxVal = Number(rankMaxKg);
+    const minWorkoutsVal = Number(rankMinWorkouts);
     if (!Number.isFinite(minVal) || minVal < 0) {
       setRankFormError('Min tonaj 0 veya daha büyük olmalıdır.');
       return;
     }
     if (!Number.isFinite(maxVal) || maxVal <= minVal) {
       setRankFormError('Maksimum tonaj değeri minimum değerden büyük olmalıdır.');
+      return;
+    }
+    if (!Number.isFinite(minWorkoutsVal) || minWorkoutsVal < 0) {
+      setRankFormError('Min antrenman sayısı 0 veya daha büyük olmalıdır.');
       return;
     }
 
@@ -309,6 +324,7 @@ export default function AnalyticsPage() {
         color: rankColor,
         min_volume_kg: minVal,
         max_volume_kg: maxVal,
+        min_workouts: Math.round(minWorkoutsVal),
         description: rankDesc.trim(),
       };
       const res = editingRank
@@ -419,11 +435,12 @@ export default function AnalyticsPage() {
   const totalWorkouts = workoutSessions.length;
   const totalExercises = workoutSessions.reduce((sum, s) => sum + (s.completed_exercises || 0), 0);
 
-  // Total sets, reps and volume calculated identically to mobile (no fake || 10 reps)
+  // Total sets, reps and volume calculated identically to mobile (excluding duration_only from sets)
   const { totalSets, totalReps, totalVolumeKg } = filteredCompletions.reduce(
     (acc, c) => {
+      const trackingType = getCompletionTrackingType(c);
       const { sets, reps, volume } = calculateCompletionVolume(c);
-      const setCount = sets > 0 ? sets : 0;
+      const setCount = trackingType === 'duration_only' ? 0 : sets > 0 ? sets : 0;
       const repCount = Array.isArray((c as any)?.setsDetail) && (c as any).setsDetail.length > 0
         ? (c as any).setsDetail.reduce((rSum: number, s: any) => rSum + (Number(s?.reps) || 0), 0)
         : setCount * reps;
@@ -476,16 +493,21 @@ export default function AnalyticsPage() {
   });
   const maxDailyCount = Math.max(...dailyWorkouts.map(d => d.count), 1);
 
-  // Personal Records (PRs) with Epley Estimated 1RM parity
+  // Personal Records (PRs) with Epley Estimated 1RM parity & Duration PRs
   const prNoteMap: Record<string, string> = {};
   filteredCompletions.forEach(c => {
-    if (c.notes) {
+    const cleanNote = stripDurationNoteTag(c.notes);
+    if (cleanNote) {
       const key = String(c.exercises?.name || `Hareket #${c.exerciseId}`).trim().toLowerCase();
       const { weight } = calculateCompletionVolume(c);
-      prNoteMap[`${key}|${weight}`] = c.notes;
+      prNoteMap[`${key}|${weight}`] = cleanNote;
     }
   });
   const prList = calculateExercisePRs(filteredCompletions).slice(0, 6);
+  const durationPRList = calculateDurationPRs(filteredCompletions).slice(0, 6);
+  const timedMinutes = calculateDurationMinutesForCompletions(filteredCompletions);
+  const allTimeTimedMinutes = calculateDurationMinutesForCompletions(completions);
+  const allTimeWorkouts = sessions.filter(isRealWorkoutSession).length;
 
   // Top Exercises by Volume
   const exerciseVolumeMap: Record<string, { name: string; volume: number; sets: number; maxWeight: number }> = {};
@@ -521,13 +543,19 @@ export default function AnalyticsPage() {
 
   // Cumulative Athlete Rank, Estimated Calories & Muscle Distribution (mobile parity)
   const allTimeVolumeKg = completions.reduce((sum, c) => sum + calculateCompletionVolume(c).volume, 0);
-  const athleteRank = calculateAthleteRank(allTimeVolumeKg, ranks.length > 0 ? ranks : undefined);
+  const athleteRank = calculateAthleteRank(
+    allTimeVolumeKg,
+    ranks.length > 0 ? ranks : undefined,
+    allTimeWorkouts,
+    allTimeTimedMinutes
+  );
   const estimatedCalories = calculateWorkoutCalories(
     workoutMinutes,
     totalVolumeKg,
     totalSets,
     latestWeight || 75,
-    totalReps
+    totalReps,
+    timedMinutes
   );
   const muscleDistribution = calculateMuscleDistribution(filteredCompletions);
 
@@ -655,10 +683,11 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="md:w-80 space-y-1.5">
-              <div className="flex justify-between text-xs">
+            <div className="md:w-96 space-y-1.5">
+              <div className="flex justify-between text-xs gap-2">
                 <span className="text-gray-400">
-                  Toplam Tonaj: <strong className="text-white">{(allTimeVolumeKg / 1000).toFixed(2)} ton</strong>
+                  Skor: <strong className="text-white">{athleteRank.effectiveScore.toLocaleString('tr-TR')}</strong>
+                  {' '}• <strong className="text-white">{athleteRank.totalWorkouts}</strong> ant.
                 </span>
                 <span className="font-bold" style={{ color: athleteRank.color }}>
                   %{athleteRank.pct}
@@ -672,7 +701,7 @@ export default function AnalyticsPage() {
               </div>
               <p className="text-[11px] text-gray-500 text-right">
                 {athleteRank.nextTitle
-                  ? `Sonraki: ${athleteRank.nextTitle} (${athleteRank.nextTarget.toLocaleString('tr-TR')} kg)`
+                  ? `Sonraki: ${athleteRank.nextTitle} (${athleteRank.nextTarget.toLocaleString('tr-TR')} puan • min ${athleteRank.nextMinWorkouts} ant.)`
                   : 'Maksimum seviyeye ulaşıldı'}
               </p>
             </div>
@@ -797,6 +826,49 @@ export default function AnalyticsPage() {
                 <p className="text-sm text-gray-300">
                   <span className="font-semibold text-white">{durationSessions.length} adet serbest süre kaydı ({gymHours > 0 ? `${gymHours}s ` : ''}{remainingGymMinutes}dk)</span> salonda geçirilen vakit olarak ayrıca tutulmaktadır; antrenman efor süresine eklenmeyerek çakışma ve süre şişmesi önlenmiştir.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {/* Personal Records & Duration PRs */}
+          {durationPRList.length > 0 && (
+            <div className="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-[#5DD97C]/10 border border-[#5DD97C]/25 flex items-center justify-center">
+                    <Clock size={16} className="text-[#5DD97C]" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white">En Uzun Süre Rekorları</h3>
+                    <p className="text-xs text-gray-400">Kardiyo ve süreli hareketlerde en iyi performanslar</p>
+                  </div>
+                </div>
+                <span className="text-xs text-gray-400">{durationPRList.length} kayıtlı hareket</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {durationPRList.map((dpr, idx) => (
+                  <div
+                    key={dpr.key}
+                    className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4 flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-[#5DD97C]">#{idx + 1}</span>
+                        <p className="font-semibold text-white text-sm truncate">{dpr.exerciseName}</p>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {dpr.trackingType === 'sets_duration'
+                          ? `${dpr.setsAtMax} set • Toplam ${formatDurationSeconds(dpr.totalDurationSeconds)}`
+                          : `Toplam ${formatDurationSeconds(dpr.totalDurationSeconds)}`}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-lg font-extrabold text-[#5DD97C]">
+                        {formatDurationSeconds(dpr.maxDurationSeconds)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -1074,23 +1146,45 @@ export default function AnalyticsPage() {
                             · {comp.users?.name || `Kullanıcı #${comp.userId}`}
                           </span>
                         </div>
-                        {comp.notes ? (
+                        {comp.notes && stripDurationNoteTag(comp.notes) ? (
                           <div className="text-xs text-purple-300 truncate mt-1 flex items-center gap-1 font-mono">
                             <MessageSquare size={11} className="text-purple-400 shrink-0" />
-                            <span>{comp.notes}</span>
+                            <span>{stripDurationNoteTag(comp.notes)}</span>
                           </div>
                         ) : null}
                       </div>
 
                       <div className="text-right shrink-0">
-                        <div className="text-xs font-extrabold text-[#4ECDC4] bg-[#4ECDC4]/10 px-2 py-0.5 rounded border border-[#4ECDC4]/20 inline-block mb-1">
-                          {comp.weight !== null && comp.weight !== undefined && Number(comp.weight) > 0
-                            ? `${comp.weight} kg`
-                            : 'Vücut Ağ.'}
-                        </div>
-                        <div className="text-xs text-gray-400 font-medium">
-                          {comp.sets || 1} set × {comp.reps} tekrar
-                        </div>
+                        {(() => {
+                          const durSec = extractCompletionDurationSeconds(comp);
+                          const mode = getCompletionTrackingType(comp);
+                          if (durSec > 0 && (Number(comp.reps) === 0 || mode !== 'weight_reps')) {
+                            return (
+                              <>
+                                <div className="text-xs font-extrabold text-[#5DD97C] bg-[#5DD97C]/10 px-2 py-0.5 rounded border border-[#5DD97C]/20 inline-block mb-1">
+                                  ⏱️ {formatDurationSeconds(durSec)}
+                                </div>
+                                <div className="text-xs text-gray-400 font-medium">
+                                  {mode === 'sets_duration'
+                                    ? `${comp.sets || 1} set`
+                                    : 'Süreli Efor'}
+                                </div>
+                              </>
+                            );
+                          }
+                          return (
+                            <>
+                              <div className="text-xs font-extrabold text-[#4ECDC4] bg-[#4ECDC4]/10 px-2 py-0.5 rounded border border-[#4ECDC4]/20 inline-block mb-1">
+                                {comp.weight !== null && comp.weight !== undefined && Number(comp.weight) > 0
+                                  ? `${comp.weight} kg`
+                                  : 'Vücut Ağ.'}
+                              </div>
+                              <div className="text-xs text-gray-400 font-medium">
+                                {comp.sets || 1} set × {comp.reps} tekrar
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   ))}
@@ -1217,10 +1311,10 @@ export default function AnalyticsPage() {
                     </div>
                   </div>
 
-                  {/* Volume Range (kg) */}
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Volume Range (kg) & Min Workouts */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-400 mb-1.5">Min Tonaj (kg) *</label>
+                      <label className="block text-xs font-semibold text-gray-400 mb-1.5">Min Tonaj / Puan *</label>
                       <input
                         type="number"
                         min="0"
@@ -1231,13 +1325,24 @@ export default function AnalyticsPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-400 mb-1.5">Sonraki Hedef / Max Tonaj (kg) *</label>
+                      <label className="block text-xs font-semibold text-gray-400 mb-1.5">Sonraki Hedef / Max *</label>
                       <input
                         type="number"
                         min="1"
                         required
                         value={rankMaxKg}
                         onChange={(e) => setRankMaxKg(e.target.value)}
+                        className="w-full bg-[#202020] border border-[#333] rounded-xl px-3.5 py-2 text-white text-sm focus:outline-none focus:border-[#FFD700]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-400 mb-1.5">Min Antrenman Sayısı *</label>
+                      <input
+                        type="number"
+                        min="0"
+                        required
+                        value={rankMinWorkouts}
+                        onChange={(e) => setRankMinWorkouts(e.target.value)}
                         className="w-full bg-[#202020] border border-[#333] rounded-xl px-3.5 py-2 text-white text-sm focus:outline-none focus:border-[#FFD700]"
                       />
                     </div>
@@ -1319,13 +1424,16 @@ export default function AnalyticsPage() {
                             {r.icon}
                           </div>
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <h5 className="font-bold text-white text-sm">{r.title}</h5>
                               <span
                                 className="text-[10px] font-bold px-2 py-0.5 rounded-md"
                                 style={{ backgroundColor: r.color + '20', color: r.color }}
                               >
                                 {r.min_volume_kg.toLocaleString('tr-TR')} - {r.max_volume_kg.toLocaleString('tr-TR')} kg
+                              </span>
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[#222] text-gray-300 border border-[#333]">
+                                min {r.min_workouts ?? 0} ant.
                               </span>
                             </div>
                             <p className="text-xs text-gray-400 mt-0.5">{r.description || 'Sporcu seviye eşiği'}</p>

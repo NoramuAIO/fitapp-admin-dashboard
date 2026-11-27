@@ -1,5 +1,12 @@
 import { useState } from 'react';
 import { apiFetch } from '@/lib/clientCache';
+import {
+    classifyExerciseByName,
+    ExerciseTrackingType,
+    formatDurationSeconds,
+    parseDurationToSeconds,
+    TRACKING_TYPE_LABELS,
+} from '@/lib/exerciseTracking';
 
 interface AddExerciseFormProps {
     workoutId?: number;
@@ -14,11 +21,52 @@ export default function AddExerciseForm({ workoutId, programId, onSuccess, onCan
         sets: 3,
         reps: 10,
         duration: '',
+        trackingType: 'weight_reps' as ExerciseTrackingType,
+        durationSeconds: 45,
         description: '',
         imageUrl: '',
         muscleGroup: ''
     });
+    const [manualMode, setManualMode] = useState(false);
     const [loading, setLoading] = useState(false);
+
+    const handleNameChange = (value: string) => {
+        if (manualMode) {
+            setNewExercise((prev) => ({ ...prev, name: value }));
+            return;
+        }
+        const suggested = classifyExerciseByName(value, newExercise.duration);
+        setNewExercise((prev) => ({
+            ...prev,
+            name: value,
+            trackingType: suggested.trackingType,
+            sets: suggested.defaultSets ?? (suggested.trackingType === 'duration_only' ? 1 : prev.sets || 3),
+            reps: suggested.trackingType === 'weight_reps' ? (prev.reps > 0 ? prev.reps : 10) : 0,
+            durationSeconds:
+                suggested.defaultDurationSeconds ??
+                (suggested.trackingType === 'duration_only' ? 600 : 45),
+            duration:
+                prev.duration ||
+                suggested.defaultDuration ||
+                (suggested.trackingType === 'weight_reps' ? '' : formatDurationSeconds(suggested.defaultDurationSeconds ?? 45, false)),
+        }));
+    };
+
+    const handleTrackingChange = (nextType: ExerciseTrackingType) => {
+        setManualMode(true);
+        const defaultSec = nextType === 'duration_only' ? 600 : 45;
+        setNewExercise((prev) => ({
+            ...prev,
+            trackingType: nextType,
+            sets: nextType === 'duration_only' ? 1 : prev.sets > 0 ? prev.sets : 3,
+            reps: nextType === 'weight_reps' ? (prev.reps > 0 ? prev.reps : 10) : 0,
+            durationSeconds: prev.durationSeconds > 0 ? prev.durationSeconds : defaultSec,
+            duration:
+                nextType === 'weight_reps'
+                    ? prev.duration
+                    : prev.duration || formatDurationSeconds(defaultSec, false),
+        }));
+    };
 
     const handleAddExercise = async () => {
         if (!newExercise.name.trim()) {
@@ -28,6 +76,10 @@ export default function AddExerciseForm({ workoutId, programId, onSuccess, onCan
 
         setLoading(true);
         try {
+            const parsedSec =
+                parseDurationToSeconds(newExercise.duration) ??
+                (newExercise.trackingType === 'weight_reps' ? null : newExercise.durationSeconds);
+
             const response = await apiFetch('/api/exercises', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -35,9 +87,11 @@ export default function AddExerciseForm({ workoutId, programId, onSuccess, onCan
                     workoutId,
                     programId,
                     name: newExercise.name.trim(),
-                    sets: newExercise.sets || 3,
-                    reps: newExercise.reps || 10,
-                    duration: newExercise.duration || null,
+                    sets: newExercise.trackingType === 'duration_only' ? 1 : newExercise.sets || 3,
+                    reps: newExercise.trackingType === 'weight_reps' ? newExercise.reps || 10 : 0,
+                    duration: newExercise.duration.trim() || null,
+                    trackingType: newExercise.trackingType,
+                    durationSeconds: parsedSec,
                     description: newExercise.description || null,
                     imageUrl: newExercise.imageUrl || null,
                     muscleGroup: newExercise.muscleGroup || null,
@@ -65,10 +119,22 @@ export default function AddExerciseForm({ workoutId, programId, onSuccess, onCan
                 <input
                     type="text"
                     value={newExercise.name}
-                    onChange={(e) => setNewExercise({ ...newExercise, name: e.target.value })}
+                    onChange={(e) => handleNameChange(e.target.value)}
                     className="bg-[#1A1A1A] text-white rounded-lg px-3 py-2 text-sm border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
                     placeholder="Hareket adı"
                 />
+                <select
+                    value={newExercise.trackingType}
+                    onChange={(e) => handleTrackingChange(e.target.value as ExerciseTrackingType)}
+                    className="bg-[#1A1A1A] text-white rounded-lg px-3 py-2 text-sm border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
+                    title="Takip Modu"
+                >
+                    {(Object.keys(TRACKING_TYPE_LABELS) as ExerciseTrackingType[]).map((mode) => (
+                        <option key={mode} value={mode}>
+                            {TRACKING_TYPE_LABELS[mode]}
+                        </option>
+                    ))}
+                </select>
                 <input
                     type="text"
                     value={newExercise.muscleGroup}
@@ -76,26 +142,38 @@ export default function AddExerciseForm({ workoutId, programId, onSuccess, onCan
                     className="bg-[#1A1A1A] text-white rounded-lg px-3 py-2 text-sm border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
                     placeholder="Kas grubu"
                 />
-                <input
-                    type="number"
-                    value={newExercise.sets}
-                    onChange={(e) => setNewExercise({ ...newExercise, sets: parseInt(e.target.value) || 0 })}
-                    className="bg-[#1A1A1A] text-white rounded-lg px-3 py-2 text-sm border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
-                    placeholder="Set"
-                />
-                <input
-                    type="number"
-                    value={newExercise.reps}
-                    onChange={(e) => setNewExercise({ ...newExercise, reps: parseInt(e.target.value) || 0 })}
-                    className="bg-[#1A1A1A] text-white rounded-lg px-3 py-2 text-sm border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
-                    placeholder="Tekrar"
-                />
+                {newExercise.trackingType !== 'duration_only' && (
+                    <input
+                        type="number"
+                        min={1}
+                        value={newExercise.sets}
+                        onChange={(e) => setNewExercise({ ...newExercise, sets: parseInt(e.target.value, 10) || 1 })}
+                        className="bg-[#1A1A1A] text-white rounded-lg px-3 py-2 text-sm border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
+                        placeholder="Set"
+                    />
+                )}
+                {newExercise.trackingType === 'weight_reps' ? (
+                    <input
+                        type="number"
+                        min={1}
+                        value={newExercise.reps}
+                        onChange={(e) => setNewExercise({ ...newExercise, reps: parseInt(e.target.value, 10) || 0 })}
+                        className="bg-[#1A1A1A] text-white rounded-lg px-3 py-2 text-sm border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
+                        placeholder="Tekrar"
+                    />
+                ) : null}
                 <input
                     type="text"
                     value={newExercise.duration}
                     onChange={(e) => setNewExercise({ ...newExercise, duration: e.target.value })}
                     className="bg-[#1A1A1A] text-white rounded-lg px-3 py-2 text-sm border border-[#2A2A2A] focus:outline-none focus:border-[#6366F1]"
-                    placeholder="Süre (dk)"
+                    placeholder={
+                        newExercise.trackingType === 'duration_only'
+                            ? 'Hedef Süre (ör: 15 dk)'
+                            : newExercise.trackingType === 'sets_duration'
+                                ? 'Set Süresi (ör: 45 sn)'
+                                : 'Süre (opsiyonel)'
+                    }
                 />
                 <input
                     type="text"

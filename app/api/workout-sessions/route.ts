@@ -1,6 +1,12 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 import {
+  encodeDurationNoteTag,
+  enrichExerciseWithTracking,
+  isMissingColumnError,
+} from '@/lib/exerciseApiHelpers';
+import { isTimedTrackingType } from '@/lib/exerciseTracking';
+import {
   getLocalDateString,
   isManualTimerSession,
   isRealWorkoutSession,
@@ -475,29 +481,68 @@ export async function POST(request: Request) {
       Number.isFinite(numericWorkoutId) &&
       numericWorkoutId > 0
     ) {
-      const { data: dayExercises } = await supabase
+      let { data: dayExercises, error: dayExErr } = await supabase
         .from('exercises')
-        .select('id, sets, reps')
+        .select('id, name, sets, reps, duration, muscleGroup, tracking_type, duration_seconds')
         .eq('dayId', numericWorkoutId)
         .order('orderIndex', { ascending: true });
 
+      if (dayExErr && isMissingColumnError(dayExErr)) {
+        const fallbackRes = await supabase
+          .from('exercises')
+          .select('id, name, sets, reps, duration, muscleGroup')
+          .eq('dayId', numericWorkoutId)
+          .order('orderIndex', { ascending: true });
+        dayExercises = fallbackRes.data as any;
+      }
+
       if (Array.isArray(dayExercises) && dayExercises.length > 0) {
         const completedIso = `${localDateStart}T12:00:00.000Z`;
-        const rows = dayExercises.map((ex: any) => ({
-          userId: parsedUserId,
-          exerciseId: ex.id,
-          sessionId: data.id,
-          sets: Math.max(1, Number(ex.sets) || 3),
-          reps: Math.max(1, Number(ex.reps) || 10),
-          weight: null,
-          notes: 'Admin panelinden tamamlandı',
-          completedAt: completedIso,
-        }));
-        const { error: adminCompErr } = await supabase.from('exercise_completions').insert(rows);
+        const rowsWithCols = dayExercises.map((rawEx: any) => {
+          const ex = enrichExerciseWithTracking(rawEx);
+          const timed = isTimedTrackingType(ex.trackingType);
+          const sets =
+            ex.trackingType === 'duration_only'
+              ? 1
+              : timed
+                ? Math.max(1, Number(ex.sets) || 3)
+                : Math.max(1, Number(ex.sets) || 3);
+          const reps = timed ? 0 : Math.max(1, Number(ex.reps) || 10);
+          const perSetDuration = ex.durationSeconds ?? 0;
+          const totalDurationSeconds =
+            timed && perSetDuration > 0 ? perSetDuration * sets : null;
+
+          return {
+            userId: parsedUserId,
+            exerciseId: ex.id,
+            sessionId: data.id,
+            sets,
+            reps,
+            weight: null,
+            duration_seconds: totalDurationSeconds,
+            notes: 'Admin panelinden tamamlandı',
+            completedAt: completedIso,
+          };
+        });
+        let { error: adminCompErr } = await supabase
+          .from('exercise_completions')
+          .insert(rowsWithCols);
+        if (adminCompErr && isMissingColumnError(adminCompErr)) {
+          const legacyRows = rowsWithCols.map(({ duration_seconds, ...rest }) => ({
+            ...rest,
+            notes: duration_seconds
+              ? encodeDurationNoteTag(duration_seconds, rest.notes)
+              : rest.notes,
+          }));
+          const fallbackInsert = await supabase
+            .from('exercise_completions')
+            .insert(legacyRows);
+          adminCompErr = fallbackInsert.error;
+        }
         if (adminCompErr) throw adminCompErr;
-        calculatedExercises = rows.length;
-        calculatedSets = rows.reduce((s, r) => s + r.sets, 0);
-        calculatedReps = rows.reduce((s, r) => s + r.sets * r.reps, 0);
+        calculatedExercises = rowsWithCols.length;
+        calculatedSets = rowsWithCols.reduce((s: number, r: any) => s + r.sets, 0);
+        calculatedReps = rowsWithCols.reduce((s: number, r: any) => s + r.sets * r.reps, 0);
       }
     }
 

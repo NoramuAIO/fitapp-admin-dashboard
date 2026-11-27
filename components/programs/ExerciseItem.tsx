@@ -2,6 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { GripVertical, Edit2, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
 import { apiFetch } from '@/lib/clientCache';
 import { Exercise } from './ExerciseSelectorModal';
+import {
+    ExerciseTrackingType,
+    formatDurationSeconds,
+    normalizeTrackingType,
+    parseDurationToSeconds,
+    TRACKING_TYPE_LABELS,
+} from '@/lib/exerciseTracking';
 
 interface ExerciseItemProps {
     workoutId?: number;
@@ -41,11 +48,16 @@ export default function ExerciseItem({
     const [isDraggable, setIsDraggable] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const resolvedTracking = normalizeTrackingType(
+        exercise.trackingType ?? (exercise as any).tracking_type,
+        exercise
+    );
     const [editData, setEditData] = useState({
         name: exercise.name,
         sets: String(exercise.sets ?? 3),
         reps: String(exercise.reps ?? 10),
         duration: exercise.duration || '',
+        trackingType: resolvedTracking,
         description: exercise.description || '',
         muscleGroup: exercise.muscleGroup || ''
     });
@@ -57,6 +69,10 @@ export default function ExerciseItem({
                 sets: String(exercise.sets ?? 3),
                 reps: String(exercise.reps ?? 10),
                 duration: exercise.duration || '',
+                trackingType: normalizeTrackingType(
+                    exercise.trackingType ?? (exercise as any).tracking_type,
+                    exercise
+                ),
                 description: exercise.description || '',
                 muscleGroup: exercise.muscleGroup || '',
             });
@@ -72,8 +88,15 @@ export default function ExerciseItem({
         }
         setIsSaving(true);
         try {
-            const parsedSets = Math.max(1, parseInt(editData.sets, 10) || 1);
-            const parsedReps = Math.max(1, parseInt(editData.reps, 10) || 1);
+            const parsedSets =
+                editData.trackingType === 'duration_only'
+                    ? 1
+                    : Math.max(1, parseInt(editData.sets, 10) || 1);
+            const parsedReps =
+                editData.trackingType === 'weight_reps'
+                    ? Math.max(1, parseInt(editData.reps, 10) || 1)
+                    : 0;
+            const parsedDurationSec = parseDurationToSeconds(editData.duration);
             const response = await apiFetch(`/api/exercises/${exercise.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -82,6 +105,8 @@ export default function ExerciseItem({
                     sets: parsedSets,
                     reps: parsedReps,
                     duration: editData.duration.trim() || null,
+                    trackingType: editData.trackingType,
+                    durationSeconds: parsedDurationSec,
                     description: editData.description.trim() || null,
                     muscleGroup: editData.muscleGroup.trim() || null,
                 }),
@@ -139,35 +164,72 @@ export default function ExerciseItem({
                         />
                     </div>
                     <div>
-                        <label className="text-xs text-gray-500 mb-1 block">Set</label>
-                        <input
-                            type="number"
-                            min="1"
-                            value={editData.sets}
-                            onChange={(e) => setEditData({ ...editData, sets: e.target.value })}
+                        <label className="text-xs text-gray-500 mb-1 block">Takip Modu</label>
+                        <select
+                            value={editData.trackingType}
+                            onChange={(e) => {
+                                const nextType = e.target.value as ExerciseTrackingType;
+                                const fallbackSec = nextType === 'duration_only' ? 600 : 45;
+                                setEditData((prev) => ({
+                                    ...prev,
+                                    trackingType: nextType,
+                                    sets: nextType === 'duration_only' ? '1' : prev.sets === '0' ? '3' : prev.sets,
+                                    reps: nextType === 'weight_reps' ? (prev.reps === '0' ? '10' : prev.reps) : '0',
+                                    duration:
+                                        nextType === 'weight_reps'
+                                            ? prev.duration
+                                            : prev.duration || formatDurationSeconds(fallbackSec, false),
+                                }));
+                            }}
                             className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
-                            placeholder="3"
-                        />
+                        >
+                            {(Object.keys(TRACKING_TYPE_LABELS) as ExerciseTrackingType[]).map((mode) => (
+                                <option key={mode} value={mode}>
+                                    {TRACKING_TYPE_LABELS[mode]}
+                                </option>
+                            ))}
+                        </select>
                     </div>
+                    {editData.trackingType !== 'duration_only' && (
+                        <div>
+                            <label className="text-xs text-gray-500 mb-1 block">Set</label>
+                            <input
+                                type="number"
+                                min="1"
+                                value={editData.sets}
+                                onChange={(e) => setEditData({ ...editData, sets: e.target.value })}
+                                className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
+                                placeholder="3"
+                            />
+                        </div>
+                    )}
+                    {editData.trackingType === 'weight_reps' && (
+                        <div>
+                            <label className="text-xs text-gray-500 mb-1 block">Tekrar</label>
+                            <input
+                                type="number"
+                                min="1"
+                                value={editData.reps}
+                                onChange={(e) => setEditData({ ...editData, reps: e.target.value })}
+                                className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
+                                placeholder="10"
+                            />
+                        </div>
+                    )}
                     <div>
-                        <label className="text-xs text-gray-500 mb-1 block">Tekrar</label>
-                        <input
-                            type="number"
-                            min="1"
-                            value={editData.reps}
-                            onChange={(e) => setEditData({ ...editData, reps: e.target.value })}
-                            className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
-                            placeholder="10"
-                        />
-                    </div>
-                    <div>
-                        <label className="text-xs text-gray-500 mb-1 block">Süre</label>
+                        <label className="text-xs text-gray-500 mb-1 block">
+                            {editData.trackingType === 'duration_only'
+                                ? 'Hedef Süre'
+                                : editData.trackingType === 'sets_duration'
+                                    ? 'Set Süresi'
+                                    : 'Süre (opsiyonel)'}
+                        </label>
                         <input
                             type="text"
                             value={editData.duration}
                             onChange={(e) => setEditData({ ...editData, duration: e.target.value })}
                             className="w-full bg-[#0F0F0F] border border-[#2A2A2A] text-white rounded-lg px-3 py-2 text-sm focus:border-[#6366F1] focus:outline-none"
-                            placeholder="Örn: 60 saniye"
+                            placeholder={editData.trackingType === 'duration_only' ? 'Örn: 15 dk' : 'Örn: 45 sn'}
                         />
                     </div>
                     <div>
@@ -264,22 +326,39 @@ export default function ExerciseItem({
                 </div>
 
                 <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-sm text-white">{exercise.name}</span>
                         {exercise.muscleGroup && (
                             <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-0.5 rounded border border-white/5">
                                 {exercise.muscleGroup}
                             </span>
                         )}
+                        {resolvedTracking !== 'weight_reps' && (
+                            <span className="text-[10px] bg-[#5DD97C]/10 text-[#5DD97C] px-2 py-0.5 rounded border border-[#5DD97C]/25">
+                                {TRACKING_TYPE_LABELS[resolvedTracking]}
+                            </span>
+                        )}
                     </div>
                     <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
-                        <span>{exercise.sets} set</span>
-                        <span>•</span>
-                        <span>{exercise.reps} tekrar</span>
-                        {exercise.duration && (
+                        {resolvedTracking === 'duration_only' ? (
+                            <span>Süre: {exercise.duration || '10 dk'}</span>
+                        ) : resolvedTracking === 'sets_duration' ? (
                             <>
+                                <span>{exercise.sets} set</span>
                                 <span>•</span>
-                                <span>{exercise.duration}</span>
+                                <span>{exercise.duration || '45 sn'}</span>
+                            </>
+                        ) : (
+                            <>
+                                <span>{exercise.sets} set</span>
+                                <span>•</span>
+                                <span>{exercise.reps} tekrar</span>
+                                {exercise.duration && (
+                                    <>
+                                        <span>•</span>
+                                        <span>{exercise.duration}</span>
+                                    </>
+                                )}
                             </>
                         )}
                     </div>

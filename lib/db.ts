@@ -66,6 +66,8 @@ export async function initializeDatabase() {
         sets INTEGER NOT NULL,
         reps INTEGER NOT NULL,
         duration VARCHAR(50),
+        tracking_type VARCHAR(30) DEFAULT 'weight_reps',
+        duration_seconds INTEGER,
         description TEXT,
         "imageUrl" TEXT,
         "muscleGroup" VARCHAR(100),

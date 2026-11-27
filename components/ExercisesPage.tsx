@@ -6,6 +6,16 @@ import { Search, Filter, Trash2, Plus, Upload, Activity, Dumbbell, Edit2, Histor
 import { useConfirm } from '@/components/ConfirmModal';
 import { apiFetch, invalidateApiCache } from '@/lib/clientCache';
 import { ISTANBUL_TZ } from '@/lib/fitnessCalculations';
+import {
+  classifyExerciseByName,
+  ExerciseTrackingType,
+  extractDurationSecondsFromNotes,
+  formatDurationSeconds,
+  normalizeTrackingType,
+  parseDurationToSeconds,
+  stripDurationNoteTag,
+  TRACKING_TYPE_LABELS,
+} from '@/lib/exerciseTracking';
 
 interface Exercise {
   id: number;
@@ -15,6 +25,10 @@ interface Exercise {
   sets: number;
   reps: number;
   duration?: string;
+  trackingType?: ExerciseTrackingType;
+  tracking_type?: string;
+  durationSeconds?: number | null;
+  duration_seconds?: number | null;
   description?: string;
   imageUrl?: string;
   muscleGroup?: string | null;
@@ -67,6 +81,8 @@ export default function ExercisesPage() {
     sets: '3',
     reps: '10',
     duration: '',
+    trackingType: 'weight_reps' as ExerciseTrackingType,
+    durationSeconds: '45',
     description: '',
     imageUrl: '',
     muscleGroup: '',
@@ -116,8 +132,18 @@ export default function ExercisesPage() {
       return;
     }
 
-    const parsedSets = Math.max(1, parseInt(formData.sets, 10) || 3);
-    const parsedReps = Math.max(1, parseInt(formData.reps, 10) || 10);
+    const resolvedMode = normalizeTrackingType(formData.trackingType, {
+      name: formData.name.trim(),
+      duration: formData.duration.trim(),
+    });
+    const parsedSets =
+      resolvedMode === 'duration_only' ? 1 : Math.max(1, parseInt(formData.sets, 10) || 3);
+    const parsedReps =
+      resolvedMode === 'weight_reps' ? Math.max(1, parseInt(formData.reps, 10) || 10) : 0;
+    const explicitSec = parseInt(formData.durationSeconds, 10);
+    const parsedDurationSec =
+      parseDurationToSeconds(formData.duration) ??
+      (Number.isFinite(explicitSec) && explicitSec > 0 ? explicitSec : null);
 
     try {
       const url = editingExercise ? `/api/exercises/${editingExercise.id}` : '/api/exercises';
@@ -133,6 +159,8 @@ export default function ExercisesPage() {
           sets: parsedSets,
           reps: parsedReps,
           duration: formData.duration.trim() || null,
+          trackingType: resolvedMode,
+          durationSeconds: parsedDurationSec,
           description: formData.description.trim() || null,
           imageUrl: formData.imageUrl.trim() || null,
           muscleGroup: formData.muscleGroup.trim() || null,
@@ -197,6 +225,13 @@ export default function ExercisesPage() {
       sets: String(exercise.sets ?? 3),
       reps: String(exercise.reps ?? 10),
       duration: exercise.duration || '',
+      trackingType: normalizeTrackingType(exercise.trackingType ?? exercise.tracking_type, exercise),
+      durationSeconds: String(
+        exercise.durationSeconds ??
+          exercise.duration_seconds ??
+          parseDurationToSeconds(exercise.duration) ??
+          (normalizeTrackingType(exercise.trackingType ?? exercise.tracking_type, exercise) === 'duration_only' ? 600 : 45)
+      ),
       description: exercise.description || '',
       imageUrl: exercise.imageUrl || '',
       muscleGroup: exercise.muscleGroup ?? exercise.muscle_group ?? '',
@@ -230,6 +265,8 @@ export default function ExercisesPage() {
       sets: '3',
       reps: '10',
       duration: '',
+      trackingType: 'weight_reps' as ExerciseTrackingType,
+      durationSeconds: '45',
       description: '',
       imageUrl: '',
       muscleGroup: '',
@@ -608,40 +645,87 @@ export default function ExercisesPage() {
 
                   {/* Exercise Info */}
                   <div className="mb-4">
-                    <h3 className="text-lg font-bold text-white mb-2">{exercise.name}</h3>
-                    {exercise.description && (
-                      <p className="text-sm text-gray-400 mb-3">{exercise.description}</p>
-                    )}
-                    
-                    {/* Program Badge */}
                     {(() => {
-                      const pid = exercise.programId ?? exercise.program_id;
-                      const progName =
-                        exercise.program_name || (pid ? programNameMap.get(Number(pid)) : undefined);
-                      return progName ? (
-                        <span className="inline-block bg-purple-500/20 text-purple-400 px-3 py-1 rounded-lg text-xs font-medium mb-3">
-                          {progName}
-                        </span>
-                      ) : null;
-                    })()}
+                      const mode = normalizeTrackingType(
+                        exercise.trackingType ?? exercise.tracking_type,
+                        exercise
+                      );
+                      return (
+                        <>
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <h3 className="text-lg font-bold text-white">{exercise.name}</h3>
+                            <span
+                              className={`shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                                mode === 'duration_only'
+                                  ? 'bg-[#5DD97C]/10 text-[#5DD97C] border-[#5DD97C]/25'
+                                  : mode === 'sets_duration'
+                                    ? 'bg-[#4ECDC4]/10 text-[#4ECDC4] border-[#4ECDC4]/25'
+                                    : 'bg-[#1F1F28] text-gray-300 border-[#333]'
+                              }`}
+                            >
+                              {TRACKING_TYPE_LABELS[mode]}
+                            </span>
+                          </div>
+                          {exercise.description && (
+                            <p className="text-sm text-gray-400 mb-3">{exercise.description}</p>
+                          )}
 
-                    {/* Stats */}
-                    <div className="flex gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-400">Set:</span>
-                        <span className="text-white font-semibold ml-1">{exercise.sets}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">Tekrar:</span>
-                        <span className="text-white font-semibold ml-1">{exercise.reps}</span>
-                      </div>
-                      {exercise.duration && (
-                        <div>
-                          <span className="text-gray-400">Süre:</span>
-                          <span className="text-white font-semibold ml-1">{exercise.duration}</span>
-                        </div>
-                      )}
-                    </div>
+                          {/* Program Badge */}
+                          {(() => {
+                            const pid = exercise.programId ?? exercise.program_id;
+                            const progName =
+                              exercise.program_name || (pid ? programNameMap.get(Number(pid)) : undefined);
+                            return progName ? (
+                              <span className="inline-block bg-purple-500/20 text-purple-400 px-3 py-1 rounded-lg text-xs font-medium mb-3">
+                                {progName}
+                              </span>
+                            ) : null;
+                          })()}
+
+                          {/* Stats */}
+                          <div className="flex flex-wrap gap-4 text-sm">
+                            {mode === 'duration_only' ? (
+                              <div>
+                                <span className="text-gray-400">Hedef Süre:</span>
+                                <span className="text-white font-semibold ml-1">
+                                  {exercise.duration || '10 dk'}
+                                </span>
+                              </div>
+                            ) : mode === 'sets_duration' ? (
+                              <>
+                                <div>
+                                  <span className="text-gray-400">Set:</span>
+                                  <span className="text-white font-semibold ml-1">{exercise.sets}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-400">Süre:</span>
+                                  <span className="text-white font-semibold ml-1">
+                                    {exercise.duration || '45 sn'}
+                                  </span>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div>
+                                  <span className="text-gray-400">Set:</span>
+                                  <span className="text-white font-semibold ml-1">{exercise.sets}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-400">Tekrar:</span>
+                                  <span className="text-white font-semibold ml-1">{exercise.reps}</span>
+                                </div>
+                                {exercise.duration && (
+                                  <div>
+                                    <span className="text-gray-400">Süre:</span>
+                                    <span className="text-white font-semibold ml-1">{exercise.duration}</span>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {/* Actions */}
@@ -813,33 +897,142 @@ export default function ExercisesPage() {
                 <input
                   type="text"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) => {
+                    const nextName = e.target.value;
+                    if (!editingExercise) {
+                      const suggested = classifyExerciseByName(nextName, formData.duration);
+                      setFormData((prev) => ({
+                        ...prev,
+                        name: nextName,
+                        trackingType: suggested.trackingType,
+                        sets:
+                          suggested.defaultSets !== undefined
+                            ? String(suggested.defaultSets)
+                            : prev.sets,
+                        reps:
+                          suggested.trackingType === 'weight_reps'
+                            ? prev.reps === '0'
+                              ? '10'
+                              : prev.reps
+                            : '0',
+                        durationSeconds:
+                          suggested.defaultDurationSeconds !== undefined
+                            ? String(suggested.defaultDurationSeconds)
+                            : prev.durationSeconds,
+                        duration:
+                          prev.duration ||
+                          suggested.defaultDuration ||
+                          (suggested.trackingType === 'weight_reps'
+                            ? ''
+                            : formatDurationSeconds(
+                                suggested.defaultDurationSeconds ?? 45,
+                                false
+                              )),
+                      }));
+                    } else {
+                      setFormData({ ...formData, name: nextName });
+                    }
+                  }}
                   className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
                   required
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">Takip Modu *</label>
+                <select
+                  value={formData.trackingType}
+                  onChange={(e) => {
+                    const nextType = e.target.value as ExerciseTrackingType;
+                    const fallbackSec = nextType === 'duration_only' ? 600 : 45;
+                    setFormData((prev) => ({
+                      ...prev,
+                      trackingType: nextType,
+                      sets:
+                        nextType === 'duration_only'
+                          ? '1'
+                          : prev.sets === '0'
+                            ? '3'
+                            : prev.sets,
+                      reps:
+                        nextType === 'weight_reps'
+                          ? prev.reps === '0'
+                            ? '10'
+                            : prev.reps
+                          : '0',
+                      durationSeconds:
+                        prev.durationSeconds && Number(prev.durationSeconds) > 0
+                          ? prev.durationSeconds
+                          : String(fallbackSec),
+                      duration:
+                        nextType === 'weight_reps'
+                          ? prev.duration
+                          : prev.duration || formatDurationSeconds(fallbackSec, false),
+                    }));
+                  }}
+                  className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+                >
+                  {(Object.keys(TRACKING_TYPE_LABELS) as ExerciseTrackingType[]).map((mode) => (
+                    <option key={mode} value={mode}>
+                      {TRACKING_TYPE_LABELS[mode]}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1.5">
+                  {formData.trackingType === 'duration_only'
+                    ? 'Mobilde sadece süre/kronometre gösterilir (set, tekrar ve kilo kutuları gizlenir).'
+                    : formData.trackingType === 'sets_duration'
+                      ? 'Mobilde set × süre sayacı gösterilir (tekrar ve ağırlık alanı gizlenir).'
+                      : 'Klasik takip: Ağırlık (vücut ağırlığında opsiyonel) + Set + Tekrar.'}
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-2">Set Sayısı</label>
-                  <input
-                    type="number"
-                    value={formData.sets}
-                    onChange={(e) => setFormData({ ...formData, sets: e.target.value })}
-                    className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
-                    min="1"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-2">Tekrar Sayısı</label>
-                  <input
-                    type="number"
-                    value={formData.reps}
-                    onChange={(e) => setFormData({ ...formData, reps: e.target.value })}
-                    className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
-                    min="1"
-                  />
-                </div>
+                {formData.trackingType !== 'duration_only' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">Set Sayısı</label>
+                    <input
+                      type="number"
+                      value={formData.sets}
+                      onChange={(e) => setFormData({ ...formData, sets: e.target.value })}
+                      className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+                      min="1"
+                    />
+                  </div>
+                )}
+                {formData.trackingType === 'weight_reps' ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">Tekrar Sayısı</label>
+                    <input
+                      type="number"
+                      value={formData.reps}
+                      onChange={(e) => setFormData({ ...formData, reps: e.target.value })}
+                      className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+                      min="1"
+                    />
+                  </div>
+                ) : (
+                  <div className={formData.trackingType === 'duration_only' ? 'col-span-2' : ''}>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                      {formData.trackingType === 'duration_only' ? 'Hedef Süre (saniye)' : 'Set Başı Süre (saniye)'}
+                    </label>
+                    <input
+                      type="number"
+                      min="5"
+                      value={formData.durationSeconds}
+                      onChange={(e) => {
+                        const sec = Math.max(0, parseInt(e.target.value, 10) || 0);
+                        setFormData({
+                          ...formData,
+                          durationSeconds: e.target.value,
+                          duration: sec > 0 ? formatDurationSeconds(sec, false) : formData.duration,
+                        });
+                      }}
+                      className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+                      placeholder={formData.trackingType === 'duration_only' ? 'Örn: 900' : 'Örn: 45'}
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -849,18 +1042,28 @@ export default function ExercisesPage() {
                   value={formData.muscleGroup}
                   onChange={(e) => setFormData({ ...formData, muscleGroup: e.target.value })}
                   className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
-                  placeholder="Örn: Göğüs, Sırt, Bacak"
+                  placeholder="Örn: Göğüs, Sırt, Bacak, Kardiyo"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-2">Süre (Opsiyonel)</label>
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  {formData.trackingType === 'weight_reps' ? 'Süre (Opsiyonel)' : 'Görünen Süre Etiketi'}
+                </label>
                 <input
                   type="text"
                   value={formData.duration}
-                  onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
+                  onChange={(e) => {
+                    const nextDur = e.target.value;
+                    const parsed = parseDurationToSeconds(nextDur);
+                    setFormData({
+                      ...formData,
+                      duration: nextDur,
+                      durationSeconds: parsed ? String(parsed) : formData.durationSeconds,
+                    });
+                  }}
                   className="w-full bg-[#0F0F0F] text-white rounded-lg px-4 py-3 border border-[#2A2A2A] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
-                  placeholder="Örn: 30 saniye"
+                  placeholder={formData.trackingType === 'duration_only' ? 'Örn: 15 dakika' : 'Örn: 45 saniye'}
                 />
               </div>
 
@@ -976,25 +1179,42 @@ export default function ExercisesPage() {
                     {/* Max Weight */}
                     <div className="bg-[#141414] rounded-xl p-4 border border-[#2A2A2A]">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-gray-400 font-medium">En Yüksek Ağırlık</span>
+                        <span className="text-xs text-gray-400 font-medium">
+                          {exerciseHistory.some((h: any) => Number(h.durationSeconds ?? h.duration_seconds) > 0 || extractDurationSecondsFromNotes(h.notes))
+                            ? 'En Uzun Süre'
+                            : 'En Yüksek Ağırlık'}
+                        </span>
                         <TrendingUp size={16} className="text-[#4ECDC4]" />
                       </div>
                       <div className="text-2xl font-bold text-[#4ECDC4]">
                         {(() => {
+                          const durations = exerciseHistory
+                            .map((h: any) => Number(h.durationSeconds ?? h.duration_seconds) || extractDurationSecondsFromNotes(h.notes) || 0)
+                            .filter((d) => d > 0);
+                          if (durations.length > 0 && exerciseHistory.every((h) => Number(h.reps) === 0 || Number(h.weight) <= 0)) {
+                            return formatDurationSeconds(Math.max(...durations));
+                          }
                           const weights = exerciseHistory.map(h => Number(h.weight) || 0).filter(w => w > 0);
                           return weights.length > 0 ? `${Math.max(...weights)} kg` : 'Vücut Ağırlığı';
                         })()}
                       </div>
                     </div>
 
-                    {/* Latest Weight */}
+                    {/* Latest Weight / Duration */}
                     <div className="bg-[#141414] rounded-xl p-4 border border-[#2A2A2A]">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs text-gray-400 font-medium">Son Antrenman</span>
                         <Calendar size={16} className="text-[#5DD97C]" />
                       </div>
                       <div className="text-2xl font-bold text-[#5DD97C]">
-                        {exerciseHistory[0]?.weight ? `${exerciseHistory[0].weight} kg` : 'Vücut Ağırlığı'}
+                        {(() => {
+                          const first: any = exerciseHistory[0];
+                          const firstDur = first ? Number(first.durationSeconds ?? first.duration_seconds) || extractDurationSecondsFromNotes(first.notes) || 0 : 0;
+                          if (firstDur > 0 && Number(first?.reps) === 0) {
+                            return formatDurationSeconds(firstDur);
+                          }
+                          return first?.weight ? `${first.weight} kg` : 'Vücut Ağırlığı';
+                        })()}
                       </div>
                     </div>
 
@@ -1019,13 +1239,20 @@ export default function ExercisesPage() {
                             <th className="py-3 px-4">Tarih & Saat</th>
                             <th className="py-3 px-4">Kullanıcı</th>
                             <th className="py-3 px-4">Ağırlık</th>
-                            <th className="py-3 px-4">Tekrar</th>
+                            <th className="py-3 px-4">Tekrar / Süre</th>
                             <th className="py-3 px-4">Set</th>
                             <th className="py-3 px-4">Ekipman / Makine Notu</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#2A2A2A]">
-                          {exerciseHistory.map((item) => (
+                          {exerciseHistory.map((item: any) => {
+                            const durSec =
+                              Number(item.durationSeconds ?? item.duration_seconds) ||
+                              extractDurationSecondsFromNotes(item.notes) ||
+                              0;
+                            const cleanNote = stripDurationNoteTag(item.cleanNotes ?? item.notes);
+                            const isTimedRow = durSec > 0 && Number(item.reps) === 0;
+                            return (
                             <tr key={item.id} className="hover:bg-[#1E1E1E]/50 transition-colors">
                               <td className="py-3 px-4 text-gray-300 font-medium whitespace-nowrap">
                                 {item.completedAt
@@ -1046,29 +1273,36 @@ export default function ExercisesPage() {
                                 </div>
                               </td>
                               <td className="py-3 px-4 whitespace-nowrap">
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-[#4ECDC4]/10 text-[#4ECDC4] border border-[#4ECDC4]/20">
-                                  {item.weight !== null && item.weight !== undefined && Number(item.weight) > 0
-                                    ? `${item.weight} kg`
-                                    : 'Vücut Ağırlığı'}
-                                </span>
+                                {isTimedRow ? (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-[#5DD97C]/10 text-[#5DD97C] border border-[#5DD97C]/20">
+                                    Süreli Takip
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-[#4ECDC4]/10 text-[#4ECDC4] border border-[#4ECDC4]/20">
+                                    {item.weight !== null && item.weight !== undefined && Number(item.weight) > 0
+                                      ? `${item.weight} kg`
+                                      : 'Vücut Ağırlığı'}
+                                  </span>
+                                )}
                               </td>
                               <td className="py-3 px-4 text-white font-bold whitespace-nowrap">
-                                {item.reps} tekrar
+                                {isTimedRow ? formatDurationSeconds(durSec) : `${item.reps} tekrar`}
                               </td>
                               <td className="py-3 px-4 text-gray-400 whitespace-nowrap">
                                 {item.sets || 1} set
                               </td>
                               <td className="py-3 px-4">
-                                {item.notes ? (
+                                {cleanNote ? (
                                   <span className="inline-block text-xs text-gray-200 bg-[#1F1F1F] px-2.5 py-1 rounded-md border border-[#333] font-mono">
-                                    {item.notes}
+                                    {cleanNote}
                                   </span>
                                 ) : (
                                   <span className="text-gray-600 text-xs italic">-</span>
                                 )}
                               </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

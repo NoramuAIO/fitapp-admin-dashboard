@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { enrichExerciseWithTracking } from '@/lib/exerciseApiHelpers';
 import {
   detachOrDeleteExercises,
   parsePositiveInt,
@@ -61,9 +62,9 @@ export async function GET(request: Request) {
       name: workout.name || workout.dayName,
       exercises: lite
         ? []
-        : (workout.exercises || []).sort(
-            (a: any, b: any) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0)
-          ),
+        : (workout.exercises || [])
+            .map((ex: any) => enrichExerciseWithTracking(ex))
+            .sort((a: any, b: any) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0)),
     }));
 
     return NextResponse.json(workouts, { headers: NO_STORE_HEADERS });

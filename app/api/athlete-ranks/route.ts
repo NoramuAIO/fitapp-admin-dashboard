@@ -15,12 +15,19 @@ interface AthleteRank {
   color: string;
   min_volume_kg: number;
   max_volume_kg: number;
+  min_workouts: number;
   description: string;
 }
 
+const DEFAULT_MIN_WORKOUTS = [0, 3, 8, 18, 35, 60, 100];
+
 function mapRankRow(item: any): AthleteRank {
   let meta = { icon: '⚡', color: '#5DD97C' };
-  let content = { min_volume_kg: 0, max_volume_kg: 1000, description: '' };
+  let content: { min_volume_kg?: number; max_volume_kg?: number; min_workouts?: number; description?: string } = {
+    min_volume_kg: 0,
+    max_volume_kg: 15000,
+    description: '',
+  };
   try {
     if (item.target_time) meta = JSON.parse(item.target_time);
   } catch {}
@@ -34,9 +41,44 @@ function mapRankRow(item: any): AthleteRank {
     icon: meta.icon || '⚡',
     color: meta.color || '#5DD97C',
     min_volume_kg: Number(content.min_volume_kg) || 0,
-    max_volume_kg: Number(content.max_volume_kg) || 1000,
+    max_volume_kg: Number(content.max_volume_kg) || 15000,
+    min_workouts:
+      content.min_workouts !== undefined && content.min_workouts !== null
+        ? Math.max(0, Number(content.min_workouts) || 0)
+        : -1,
     description: content.description || '',
   };
+}
+
+function finalizeSortedRanks(rows: any[]): AthleteRank[] {
+  return (rows || [])
+    .map(mapRankRow)
+    .sort((a, b) => a.min_volume_kg - b.min_volume_kg)
+    .map((r, idx) => ({
+      ...r,
+      min_workouts:
+        r.min_workouts >= 0
+          ? r.min_workouts
+          : DEFAULT_ATHLETE_RANKS[idx]?.min_workouts ??
+            DEFAULT_MIN_WORKOUTS[Math.min(idx, DEFAULT_MIN_WORKOUTS.length - 1)] ??
+            0,
+    }));
+}
+
+function buildDefaultRankSeedRows() {
+  return DEFAULT_ATHLETE_RANKS.map((r, i) => ({
+    title: r.title,
+    widget_type: 'athlete_rank',
+    target_time: JSON.stringify({ icon: r.icon, color: r.color }),
+    custom_content: JSON.stringify({
+      min_volume_kg: r.min_volume_kg,
+      max_volume_kg: r.max_volume_kg,
+      min_workouts: r.min_workouts,
+      description: r.description,
+    }),
+    is_active: true,
+    display_order: i + 1,
+  }));
 }
 
 let seedInFlight: Promise<AthleteRank[]> | null = null;
@@ -50,23 +92,12 @@ async function ensureSeededRanks(): Promise<AthleteRank[]> {
         .eq('widget_type', 'athlete_rank')
         .order('display_order', { ascending: true });
       if (recheck && recheck.length > 0) {
-        return recheck.map(mapRankRow).sort((a, b) => a.min_volume_kg - b.min_volume_kg);
+        return finalizeSortedRanks(recheck);
       }
-      const seedRows = DEFAULT_ATHLETE_RANKS.map((r, i) => ({
-        title: r.title,
-        widget_type: 'athlete_rank',
-        target_time: JSON.stringify({ icon: r.icon, color: r.color }),
-        custom_content: JSON.stringify({
-          min_volume_kg: r.min_volume_kg,
-          max_volume_kg: r.max_volume_kg,
-          description: r.description,
-        }),
-        is_active: true,
-        display_order: i + 1,
-      }));
+      const seedRows = buildDefaultRankSeedRows();
       const { data: seeded, error } = await supabase.from('custom_widgets').insert(seedRows).select();
       if (error) throw error;
-      return (seeded || []).map(mapRankRow).sort((a, b) => a.min_volume_kg - b.min_volume_kg);
+      return finalizeSortedRanks(seeded || []);
     })().finally(() => {
       seedInFlight = null;
     });
@@ -88,7 +119,7 @@ export async function GET(request: Request) {
     if (error) throw error;
 
     if (data && data.length > 0) {
-      const parsedRanks = data.map(mapRankRow).sort((a, b) => a.min_volume_kg - b.min_volume_kg);
+      const parsedRanks = finalizeSortedRanks(data);
       return NextResponse.json(parsedRanks, { headers: NO_STORE_HEADERS });
     }
 
@@ -136,18 +167,7 @@ export async function POST(request: Request) {
         .eq('widget_type', 'athlete_rank');
       if (clearErr) throw clearErr;
 
-      const seedRows = DEFAULT_ATHLETE_RANKS.map((r, i) => ({
-        title: r.title,
-        widget_type: 'athlete_rank',
-        target_time: JSON.stringify({ icon: r.icon, color: r.color }),
-        custom_content: JSON.stringify({
-          min_volume_kg: r.min_volume_kg,
-          max_volume_kg: r.max_volume_kg,
-          description: r.description,
-        }),
-        is_active: true,
-        display_order: i + 1,
-      }));
+      const seedRows = buildDefaultRankSeedRows();
       const { data: inserted, error: insertErr } = await supabase
         .from('custom_widgets')
         .insert(seedRows)
@@ -155,15 +175,16 @@ export async function POST(request: Request) {
       if (insertErr) throw insertErr;
 
       return NextResponse.json(
-        (inserted || []).map(mapRankRow).sort((a, b) => a.min_volume_kg - b.min_volume_kg),
+        finalizeSortedRanks(inserted || []),
         { headers: NO_STORE_HEADERS }
       );
     }
 
-    const { title, icon, color, min_volume_kg, max_volume_kg, description } = body;
+    const { title, icon, color, min_volume_kg, max_volume_kg, min_workouts, description } = body;
     const cleanTitle = typeof title === 'string' ? title.trim() : '';
     const minVol = parseNonNegativeInt(min_volume_kg) ?? 0;
     const maxVol = parsePositiveInt(max_volume_kg);
+    const minWorkouts = parseNonNegativeInt(min_workouts) ?? 0;
 
     if (!cleanTitle || !maxVol || maxVol <= minVol) {
       return NextResponse.json(
@@ -179,6 +200,7 @@ export async function POST(request: Request) {
       custom_content: JSON.stringify({
         min_volume_kg: minVol,
         max_volume_kg: maxVol,
+        min_workouts: minWorkouts,
         description: description || '',
       }),
       is_active: true,
@@ -192,7 +214,11 @@ export async function POST(request: Request) {
       .single();
 
     if (error) throw error;
-    return NextResponse.json(mapRankRow(data), { status: 201, headers: NO_STORE_HEADERS });
+    const mapped = mapRankRow(data);
+    return NextResponse.json(
+      { ...mapped, min_workouts: mapped.min_workouts >= 0 ? mapped.min_workouts : minWorkouts },
+      { status: 201, headers: NO_STORE_HEADERS }
+    );
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },
@@ -207,7 +233,7 @@ export async function PUT(request: Request) {
 
   try {
     const body = await request.json();
-    const { id, title, icon, color, min_volume_kg, max_volume_kg, description } = body;
+    const { id, title, icon, color, min_volume_kg, max_volume_kg, min_workouts, description } = body;
 
     const numericId = parsePositiveInt(id);
     if (!numericId) return NextResponse.json({ error: 'Valid ID is required' }, { status: 400 });
@@ -215,6 +241,7 @@ export async function PUT(request: Request) {
     const cleanTitle = typeof title === 'string' ? title.trim() : '';
     const minVol = parseNonNegativeInt(min_volume_kg) ?? 0;
     const maxVol = parsePositiveInt(max_volume_kg);
+    const minWorkouts = parseNonNegativeInt(min_workouts) ?? 0;
     if (!cleanTitle || !maxVol || maxVol <= minVol) {
       return NextResponse.json(
         { error: 'Geçerli başlık ve max_volume_kg > min_volume_kg gereklidir' },
@@ -228,6 +255,7 @@ export async function PUT(request: Request) {
       custom_content: JSON.stringify({
         min_volume_kg: minVol,
         max_volume_kg: maxVol,
+        min_workouts: minWorkouts,
         description: description || '',
       }),
       display_order: minVol,

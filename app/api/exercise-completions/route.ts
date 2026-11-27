@@ -1,6 +1,12 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 import {
+  encodeDurationNoteTag,
+  enrichCompletionWithDuration,
+  isMissingColumnError,
+  stripDurationNoteTag,
+} from '@/lib/exerciseApiHelpers';
+import {
   getLocalDateString,
   isRealWorkoutSession,
   normalizeUtcTimestamp,
@@ -56,6 +62,8 @@ export async function GET(request: Request) {
           name,
           sets,
           reps,
+          duration,
+          muscleGroup,
           dayId,
           programId
         ),
@@ -92,13 +100,13 @@ export async function GET(request: Request) {
 
     const formatted = (data || []).map((row: any) => {
       const ex = Array.isArray(row.exercises) ? row.exercises[0] : row.exercises;
-      return {
+      return enrichCompletionWithDuration({
         ...row,
         exerciseName: row.exerciseName || ex?.name || null,
         programId: row.programId ?? ex?.programId ?? null,
         dayId: row.dayId ?? ex?.dayId ?? null,
         completedAt: normalizeUtcTimestamp(row.completedAt) || row.completedAt,
-      };
+      });
     });
 
     return NextResponse.json(formatted, { headers: NO_STORE_HEADERS });
@@ -286,6 +294,20 @@ export async function POST(request: Request) {
         ? Math.max(0, parseInt(String(reps), 10) || 0)
         : 0;
 
+    const rawPostDuration =
+      body.durationSeconds !== undefined
+        ? body.durationSeconds
+        : body.duration_seconds !== undefined
+          ? body.duration_seconds
+          : undefined;
+    const durationSecondsVal =
+      rawPostDuration !== undefined && rawPostDuration !== null && rawPostDuration !== ''
+        ? Math.max(0, Math.round(Number(rawPostDuration) || 0))
+        : null;
+    const safeDurationSec =
+      durationSecondsVal && durationSecondsVal > 0 ? durationSecondsVal : null;
+    const cleanFinalNotes = stripDurationNoteTag(finalNotes || '') || null;
+
     // Prevent duplicate completion rows for the same (userId, sessionId, exerciseId) on retries or Undo+re-complete
     if (validSessionId && validExerciseId) {
       const { data: existingRows, error: existingErr } = await supabase
@@ -302,19 +324,37 @@ export async function POST(request: Request) {
         const primaryId = existingRows[0].id;
         const extraIds = existingRows.slice(1).map((r: any) => r.id);
 
-        const { data: updated, error: updateErr } = await supabase
+        const updatePayload: Record<string, any> = {
+          sets: safeSets,
+          reps: safeReps,
+          weight: finalWeight,
+          duration_seconds: safeDurationSec,
+          notes: cleanFinalNotes,
+          completedAt: completedIso,
+        };
+        let { data: updated, error: updateErr } = await supabase
           .from('exercise_completions')
-          .update({
-            sets: safeSets,
-            reps: safeReps,
-            weight: finalWeight,
-            notes: finalNotes,
-            completedAt: completedIso,
-          })
+          .update(updatePayload)
           .eq('id', primaryId)
           .eq('userId', validUserId)
           .select()
           .single();
+
+        if (updateErr && isMissingColumnError(updateErr)) {
+          const { duration_seconds: _ds, ...legacyUpdatePayload } = updatePayload;
+          if (safeDurationSec) {
+            legacyUpdatePayload.notes = encodeDurationNoteTag(safeDurationSec, cleanFinalNotes);
+          }
+          const fallbackUpd = await supabase
+            .from('exercise_completions')
+            .update(legacyUpdatePayload)
+            .eq('id', primaryId)
+            .eq('userId', validUserId)
+            .select()
+            .single();
+          updated = fallbackUpd.data;
+          updateErr = fallbackUpd.error;
+        }
 
         if (updateErr) throw updateErr;
 
@@ -327,29 +367,46 @@ export async function POST(request: Request) {
         }
 
         return NextResponse.json(
-          {
+          enrichCompletionWithDuration({
             ...updated,
             completedAt: normalizeUtcTimestamp(updated?.completedAt) || updated?.completedAt,
-          },
+          }),
           { status: 200, headers: NO_STORE_HEADERS }
         );
       }
     }
 
-    const { data, error } = await supabase
+    const insertPayload: Record<string, any> = {
+      userId: validUserId,
+      exerciseId: validExerciseId,
+      sessionId: validSessionId,
+      sets: safeSets,
+      reps: safeReps,
+      weight: finalWeight,
+      duration_seconds: safeDurationSec,
+      notes: cleanFinalNotes,
+      completedAt: completedIso,
+    };
+
+    let { data, error } = await supabase
       .from('exercise_completions')
-      .insert([{
-        userId: validUserId,
-        exerciseId: validExerciseId,
-        sessionId: validSessionId,
-        sets: safeSets,
-        reps: safeReps,
-        weight: finalWeight,
-        notes: finalNotes,
-        completedAt: completedIso
-      }])
+      .insert([insertPayload])
       .select()
       .single();
+
+    if (error && isMissingColumnError(error)) {
+      const { duration_seconds: _ds, ...legacyInsertPayload } = insertPayload;
+      if (safeDurationSec) {
+        legacyInsertPayload.notes = encodeDurationNoteTag(safeDurationSec, cleanFinalNotes);
+      }
+      const fallbackIns = await supabase
+        .from('exercise_completions')
+        .insert([legacyInsertPayload])
+        .select()
+        .single();
+      data = fallbackIns.data;
+      error = fallbackIns.error;
+    }
 
     if (error) {
       console.error('Supabase error inserting exercise_completions:', error);
@@ -357,10 +414,10 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(
-      {
+      enrichCompletionWithDuration({
         ...data,
         completedAt: normalizeUtcTimestamp(data?.completedAt) || data?.completedAt,
-      },
+      }),
       { status: 201, headers: NO_STORE_HEADERS }
     );
   } catch (error) {
@@ -402,41 +459,95 @@ export async function PUT(request: Request) {
     if (parsedSets !== undefined) updateFields.sets = parsedSets;
     if (parsedReps !== undefined) updateFields.reps = parsedReps;
     if (parsedWeight !== undefined) updateFields.weight = parsedWeight;
-    if (body.notes !== undefined) updateFields.notes = body.notes ? String(body.notes) : null;
+    const rawPutDuration =
+      body.durationSeconds !== undefined
+        ? body.durationSeconds
+        : body.duration_seconds !== undefined
+          ? body.duration_seconds
+          : undefined;
+    const parsedPutDuration =
+      rawPutDuration !== undefined && rawPutDuration !== null && rawPutDuration !== ''
+        ? Math.max(0, Math.round(Number(rawPutDuration) || 0))
+        : undefined;
+    if (parsedPutDuration !== undefined) {
+      updateFields.duration_seconds = parsedPutDuration > 0 ? parsedPutDuration : null;
+    }
+    if (body.notes !== undefined) {
+      const cleaned = stripDurationNoteTag(body.notes ? String(body.notes) : '');
+      updateFields.notes = cleaned || null;
+    }
 
     if (Object.keys(updateFields).length === 0) {
       return NextResponse.json({ error: 'Güncellenecek alan gerekli' }, { status: 400 });
     }
 
-    let query = supabase.from('exercise_completions').update(updateFields);
-    if (completionId) {
-      query = query.eq('id', completionId);
-    } else if (parsedSessionId && parsedExerciseId) {
-      query = query.eq('sessionId', parsedSessionId).eq('exerciseId', parsedExerciseId);
-    } else {
+    const runCompletionUpdate = async (fields: Record<string, any>) => {
+      let query = supabase.from('exercise_completions').update(fields);
+      if (completionId) {
+        query = query.eq('id', completionId);
+      } else if (parsedSessionId && parsedExerciseId) {
+        query = query.eq('sessionId', parsedSessionId).eq('exerciseId', parsedExerciseId);
+      } else {
+        return { data: null, error: null, invalidKeys: true as const };
+      }
+
+      if (!guard.auth.isAdmin && guard.auth.userId) {
+        query = query.eq('userId', guard.auth.userId);
+      } else if (scoped.userId) {
+        query = query.eq('userId', scoped.userId);
+      }
+
+      const res = await query.select();
+      return { data: res.data, error: res.error, invalidKeys: false as const };
+    };
+
+    const initialUpdate = await runCompletionUpdate(updateFields);
+    if (initialUpdate.invalidKeys) {
       return NextResponse.json(
         { error: 'id veya sessionId+exerciseId gereklidir' },
         { status: 400 }
       );
     }
 
-    if (!guard.auth.isAdmin && guard.auth.userId) {
-      query = query.eq('userId', guard.auth.userId);
-    } else if (scoped.userId) {
-      query = query.eq('userId', scoped.userId);
+    let { data, error } = initialUpdate;
+    if (error && isMissingColumnError(error) && 'duration_seconds' in updateFields) {
+      const { duration_seconds, ...legacyFields } = updateFields;
+      if (duration_seconds) {
+        let baseNotes =
+          legacyFields.notes !== undefined
+            ? String(legacyFields.notes || '')
+            : body.notes !== undefined
+              ? String(body.notes || '')
+              : '';
+        if (legacyFields.notes === undefined && body.notes === undefined) {
+          let noteQuery = supabase.from('exercise_completions').select('notes');
+          if (completionId) {
+            noteQuery = noteQuery.eq('id', completionId);
+          } else if (parsedSessionId && parsedExerciseId) {
+            noteQuery = noteQuery.eq('sessionId', parsedSessionId).eq('exerciseId', parsedExerciseId);
+          }
+          const { data: existingNoteRows } = await noteQuery.limit(1);
+          baseNotes = String(existingNoteRows?.[0]?.notes || '');
+        }
+        legacyFields.notes = encodeDurationNoteTag(duration_seconds, baseNotes);
+      }
+      const fallbackUpdate = await runCompletionUpdate(legacyFields);
+      data = fallbackUpdate.data;
+      error = fallbackUpdate.error;
     }
 
-    const { data, error } = await query.select();
     if (error) throw error;
     if (!data || data.length === 0) {
       return NextResponse.json({ error: 'Kayıt bulunamadı' }, { status: 404 });
     }
 
     return NextResponse.json(
-      data.map((row: any) => ({
-        ...row,
-        completedAt: normalizeUtcTimestamp(row.completedAt) || row.completedAt,
-      })),
+      data.map((row: any) =>
+        enrichCompletionWithDuration({
+          ...row,
+          completedAt: normalizeUtcTimestamp(row.completedAt) || row.completedAt,
+        })
+      ),
       { headers: NO_STORE_HEADERS }
     );
   } catch (error) {

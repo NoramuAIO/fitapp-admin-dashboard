@@ -1,6 +1,11 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 import {
+  enrichExerciseWithTracking,
+  isMissingColumnError,
+  prepareExerciseWritePayload,
+} from '@/lib/exerciseApiHelpers';
+import {
   detachOrDeleteExercises,
   parsePositiveInt,
   requireApiAuth,
@@ -33,6 +38,10 @@ export async function PUT(
       sets,
       reps,
       duration,
+      trackingType,
+      tracking_type,
+      durationSeconds,
+      duration_seconds,
       description,
       imageUrl,
       orderIndex,
@@ -43,20 +52,69 @@ export async function PUT(
     if (workoutId !== undefined) updateData.dayId = workoutId ? parsePositiveInt(workoutId) : null;
     if (programId !== undefined) updateData.programId = programId ? parsePositiveInt(programId) : null;
     if (name !== undefined) updateData.name = String(name).trim();
-    if (sets !== undefined) updateData.sets = Math.max(0, Number(sets) || 0);
-    if (reps !== undefined) updateData.reps = Math.max(0, Number(reps) || 0);
-    if (duration !== undefined) updateData.duration = duration || null;
     if (description !== undefined) updateData.description = description || null;
     if (imageUrl !== undefined) updateData.imageUrl = imageUrl || null;
     if (orderIndex !== undefined) updateData.orderIndex = Number(orderIndex) || 0;
     if (muscleGroup !== undefined) updateData.muscleGroup = muscleGroup || null;
 
-    const { data, error } = await supabase
+    const touchesTracking =
+      trackingType !== undefined ||
+      tracking_type !== undefined ||
+      durationSeconds !== undefined ||
+      duration_seconds !== undefined ||
+      sets !== undefined ||
+      reps !== undefined ||
+      duration !== undefined;
+
+    if (touchesTracking) {
+      const { data: existingRow } = await supabase
+        .from('exercises')
+        .select('*')
+        .eq('id', numericId)
+        .maybeSingle();
+
+      const prepared = prepareExerciseWritePayload({
+        name,
+        sets,
+        reps,
+        duration,
+        trackingType,
+        tracking_type,
+        durationSeconds,
+        duration_seconds,
+        muscleGroup,
+        existing: existingRow || undefined,
+      });
+
+      updateData.tracking_type = prepared.trackingType;
+      updateData.duration_seconds = prepared.durationSeconds;
+      updateData.sets = prepared.sets;
+      updateData.reps = prepared.reps;
+      updateData.duration = prepared.duration;
+    }
+
+    let { data, error } = await supabase
       .from('exercises')
       .update(updateData)
       .eq('id', numericId)
       .select()
       .maybeSingle();
+
+    if (error && isMissingColumnError(error)) {
+      const { tracking_type: _tt, duration_seconds: _ds, ...legacyUpdate } = updateData;
+      const fallbackRes = await supabase
+        .from('exercises')
+        .update(legacyUpdate)
+        .eq('id', numericId)
+        .select()
+        .maybeSingle();
+      data = fallbackRes.data;
+      error = fallbackRes.error;
+    }
+
+    if (data) {
+      data = enrichExerciseWithTracking(data);
+    }
 
     if (error) throw error;
     if (!data) {

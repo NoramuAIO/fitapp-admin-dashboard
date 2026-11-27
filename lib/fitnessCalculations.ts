@@ -1,3 +1,10 @@
+import {
+  ExerciseTrackingType,
+  extractDurationSecondsFromNotes,
+  isTimedTrackingType,
+  normalizeTrackingType,
+} from './exerciseTracking';
+
 export const ISTANBUL_TZ = 'Europe/Istanbul';
 
 /**
@@ -79,20 +86,20 @@ const MUSCLE_KEYWORDS: Array<{ group: string; terms: string[] }> = [
   { group: 'Karın', terms: ['crunch', 'plank', 'abs', 'core', 'sit up', 'russian twist', 'leg raise', 'knee raise', 'karın', 'mekik'] },
   { group: 'Omuz', terms: ['lateral raise', 'side raise', 'front raise', 'rear delt', 'face pull', 'shoulder press', 'overhead press', 'military press', 'arnold press', 'ohp', 'shoulder', 'overhead', 'arnold', 'omuz'] },
   { group: 'Kol', terms: ['incline dumbbell curl', 'incline curl', 'hammer curl', 'preacher curl', 'reverse curl', 'tricep extension', 'overhead extension', 'triceps pushdown', 'triceps push-down', 'rope pushdown', 'curl', 'bicep', 'biceps', 'tricep', 'triceps', 'hammer', 'pushdown', 'push-down', 'skullcrusher', 'preacher', 'kol'] },
-  { group: 'Bacak', terms: ['leg extension', 'leg curl', 'leg press', 'hip thrust', 'romanian deadlift', 'stiff leg deadlift', 'squat', 'lunge', 'calf', 'hamstring', 'quad', 'glute', 'rdl', 'bacak', 'kalf', 'kalça', 'leg'] },
+  { group: 'Bacak', terms: ['leg extension', 'leg curl', 'leg press', 'hip thrust', 'romanian deadlift', 'stiff leg deadlift', 'wall sit', 'squat', 'lunge', 'calf', 'hamstring', 'quad', 'glute', 'rdl', 'bacak', 'kalf', 'kalça', 'leg'] },
   { group: 'Göğüs', terms: ['bench press', 'incline chest', 'chest press', 'pec deck', 'chest fly', 'bench', 'chest', 'pec', 'fly', 'incline', 'decline', 'push up', 'pushup', 'göğüs', 'dip', 'dips'] },
-  { group: 'Sırt', terms: ['lat pulldown', 'barbell row', 'dumbbell row', 'cable row', 'seated row', 'pull up', 'pullup', 'chin up', 'chinup', 'deadlift', 'pulldown', 'shrug', 'row', 'pull', 'lat', 'back', 'sırt', 'kanat', 'barfiks'] },
-  { group: 'Kardiyo', terms: ['koşu', 'run', 'running', 'treadmill', 'bisiklet', 'bike', 'cycling', 'cardio', 'kardiyo', 'ip atlama', 'jump rope', 'jumping jack', 'hiit', 'kürek', 'rowing', 'yürüyüş', 'walk', 'walking'] },
+  { group: 'Sırt', terms: ['dead hang', 'lat pulldown', 'barbell row', 'dumbbell row', 'cable row', 'seated row', 'pull up', 'pullup', 'chin up', 'chinup', 'deadlift', 'pulldown', 'shrug', 'row', 'pull', 'lat', 'back', 'sırt', 'kanat', 'barfiks'] },
+  { group: 'Kardiyo', terms: ['koşu bandı', 'koşu', 'run', 'running', 'treadmill', 'elliptical', 'eliptik', 'stairmaster', 'stair climber', 'stepper', 'ergometer', 'stationary bike', 'spin bike', 'assault bike', 'air bike', 'bisiklet', 'bike', 'cycling', 'cardio', 'kardiyo', 'ip atlama', 'jump rope', 'jumping jack', 'battle rope', 'hiit', 'kürek', 'rowing', 'yürüyüş', 'walk', 'walking'] },
 ];
 
 export const DEFAULT_ATHLETE_RANKS = [
-  { id: 1, title: 'Demir Çırağı', icon: '⚡', color: '#5DD97C', min_volume_kg: 0, max_volume_kg: 300, description: 'İlk antrenmanlarını yapan hevesli sporcu' },
-  { id: 2, title: 'Bronz Kaldırıcı', icon: '🥉', color: '#FF6B4A', min_volume_kg: 300, max_volume_kg: 1000, description: 'Temel hareketlerde düzenli efor gösteren sporcu' },
-  { id: 3, title: 'Gümüş Güç', icon: '🥈', color: '#9B6FFF', min_volume_kg: 1000, max_volume_kg: 2500, description: 'Disiplinli çalışan ve kuvvetlenen sporcu' },
-  { id: 4, title: 'Altın Titan', icon: '🥇', color: '#F59E0B', min_volume_kg: 2500, max_volume_kg: 5000, description: 'Salonda iz bırakan ağır ve kararlı kaldırıcı' },
-  { id: 5, title: 'Platin Gladyatör', icon: '💎', color: '#4ECDC4', min_volume_kg: 5000, max_volume_kg: 10000, description: 'Gelişmiş kuvvet, kondisyon ve kas hakimiyeti' },
-  { id: 6, title: 'Elit Şampiyon', icon: '🔥', color: '#FF6B9D', min_volume_kg: 10000, max_volume_kg: 20000, description: 'Zirveye oynayan profesyonel sporcu' },
-  { id: 7, title: 'Efsanevi Titan', icon: '🏆', color: '#FFD700', min_volume_kg: 20000, max_volume_kg: 50000, description: 'Efsaneleşmiş demir büken usta' },
+  { id: 1, title: 'Demir Çırağı', icon: '⚡', color: '#5DD97C', min_volume_kg: 0, max_volume_kg: 15000, min_workouts: 0, description: 'İlk antrenmanlarını yapan hevesli sporcu' },
+  { id: 2, title: 'Bronz Kaldırıcı', icon: '🥉', color: '#FF6B4A', min_volume_kg: 15000, max_volume_kg: 50000, min_workouts: 3, description: 'Temel hareketlerde düzenli efor gösteren sporcu' },
+  { id: 3, title: 'Gümüş Güç', icon: '🥈', color: '#9B6FFF', min_volume_kg: 50000, max_volume_kg: 120000, min_workouts: 8, description: 'Disiplinli çalışan ve kuvvetlenen sporcu' },
+  { id: 4, title: 'Altın Titan', icon: '🥇', color: '#F59E0B', min_volume_kg: 120000, max_volume_kg: 250000, min_workouts: 18, description: 'Salonda iz bırakan ağır ve kararlı kaldırıcı' },
+  { id: 5, title: 'Platin Gladyatör', icon: '💎', color: '#4ECDC4', min_volume_kg: 250000, max_volume_kg: 500000, min_workouts: 35, description: 'Gelişmiş kuvvet, kondisyon ve kas hakimiyeti' },
+  { id: 6, title: 'Elit Şampiyon', icon: '🔥', color: '#FF6B9D', min_volume_kg: 500000, max_volume_kg: 1000000, min_workouts: 60, description: 'Zirveye oynayan profesyonel sporcu' },
+  { id: 7, title: 'Efsanevi Titan', icon: '🏆', color: '#FFD700', min_volume_kg: 1000000, max_volume_kg: 2500000, min_workouts: 100, description: 'Efsaneleşmiş demir büken usta' },
 ];
 
 /**
@@ -310,6 +317,102 @@ export interface ExercisePRRecord {
   }>;
 }
 
+export function extractCompletionDurationSeconds(c: any): number {
+  const col = Number(c?.durationSeconds ?? c?.duration_seconds ?? 0);
+  if (Number.isFinite(col) && col > 0) return Math.round(col);
+  const fromNotes = extractDurationSecondsFromNotes(c?.notes);
+  return fromNotes && fromNotes > 0 ? fromNotes : 0;
+}
+
+export function getCompletionTrackingType(c: any): ExerciseTrackingType {
+  const ex = Array.isArray(c?.exercises) ? c.exercises[0] : c?.exercises;
+  const durSec = extractCompletionDurationSeconds(c);
+  return normalizeTrackingType(
+    c?.trackingType ?? c?.tracking_type ?? ex?.trackingType ?? ex?.tracking_type,
+    {
+      name: c?.exerciseName || ex?.name,
+      sets: c?.sets ?? ex?.sets,
+      reps: c?.reps ?? ex?.reps,
+      duration: ex?.duration,
+      durationSeconds: durSec > 0 ? durSec : ex?.durationSeconds ?? ex?.duration_seconds,
+    }
+  );
+}
+
+export function calculateDurationMinutesForCompletions(completions: any[]): number {
+  let totalSec = 0;
+  for (const c of completions || []) {
+    totalSec += extractCompletionDurationSeconds(c);
+  }
+  return Math.round(totalSec / 60);
+}
+
+export interface DurationPRRecord {
+  key: string;
+  exerciseId: number;
+  exerciseName: string;
+  muscleGroup: string;
+  trackingType: ExerciseTrackingType;
+  maxDurationSeconds: number;
+  totalDurationSeconds: number;
+  setsAtMax: number;
+  date: string;
+}
+
+export function calculateDurationPRs(
+  completions: any[],
+  exercisesMap?: Map<number, string>
+): DurationPRRecord[] {
+  const prMap: Record<string, DurationPRRecord> = {};
+
+  for (const c of completions || []) {
+    const durationSec = extractCompletionDurationSeconds(c);
+    if (durationSec <= 0) continue;
+
+    const rawName =
+      c?.exercises?.name ||
+      c?.exerciseName ||
+      (c?.exerciseId && exercisesMap?.get(Number(c.exerciseId))) ||
+      (c?.exerciseId ? `Hareket #${c.exerciseId}` : 'Hareket');
+    const displayName = String(rawName).trim();
+    const key = displayName.toLowerCase();
+    const completedAt = String(c?.completedAt || c?.createdAt || '');
+    const muscleGroup = inferMuscleGroup(displayName, c?.muscleGroup || c?.exercises?.muscleGroup);
+    const trackingType = getCompletionTrackingType(c);
+    const sets = Math.max(1, Number(c?.sets) || 1);
+
+    const existing = prMap[key];
+    if (!existing) {
+      prMap[key] = {
+        key,
+        exerciseId: Number(c?.exerciseId) || 0,
+        exerciseName: displayName,
+        muscleGroup,
+        trackingType,
+        maxDurationSeconds: durationSec,
+        totalDurationSeconds: durationSec,
+        setsAtMax: sets,
+        date: completedAt,
+      };
+    } else {
+      existing.totalDurationSeconds += durationSec;
+      if (durationSec > existing.maxDurationSeconds) {
+        existing.maxDurationSeconds = durationSec;
+        existing.setsAtMax = sets;
+        existing.date = completedAt;
+        existing.exerciseName = displayName;
+        existing.trackingType = trackingType;
+      }
+    }
+  }
+
+  return Object.values(prMap).sort(
+    (a, b) =>
+      b.maxDurationSeconds - a.maxDurationSeconds ||
+      b.totalDurationSeconds - a.totalDurationSeconds
+  );
+}
+
 export function calculateExercisePRs(
   completions: any[],
   exercisesMap?: Map<number, string>
@@ -325,8 +428,11 @@ export function calculateExercisePRs(
     const displayName = String(rawName).trim();
     const key = displayName.toLowerCase();
 
+    const trackingType = getCompletionTrackingType(c);
     const { weight, sets, reps, volume } = calculateCompletionVolume(c);
-    if (weight <= 0) continue;
+    if (weight <= 0 || isTimedTrackingType(trackingType) || (reps === 0 && extractCompletionDurationSeconds(c) > 0)) {
+      continue;
+    }
 
     const est1RM = calculateEstimated1RM(weight, reps > 0 ? reps : 1);
     const completedAt = String(c?.completedAt || c?.createdAt || '');
@@ -457,10 +563,13 @@ export function calculateWorkoutCalories(
   totalVolumeKg: number,
   totalSets: number,
   userWeightKg = 75,
-  totalReps = 0
+  totalReps = 0,
+  timedMinutes = 0
 ): number {
   const safeWeight = userWeightKg > 30 && userWeightKg < 250 ? userWeightKg : 75;
-  const safeMins = Math.max(0, Number(durationMinutes) || 0);
+  const weightFactor = safeWeight / 75;
+  const safeTimedMins = Math.max(0, Number(timedMinutes) || 0);
+  const safeMins = Math.max(Math.max(0, Number(durationMinutes) || 0), safeTimedMins);
   const safeVol = Math.max(0, Number(totalVolumeKg) || 0);
   const safeSets = Math.max(0, Number(totalSets) || 0);
   const safeReps = Math.max(0, Number(totalReps) || 0);
@@ -487,54 +596,107 @@ export function calculateWorkoutCalories(
         : safeReps * 0.35;
 
   const kcalFromTime = ((met * 3.5 * safeWeight) / 200) * effectiveMinutes;
+  const cardioBonus = Math.min(safeMins, safeTimedMins) * 3.0 * weightFactor;
   const volumeBonus = Math.min(safeVol * 0.008, kcalFromTime * 0.25);
 
-  return Math.max(1, Math.round(kcalFromTime + volumeBonus));
+  return Math.max(1, Math.round(kcalFromTime + cardioBonus + volumeBonus));
 }
+
+const DEFAULT_RANK_MIN_WORKOUTS = [0, 3, 8, 18, 35, 60, 100];
 
 export function calculateAthleteRank(
   totalVolumeKg: number,
-  ranks: any[] = DEFAULT_ATHLETE_RANKS
+  ranks: any[] = DEFAULT_ATHLETE_RANKS,
+  totalWorkouts = 0,
+  totalTimedMinutes = 0
 ): {
   title: string;
   icon: string;
   color: string;
   currentVolume: number;
+  effectiveScore: number;
+  totalWorkouts: number;
   min: number;
   nextTarget: number;
+  nextMinWorkouts: number;
+  remainingScore: number;
+  remainingWorkouts: number;
   nextTitle: string | null;
   pct: number;
+  level: number;
   description: string;
 } {
+  const effectiveScore = Math.max(
+    0,
+    Math.round((Number(totalVolumeKg) || 0) + Math.max(0, Number(totalTimedMinutes) || 0) * 40)
+  );
+  const workoutsCount = Math.max(0, Math.floor(Number(totalWorkouts) || 0));
+
   const source = Array.isArray(ranks) && ranks.length > 0 ? ranks : DEFAULT_ATHLETE_RANKS;
   const sorted = [...source].sort(
     (a, b) => (Number(a.min_volume_kg) || 0) - (Number(b.min_volume_kg) || 0)
   );
 
+  const getMinWorkouts = (r: any, idx: number) =>
+    r?.min_workouts !== undefined && r?.min_workouts !== null
+      ? Math.max(0, Number(r.min_workouts) || 0)
+      : DEFAULT_ATHLETE_RANKS[idx]?.min_workouts ??
+        DEFAULT_RANK_MIN_WORKOUTS[Math.min(idx, DEFAULT_RANK_MIN_WORKOUTS.length - 1)] ??
+        0;
+
   let currentIdx = 0;
-  for (let i = 0; i < sorted.length; i++) {
-    if (totalVolumeKg >= (Number(sorted[i].min_volume_kg) || 0)) {
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const reqScore = Number(sorted[i].min_volume_kg) || 0;
+    const reqWorkouts = getMinWorkouts(sorted[i], i);
+    if (effectiveScore >= reqScore && workoutsCount >= reqWorkouts) {
       currentIdx = i;
+      break;
     }
   }
 
-  const current = sorted[currentIdx];
+  const current = sorted[currentIdx] || DEFAULT_ATHLETE_RANKS[0];
   const next = sorted[currentIdx + 1] || null;
   const min = Number(current.min_volume_kg) || 0;
-  const max = Number(current.max_volume_kg) || (next ? Number(next.min_volume_kg) : min + 1000);
-  const span = Math.max(1, max - min);
-  const progressInTier = Math.max(0, totalVolumeKg - min);
-  const pct = Math.min(100, Math.round((progressInTier / span) * 100));
+  const nextMinScore = next
+    ? Number(next.min_volume_kg) || min + 15000
+    : Number(current.max_volume_kg) || min + 15000;
+  const currentMinWorkouts = getMinWorkouts(current, currentIdx);
+  const nextMinWorkouts = next ? getMinWorkouts(next, currentIdx + 1) : 0;
+
+  const span = Math.max(1, nextMinScore - min);
+  const scorePct = Math.min(100, Math.max(0, Math.round(((effectiveScore - min) / span) * 100)));
+  const workoutsPct =
+    next && nextMinWorkouts > currentMinWorkouts
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            Math.round(
+              ((workoutsCount - currentMinWorkouts) / (nextMinWorkouts - currentMinWorkouts)) * 100
+            )
+          )
+        )
+      : 100;
+
+  const pct = next ? Math.min(scorePct, workoutsPct) : scorePct;
+  const remainingScore = next ? Math.max(0, nextMinScore - effectiveScore) : 0;
+  const remainingWorkouts = next ? Math.max(0, nextMinWorkouts - workoutsCount) : 0;
 
   return {
     title: current.title,
     icon: current.icon || '⚡',
     color: current.color || '#5DD97C',
-    currentVolume: Math.round(totalVolumeKg),
+    currentVolume: Math.round(Number(totalVolumeKg) || 0),
+    effectiveScore,
+    totalWorkouts: workoutsCount,
     min,
-    nextTarget: max,
+    nextTarget: nextMinScore,
+    nextMinWorkouts,
+    remainingScore,
+    remainingWorkouts,
     nextTitle: next ? next.title : null,
     pct,
+    level: currentIdx + 1,
     description: current.description || '',
   };
 }
